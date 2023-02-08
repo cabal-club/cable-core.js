@@ -25,12 +25,17 @@ class CableStore {
 }
 
 class CableCore extends EventEmitter {
-  constructor() {
+  constructor(opts) {
+    if (!opts.storage) {}
+    if (!opts.network) {}
+
     this.store = new CableStore()
     /* used as: 
      * store a join message:
      * store.join(buf) 
     */
+
+    this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
 
     /* event sources */
     this.posts = null// n.b. in original cabal-core the name for this was `this.messages`
@@ -127,7 +132,6 @@ class CableCore extends EventEmitter {
   requestData(hashes) {}
 
   /* methods that deal with responding to requests */
-
   handleRequest(buf, peer) {
     // 1. log reqid?
     //
@@ -136,6 +140,10 @@ class CableCore extends EventEmitter {
     // * requesting delete
     // * requesting data (for given hashes)
     // * requesting channel list (known channels)
+  }
+
+  /* methods for emitting data outwards (responding, forwarding requests not for us) */
+  dispatchResponse(buf) {
   }
 
   // send buf onwards to other peers
@@ -159,7 +167,7 @@ class CableCore extends EventEmitter {
     // * channel list response
   }
 
-  handleDataResponse(hash, buf) {}
-  handleHashResponse(hash, buf) {}
-  handleChannelListResponse(buf) {}
+  _handleDataResponse(hash, buf) {}
+  _handleHashResponse(hash, buf) {}
+  _handleChannelListResponse(buf) {}
 }
