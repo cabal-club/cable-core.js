@@ -159,6 +159,8 @@ class CableCore extends EventEmitter {
   // * ignore responses that don't map to tracked reqids
   handleResponse(buf, peer) {
     // 1. check reqid
+    //  1.1 check that response for reqid logically matches what was requested 
+    //  (if answers our request for channel state by only sending hashes that correlated to post/text, that isn't ok)
     // 2. produce hash
     //
     // handle depending on type:
