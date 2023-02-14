@@ -266,8 +266,113 @@ the reverse lookup table:
 
     !<hash>!<monotonic-timestamp> => "<viewname>:<viewkey>"
 
-#### Map hash to view keys
+The following sections depict the indexing actions that spring forth when a new
+post is added to the database, and how to update the database when the
+underlying post is deleted from the database.
+#### post/text (`post_type=0`)
+##### Creation
+A post/text (`post_type=0`) is written, meaning a hash is mapped to a binary
+payload and persisted in the database.
 
+The following tables are updated:
+
+    hash to binary blob view
+    !chat!text!<channel>!<ts> -> <hash>
+    !author!<pubkey>!0!<counter> -> <hash> // post/text
+
+To be able to remove these entries later on, for example when a delete request
+comes in, we need to know which keys are mapped to that hash for each indexed
+view.  We save the following entries in the reverse-hash lookup:
+
+    !<hash>!view-chat!text!<channel>!<ts> -> 1
+    !<hash>!view-author!<pubkey>!1!<counter> -> 1
+
+##### Deletion
+When we delete the corresponding hash, the following operations take place:
+
+Delete <hash> from:
+
+    hash to binary blob view
+
+Get each view key using <hash>:
+
+    !<hash>!view-chat!text!<channel>!<ts> -> 1
+    !<hash>!view-author!<pubkey>!1!<counter> -> 1
+
+Delete entry in view using retrieved key:
+    
+    !chat!text!<channel>!<ts> -> <hash>
+    !author!<pubkey>!1!<counter> -> <hash> // post/text
+
+If this delete was from a delete request (post/delete), also persist the delete
+by saving the hash of the deleted post:
+
+    !chat!delete!<hash> -> 1
+
+#### post/delete (`post_type=1`)
+##### Creation
+This one is a bit tricky to think about correctly. When a `post/delete` is
+created, this necessitates deleting what it points to as well
+
+First: perist the cablegram as usual; a post/delete (`post_type=1`) is written,
+meaning a hash is mapped to a binary payload and persisted in the database.
+
+The following tables are updated:
+
+    hash to binary blob view
+    !chat!delete!<hash> -> 1
+    !author!<pubkey>!1!<counter> -> <hash> // post/topic
+
+To be able to remove these entries later on, for example if a delete should be
+reverted, we need to know which keys are mapped to that hash for each indexed
+view.  We save the following entries in the reverse-hash lookup:
+
+    !<hash>!view-author!<pubkey>!1!<counter> -> 1
+
+Now: time to delete the pointed to content:
+
+* Use the hash to delete the payload from: hash to binary blob view
+* Look up the hash to be deleted in the reverse-lookup, getting table names and the keys.
+* For each view name and key pair: remove the entry identified by the key from the associated view.
+
+**Note:** if the affected view was !state then query to figure out what the replacement entry should be. 
+Is it better not to have the latest view? Instead just have !state! index all
+the hashes it cares about, when doing a non-historic query grab the latest
+entries somehow? It would spare us this special-case "find the previous latest
+hash for <view>" replenishment logic.
+
+##### Deletion
+When we "delete a delete" we are essentially forgetting about a previous delete
+request, "undeleting" content and potentially letting it stream back in if
+someone has yet to delete it. This can mechanistically be achieved by issuing a
+delete request for a delete request, v sneaky!
+
+When we delete the corresponding hash (of the delete request itself), the following operations take place:
+
+Get the delete message payload from:
+
+    hash to binary blob view
+
+Then delete <hash> of delete message itself from:
+
+    hash to binary blob view
+
+Using the delete message payload, "forget" that we deleted the pointed-to post
+hash (this is the hash inside the delete payload, *not* the hash of the delete
+payload - tricky!):
+
+    !chat!delete!<hash> -> 1
+
+Get the view key using <hash>:
+
+    !<hash>!view-author!<pubkey>!1!<counter> -> 1
+
+Delete entry in view using retrieved key:
+    
+    !author!<pubkey>!1!<counter> -> <hash> // post/topic
+
+#### post/info (`post_type=2`)
+##### Creation
 A post/info (`post_type=2`) is written, meaning a hash is mapped to a binary
 payload and persisted in the database.
 
@@ -286,6 +391,7 @@ view.  We save the following entries in the reverse-hash lookup:
     !<hash>!view-state!<channel>!nick!<pubkey> -> 1
     !<hash>!view-user!<pubkey>!info!name -> 1
 
+##### Deletion
 When we delete the corresponding hash, the following operations take place:
 
 Delete <hash> from:
@@ -303,3 +409,62 @@ Delete entry in view using retrieved key:
     !author!<pubkey>!2!<counter>
     !state!<channel>!nick!<pubkey>
     !user!<pubkey>!info!name
+
+#### post/topic (`post_type=3`)
+##### Creation
+A post/topic (`post_type=3`) is written, meaning a hash is mapped to a binary
+payload and persisted in the database.
+
+The following tables are updated:
+
+    hash to binary blob view
+    !channel!<channel>!topic -> <topic>
+    !state!<channel>!topic -> <hash>
+    !author!<pubkey>!3!<counter> -> <hash> // post/topic
+
+To be able to remove these entries later on, for example when a new post/info
+is written, we need to know which keys are mapped to that hash for each indexed
+view.  We save the following entries in the reverse-hash lookup:
+
+    !<hash>!view-state!<channel>!topic -> 1
+    !<hash>!view-author!<pubkey>!3!<counter> -> 1
+
+##### Updating
+When a new post/topic comes in, we'll need to update indexes.
+
+Index the new message:
+
+    !author!<pubkey>!3!<counter> -> <hash> // post/topic
+
+Update the latest channel state to point to the new hash:
+
+    !state!<channel>!topic -> <hash>
+
+Update the topic index for the channel, setting the new topic:
+
+    !channel!<channel>!topic -> <topic>
+
+Add new reverse-lookup entries:
+
+    !<hash>!view-state!<channel>!topic -> 1
+    !<hash>!view-author!<pubkey>!3!<counter> -> 1
+
+**Note:** There is a conflict in the latest table + reverse-lookup. We need special logic
+to handle the case of someone deleting the hash regarded as latest.
+
+##### Deletion
+When we delete the corresponding hash, the following operations take place:
+
+Delete <hash> from:
+
+    hash to binary blob view
+
+Get each view key using <hash>:
+
+    !<hash>!view-state!<channel>!topic -> 1
+    !<hash>!view-author!<pubkey>!3!<counter> -> 1
+
+Delete entry in view using retrieved key:
+    
+    !state!<channel>!topic -> <hash>
+    !author!<pubkey>!3!<counter> -> <hash> // post/topic
