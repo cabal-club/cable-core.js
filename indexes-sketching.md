@@ -57,6 +57,10 @@ service both consumers of cable-core as well as incoming and outgoing cable req/
       throw it out)
         * example: sending a bunch of post/topic as a response to a channel time range
           (post/text + post/delete) is incorrect behaviour
+* how do we update tables when a hash has been deleted? reverse lookup table hash -> view-key-name?
+    !<hash>!<viewname>!<viewkey>! = 1
+    alternative scheme:
+    !<hash>!<monotonic-timestamp> => "<viewname>:<viewkey>"
 * hash to binary blob
     <hash> -> <blob>
 * channel state: map channel name + unique identifier to chstate-related hash
@@ -68,6 +72,7 @@ service both consumers of cable-core as well as incoming and outgoing cable req/
         !state!<channel>!topic -> <hash>
     * if fully persuing this route: include convenience method that returns cablegram pointed
       to by hash, in addition to methods that only return a list of hashes
+    note: this does not handle the case of answering a historic (give all history you have) channel state req
 * posts: map channel name+time to {post/text, post/delete} hash
     !chat!text!<channel>!<ts> -> <hash>
     do secondary topological sort after retrieving posts?
@@ -80,6 +85,9 @@ service both consumers of cable-core as well as incoming and outgoing cable req/
     - facilitate deleting all posts authored by pubkey
     - have some type of counter to keep keys unique? otherwise can only map one pubkey to one hash
     - or ts (from cablegram, or of receive time)
+
+    tweaked alternative:
+    !author!<pubkey>!<post_type-id>!<counter> -> <hash>
 * channel topic:
     !channel!<channel>!topic -> <topic>
     now subsumed by channel state view? doesn't give us topic name without parsing though
@@ -191,7 +199,27 @@ Query:
 
 Using the request's channel name. the query range should regardless of the public keys portion
 of the view key, which are only part of the key to provide unique records that point to the
-latest hash. Answer with the list of hashes that are retrieved from executing the query.
+
+#### Answer a _historic_ channel state request (`msg_type = 5`)
+A historic channel state request is a request that sets `historic = 1`.
+
+Query:
+
+    !channel!<channel>!member!<pubkey> -> 1 or 0
+
+Using the request's channel name. Use the returned results to derive a list of
+all public keys related to the channel. 
+
+Then, using the list of public keys, for each public key query:
+
+    !author!<pubkey>!2!<counter> -> <hash> // post/info
+    !author!<pubkey>!3!<counter> -> <hash> // post/topic
+    !author!<pubkey>!4!<counter> -> <hash> // post/join
+    !author!<pubkey>!5!<counter> -> <hash> // post/leave
+
+To get the hashes for all the channel state-related messages.
+
+Answer with the list of hashes that are retrieved from executing the query.
 
 #### Answer a channel list request (`msg_type = 6`)
 
@@ -230,3 +258,48 @@ And in all cases: the cryptographic signature of the post/delete payload must be
 post, by making an entry in:
 
     !chat!delete!<hash> -> 1
+
+### Updating the database indices
+
+Each time a view has a new entry added which maps to a hash, add a new entry to
+the reverse lookup table:
+
+    !<hash>!<monotonic-timestamp> => "<viewname>:<viewkey>"
+
+#### Map hash to view keys
+
+A post/info (`post_type=2`) is written, meaning a hash is mapped to a binary
+payload and persisted in the database.
+
+The following tables are updated:
+
+    hash to binary blob view
+    !author!<pubkey>!2!<counter> -> <hash> // post/topic
+    !state!<channel>!nick!<pubkey> -> <hash>
+    !user!<pubkey>!info!name => latest post/info setting nickname property ??
+
+To be able to remove these entries later on, for example when a new post/info
+is written, we need to know which keys are mapped to that hash for each indexed
+view.  We save the following entries in the reverse-hash lookup:
+
+    !<hash>!view-author!<pubkey>!2!<counter> -> 1
+    !<hash>!view-state!<channel>!nick!<pubkey> -> 1
+    !<hash>!view-user!<pubkey>!info!name -> 1
+
+When we delete the corresponding hash, the following operations take place:
+
+Delete <hash> from:
+
+    hash to binary blob view
+
+Get each view key using <hash>:
+
+    !<hash>!view-author!<pubkey>!2!<counter> -> 1
+    !<hash>!view-state!<channel>!nick!<pubkey> -> 1
+    !<hash>!view-user!<pubkey>!info!name -> 1
+
+Delete entry in view using retrieved key:
+    
+    !author!<pubkey>!2!<counter>
+    !state!<channel>!nick!<pubkey>
+    !user!<pubkey>!info!name
