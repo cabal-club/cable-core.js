@@ -56,7 +56,7 @@ service both consumers of cable-core as well as incoming and outgoing cable req/
     * are the /contents/ of the response what was requested? (if not:
       throw it out)
         * example: sending a bunch of post/topic as a response to a channel time range
-          (post/text + post/delete) is incorrect behaviour
+          (post/text + post/delete) is incorrect behaviour (?)
 * how do we update tables when a hash has been deleted? reverse lookup table hash -> view-key-name?
     !<hash>!<viewname>!<viewkey>! = 1
     alternative scheme:
@@ -135,8 +135,6 @@ Request by hash expects:
     * verify by tracking the requested hashes and cross-referencing with the hash of each
       post in the data response payload
 
-Anything else is incorrect behaviour.
-
 #### Channel time range request
 
 Channel time range expects:
@@ -145,8 +143,6 @@ Channel time range expects:
 * data payloads to be of type:
     * post/text
     * post/delete
-
-Anything else is incorrect behaviour.
 
 #### Channel state request
 
@@ -158,8 +154,6 @@ Channel state expects:
     * post/join
     * post/leave
     * post/info
-
-Anything else is incorrect behaviour.
 
 #### Channel list request
 
@@ -197,8 +191,8 @@ Query:
         !state!<channel>!nick!<pubkey> -> <hash>
         !state!<channel>!topic -> <hash>
 
-Using the request's channel name. the query range should regardless of the public keys portion
-of the view key, which are only part of the key to provide unique records that point to the
+using the request's channel name. The query range should operate regardless of the public key portion
+of view key, which are only part of the key to provide unique records that point to the entry.
 
 #### Answer a _historic_ channel state request (`msg_type = 5`)
 A historic channel state request is a request that sets `historic = 1`.
@@ -266,9 +260,14 @@ the reverse lookup table:
 
     !<hash>!<monotonic-timestamp> => "<viewname>:<viewkey>"
 
+    sometimes written below using a different scheme as e.g:
+
+    !<hash>!view-chat!text!<channel>!<ts> -> 1
+
 The following sections depict the indexing actions that spring forth when a new
 post is added to the database, and how to update the database when the
 underlying post is deleted from the database.
+
 #### post/text (`post_type=0`)
 ##### Creation
 A post/text (`post_type=0`) is written, meaning a hash is mapped to a binary
@@ -468,3 +467,77 @@ Delete entry in view using retrieved key:
     
     !state!<channel>!topic -> <hash>
     !author!<pubkey>!3!<counter> -> <hash> // post/topic
+
+#### post/join (`post_type=4`) and post/leave (`post_type=5`) 
+##### Creation
+A post/join (`post_type=4`) is written, meaning a hash is mapped to a binary
+payload and persisted in the database.
+
+The following tables are updated:
+
+    hash to binary blob view
+    !state!<channel>!member!<pubkey> -> <hash>
+    !channel!<channel>!member!<pubkey> -> 1
+    !author!<pubkey>!4!<counter> -> <hash> // post/topic
+
+To be able to remove these entries later on, for example when a new post/info
+is written, we need to know which keys are mapped to that hash for each indexed
+view.  We save the following entries in the reverse-hash lookup:
+
+    !<hash>!view-state!<channel>!member!<pubkey> -> 1
+    !<hash>!view-author!<pubkey>!4!<counter> -> 1
+
+##### Updating
+When a channel membership change happens, i.e. a post/leave for the same
+channel as the previous post/join, we'll need to update indexes.
+
+Index the new message:
+
+    !author!<pubkey>!4!<counter> -> <hash> // post/topic
+
+Update the latest channel state to point to the new hash:
+
+    !state!<channel>!member!<pubkey> -> <hash>
+
+Update the membership view:
+
+    !channel!<channel>!member!<pubkey> -> 0
+
+Add new reverse-lookup entries:
+
+    !<hash>!view-state!<channel>!member!<pubkey> -> 1
+    !<hash>!view-author!<pubkey>!4!<counter> -> 1
+
+**Note:** There is a conflict in the latest table + reverse-lookup. We need special logic
+to handle the case of someone deleting the hash regarded as latest.
+
+##### Deletion
+When we delete the corresponding hash, the following operations take place:
+
+Delete <hash> from:
+
+    hash to binary blob view
+
+Get each view key using <hash>:
+
+    !<hash>!view-state!<channel>!member!<pubkey> -> 1
+    !<hash>!view-author!<pubkey>!4!<counter> -> 1
+
+Using the view key, splice out the channel name.
+
+Delete entry in view using retrieved key:
+    
+    !channel!<channel>!member!<pubkey>
+    !author!<pubkey>!4!<counter>
+
+Get all the most recent membership messages for this user:
+
+    !author!<pubkey>!4!<counter> -> <hash> // post/topic
+    !author!<pubkey>!5!<counter> -> <hash> // post/topic
+    hash to binary blob view
+
+Sort the list of entries and pick the latest {join, leave} for the target
+channel, if there is such a latest message left in the database. If there is,
+update the channel membership for that channel accordingly:
+
+    !channel!<channel>!member!<pubkey> -> 1 or 0
