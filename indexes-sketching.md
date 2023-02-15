@@ -32,8 +32,97 @@ q: have an index of accreted state that just lists all chat messages? -> enable 
 <!-- TODO (2023-02-09): view keeping track of / associating reqid needed -->
 <!-- TODO (2023-02-09): view keeping track of / associating circuits? or memory only -->
 
-## index view table sketching
+## Materialized views
+### Definitions
+* `<mono-ts>` is short for monotonic timestamp, i.e. timestamps that only ever
+  increase in size and which are guaranteed to not overlap with any other
+  monotonic timestamp. This is most easily achieved by using the
+  `monotonic-timestamp` library.
+* `<hash>` is the 32 byte blake2b hashes that cable revolves around
+* `<channel>` is the utf-8 encoded string that represents a cable channel (think: chat channel, because that is what it is).
+* accreted state: a view that exists primarily to simplify application-level
+  concerns (e.g. make it easy to find the latest topic). Does not help
+  answering cable requests.
 
+### Data store
+A data store where each key is a hash, and each value is the data that
+generates that hash. This is how we store all the posts we receive in data
+responses, or which the local user creates by making posts themselves.
+
+    <hash> -> <blob>
+
+### Reverse hash lookup
+A reverse lookup table, mapping hashes to which tables and under what keys in
+those tables they have been referenced. This is how we update other views when
+a post has been deleted. 
+
+This matters because if a post is deleted, then the hash pointing to it is now
+irrelevant to index, because we no longer have that data (and never will
+again).
+
+    !<hash>!<mono-ts> => "<viewname><separator><viewkey>"
+
+    (old scheme: !<hash>!<viewname>!<viewkey>! = 1 )
+
+### Posts
+The posts view contains two different subviews, if you will. One that keeps track of hashes of `post/text`, the other which tracks `post/delete`.
+
+#### `post/text` and `post/delete`
+The posts view maps channel name+time to a hash that resolves to either a
+`post/text` or a `post/delete`.
+
+    !chat!post!<channel>!<ts> -> <hash>
+
+**Note:** Do secondary topological sort after retrieving posts?
+
+**q:** Do we need a fulltext index as well? To e.g. enable easier search
+implementation.  But maybe it doesn't matter? To do search, we essentially get
+a window of history, resolve the text and then figure out which of the messages
+are relevant to return as results. So: I guess the answer to the initial
+question is, no, it seems better to have access to the full cablegram because
+it has more data than just the text.
+
+#### Handling deletions
+Deletions. This view allows us persist deletions to prevent resyncing deleted posts. Remove this entry to enable resyncing
+the corresponding hash.
+
+    !chat!deleted!<hash> -> 1
+
+**Note**: This only tracks the *hash of the deleted post* i.e. NOT the hash of the `post/delete` itself. 
+
+### Channel state
+Channel state: map channel name + unique identifier to a channel state-related hash. That is, this view keeps track of:
+
+* *all* post/join or post/leave by <pubkey>
+```
+!state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
+``` 
+* *all* post/info for nick by <pubkey>
+```
+!state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
+```
+* *all* post/topic for channel, by anyone
+```
+!state!<mono-ts>!<channel>!topic -> <hash>
+``` 
+
+**q:** Should we include convenience methods that returns cablegram pointed to by
+hash, in addition to methods that only return a list of hashes? 
+
+**Note:** this *does* handle the case of answering a historic (give all history you
+have) channel state request.
+
+### Channel membership (accreted)
+* channel membership (accreted state):
+    !channel!<channel>!member!<pubkey> -> 1 or 0
+    * might be subsumed by channel state view? doesn't give us joined or left without parsing though
+    * i guess the stable sorted set of <channel> names, derive from keys of this view, are what we
+      would respond with to answer a channel list request?
+### Channel topic (accreted)
+### Author
+### User information
+
+### Misc view sketching
 ```
 *reqid (WIP) - maybe keep reqid and circuits maps in memory, instead?
     reqid -> {source (msg type), expects (msg type), origin (local or remote), circuitid}
@@ -59,32 +148,6 @@ q: have an index of accreted state that just lists all chat messages? -> enable 
       throw it out)
         * example: sending a bunch of post/topic as a response to a channel time range
           (post/text + post/delete) is incorrect behaviour (?)
-* reverse lookup table: i.e. how we update other views when a post has been deleted (and the hash pointing to it is now irrelevant to index, bc no data)
-    !<hash>!<mono-ts> => "<viewname><separator><viewkey>"
-    (old scheme: !<hash>!<viewname>!<viewkey>! = 1 )
-* hash to binary blob a.k.a. the data store
-    <hash> -> <blob>
-* channel state: map channel name + unique identifier to chstate-related hash
-    * *all* post/join or post/leave by <pubkey>
-        !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
-    * *all* post/info for nick by <pubkey>
-        !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
-    * *all* post/topic for channel, by anyone
-        !state!<mono-ts>!<channel>!topic -> <hash>
-    * q: include convenience method that returns cablegram pointed to by hash, in addition to methods that only return a list of hashes
-    note: this *does* handle the case of answering a historic (give all history you have) channel state req (a prev. iteration did not!)
-* posts: map channel name+time to {post/text, post/delete} hash
-    !chat!text!<channel>!<ts> -> <hash>
-    do secondary topological sort after retrieving posts?
-    q: do full-text index as well? to enable easier search implementation, e.g.
-    but maybe it doesn't matter, to do search we essentially get a window of
-    history, resolve the text and then figure out which of the messages are
-    relevant to return as results. better to have access to the full cablegram
-    because it has more data than just the text.
-* deletions:
-    !chat!delete!<hash> -> 1
-    persist deletions to prevent resyncing deleted posts. remove this entry to enable resyncing
-    the corresponding hash
 * pubkey to hash: map all posts in database made by a specific pubkey
     !author!<pubkey>!<post_type-id>!<counter> -> <hash>
     - facilitate deleting all posts authored by pubkey
@@ -93,21 +156,16 @@ q: have an index of accreted state that just lists all chat messages? -> enable 
 * channel topic (accreted state):
     !channel!<channel>!topic -> <topic>
     now subsumed by channel state view? doesn't give us topic name without parsing though
-* channel membership (accreted state):
-    !channel!<channel>!member!<pubkey> -> 1 or 0
-    * might be subsumed by channel state view? doesn't give us joined or left without parsing though
-    * i guess the stable sorted set of <channel> names, derive from keys of this view, are what we
-      would respond with to answer a channel list request?
 ? do we need to somehow map pubkey to different message types?
     or is this entire view just essentially covered by !state view?
 
     one schema for users:
-        !user!<pubkey>!member!<channel> => {post/join, post/leave} hash
-        !user!<pubkey>!info!name => latest post/info setting nickname property
-        !user!<pubkey>!info!<property> in general
+        !user!<mono-ts>!<pubkey>!member!<channel> => {post/join, post/leave} hash
+        !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
+        !user!<mono-ts>!<pubkey>!info!<property> in general
 
     cabal-core user schema:
-        user!about!<pubkey>
+        user!<mono-ts>!about!<pubkey>
 ```
 
 ## Brainstorming & verifying index sufficiency
@@ -257,7 +315,7 @@ hash to binary blob view
 post, by making an entry in:
 
 ```
-!chat!delete!<hash> -> 1
+!chat!deleted!<hash> -> 1
 ```
 
 ### Updating the database indices
@@ -309,7 +367,7 @@ Delete entry in view using retrieved key:
 If this delete was from a delete request (post/delete), also persist the delete
 by saving the hash of the deleted post:
 
-    !chat!delete!<hash> -> 1
+    !chat!deleted!<hash> -> 1
 
 #### post/delete (`post_type=1`)
 ##### Creation
@@ -322,7 +380,7 @@ meaning a hash is mapped to a binary payload and persisted in the database.
 The following tables are updated:
 
     hash to binary blob view
-    !chat!delete!<hash> -> 1
+    !chat!deleted!<hash> -> 1
     !author!<pubkey>!1!<counter> -> <hash> // post/topic
 
 To be able to remove these entries later on, for example if a delete should be
@@ -357,7 +415,7 @@ Using the delete message payload, "forget" that we deleted the pointed-to post
 hash (this is the hash inside the delete payload, *not* the hash of the delete
 payload - tricky!):
 
-    !chat!delete!<hash> -> 1
+    !chat!deleted!<hash> -> 1
 
 Get the view key using <hash>:
 
@@ -377,7 +435,7 @@ The following tables are updated:
     hash to binary blob view
     !author!<pubkey>!2!<counter> -> <hash> // post/topic
     !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
-    !user!<pubkey>!info!name => latest post/info setting nickname property ??
+    !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property ??
 
 To be able to remove these entries later on, for example when a new post/info
 is written, we need to know which keys are mapped to that hash for each indexed
@@ -385,7 +443,7 @@ view.  We save the following entries in the reverse-hash lookup:
 
     !<hash>!<mono-ts> => "author<separator>author!<pubkey>!2!<counter>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!nick!<pubkey>"
-    !<hash>!<mono-ts> => "user<separator>user!<pubkey>!info!name"
+    !<hash>!<mono-ts> => "user<separator>user!<mono-ts>!<pubkey>!info!name"
 
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
@@ -398,13 +456,13 @@ Get each view key using <hash>:
 
     !<hash>!<mono-ts> => "author<separator>author!<pubkey>!2!<counter>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!nick!<pubkey>"
-    !<hash>!<mono-ts> => "user<separator>user!<pubkey>!info!name"
+    !<hash>!<mono-ts> => "user<separator>user!<mono-ts>!<pubkey>!info!name"
 
 Delete entry in view using retrieved key:
     
     !author!<pubkey>!2!<counter>
     !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
-    !user!<pubkey>!info!name
+    !user!<mono-ts>!<pubkey>!info!name
 
 #### post/topic (`post_type=3`)
 ##### Creation
