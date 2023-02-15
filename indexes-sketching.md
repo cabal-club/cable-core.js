@@ -35,7 +35,7 @@ q: have an index of accreted state that just lists all chat messages? -> enable 
 ## index view table sketching
 
 ```
-*reqid (WIP)
+*reqid (WIP) - maybe keep reqid and circuits maps in memory, instead?
     reqid -> {source (msg type), expects (msg type), origin (local or remote), circuitid}
 
     a reqid always belongs to a request or to a response caused by a request. thus a reqid has
@@ -59,10 +59,10 @@ q: have an index of accreted state that just lists all chat messages? -> enable 
       throw it out)
         * example: sending a bunch of post/topic as a response to a channel time range
           (post/text + post/delete) is incorrect behaviour (?)
-* how do we update tables when a hash has been deleted? reverse lookup table hash -> view-key-name?
+* reverse lookup table: i.e. how we update other views when a post has been deleted (and the hash pointing to it is now irrelevant to index, bc no data)
     !<hash>!<mono-ts> => "<viewname><separator><viewkey>"
     (old scheme: !<hash>!<viewname>!<viewkey>! = 1 )
-* hash to binary blob
+* hash to binary blob a.k.a. the data store
     <hash> -> <blob>
 * channel state: map channel name + unique identifier to chstate-related hash
     * *all* post/join or post/leave by <pubkey>
@@ -72,32 +72,34 @@ q: have an index of accreted state that just lists all chat messages? -> enable 
     * *all* post/topic for channel, by anyone
         !state!<mono-ts>!<channel>!topic -> <hash>
     * q: include convenience method that returns cablegram pointed to by hash, in addition to methods that only return a list of hashes
-    note: this does handle the case of answering a historic (give all history you have) channel state req
+    note: this *does* handle the case of answering a historic (give all history you have) channel state req (a prev. iteration did not!)
 * posts: map channel name+time to {post/text, post/delete} hash
     !chat!text!<channel>!<ts> -> <hash>
     do secondary topological sort after retrieving posts?
+    q: do full-text index as well? to enable easier search implementation, e.g.
+    but maybe it doesn't matter, to do search we essentially get a window of
+    history, resolve the text and then figure out which of the messages are
+    relevant to return as results. better to have access to the full cablegram
+    because it has more data than just the text.
 * deletions:
     !chat!delete!<hash> -> 1
     persist deletions to prevent resyncing deleted posts. remove this entry to enable resyncing
     the corresponding hash
 * pubkey to hash: map all posts in database made by a specific pubkey
-    !author!<pubkey>!<counter> -> <hash>
+    !author!<pubkey>!<post_type-id>!<counter> -> <hash>
     - facilitate deleting all posts authored by pubkey
     - have some type of counter to keep keys unique? otherwise can only map one pubkey to one hash
     - or ts (from cablegram, or of receive time)
-
-    tweaked alternative:
-    !author!<pubkey>!<post_type-id>!<counter> -> <hash>
-* channel topic:
+* channel topic (accreted state):
     !channel!<channel>!topic -> <topic>
     now subsumed by channel state view? doesn't give us topic name without parsing though
-* channel membership:
+* channel membership (accreted state):
     !channel!<channel>!member!<pubkey> -> 1 or 0
     * might be subsumed by channel state view? doesn't give us joined or left without parsing though
     * i guess the stable sorted set of <channel> names, derive from keys of this view, are what we
       would respond with to answer a channel list request?
 ? do we need to somehow map pubkey to different message types?
-    in particular channel/join||leave, post/info (nickname)
+    or is this entire view just essentially covered by !state view?
 
     one schema for users:
         !user!<pubkey>!member!<channel> => {post/join, post/leave} hash
@@ -114,8 +116,7 @@ The following sections try to map each cable request to what kind of database in
 will suffice to correctly answer the request. Intended as a form of sketching / thinking out loud that
 helps to identify gaps ahead of time, before views have been written.
 
-### Mapping requests to their expected returned message types
-
+### Request expectations
 <!-- 
     might need views to handle the following cases:
 
@@ -126,14 +127,14 @@ helps to identify gaps ahead of time, before views have been written.
 
 -->
 
-### Request by hash
+#### Request by hash
 
 Request by hash expects:
 
 * data response `msg_type=1`
 * data payloads to correspond to the requested hashes
     * verify by tracking the requested hashes and cross-referencing with the hash of each
-      post in the data response payload
+      post in the data response payload?
 
 #### Channel time range request
 
@@ -160,7 +161,7 @@ Channel state expects:
 Channel list expects:
 
 * a channel list response `msg_type=7`
-* payloads to be UTF-8 strings.
+* payloads to be UTF-8 strings
 
 ### Answering requests
 
@@ -186,6 +187,7 @@ of data. Answer with the list of hashes in a hash response.
 #### Answer a channel state request (`msg_type = 5`)
 
 Query:
+
         !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
         !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
         !state!<mono-ts>!<channel>!topic -> <hash>
@@ -202,6 +204,7 @@ entry.
 A historic channel state request is a request that sets `historic = 1`.
 
 Query:
+
         !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
         !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
         !state!<mono-ts>!<channel>!topic -> <hash>
@@ -234,20 +237,28 @@ And in all cases: the cryptographic signature of the post/delete payload must be
 
 1) Honor the delete request by removing the associated payload from:
 
-    hash to binary blob view
+```
+hash to binary blob view
+```
 
 2) Persist the post/delete cablegram by saving the binary payload in: 
 
-    hash to binary blob view
+```
+hash to binary blob view
+```
 
 3) Persist the hash of the post/delete cablegram in the posts view:
 
-    !chat!text!<channel>!<ts> -> <hash>
+```
+!chat!text!<channel>!<ts> -> <hash>
+```
 
 4) Finally, persist the hash identifying the deleted post, to limit future attempts to resync this
 post, by making an entry in:
 
-    !chat!delete!<hash> -> 1
+```
+!chat!delete!<hash> -> 1
+```
 
 ### Updating the database indices
 
@@ -325,12 +336,6 @@ Now: time to delete the pointed to content:
 * Use the hash to delete the payload from: hash to binary blob view
 * Look up the hash to be deleted in the reverse-lookup, getting table names and the keys.
 * For each view name and key pair: remove the entry identified by the key from the associated view.
-
-**Note:** if the affected view was !state then query to figure out what the replacement entry should be. 
-Is it better not to have the latest view? Instead just have !state! index all
-the hashes it cares about, when doing a non-historic query grab the latest
-entries somehow? It would spare us this special-case "find the previous latest
-hash for <view>" replenishment logic.
 
 ##### Deletion
 When we "delete a delete" we are essentially forgetting about a previous delete
@@ -440,9 +445,6 @@ Add new reverse-lookup entries:
     !<hash>!<mono-ts> => "author<separator>author!<pubkey>!3!<counter>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!topic"
 
-**Note:** There is a conflict in the latest table + reverse-lookup. We need special logic
-to handle the case of someone deleting the hash regarded as latest.
-
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
 
@@ -501,9 +503,6 @@ Add new reverse-lookup entries:
     !<hash>!<mono-ts> => "author<separator>author!<pubkey>!4!<counter>"
     for post/leave: !<hash>!<mono-ts> => "author<separator>author!<pubkey>!5!<counter>" 
     !<hash>!<mono-ts> => "state<separator>state!<channel>!member!<pubkey>"
-
-**Note:** There is a conflict in the latest table + reverse-lookup. We need special logic
-to handle the case of someone deleting the hash regarded as latest.
 
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
