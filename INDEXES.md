@@ -1,7 +1,5 @@
 # Database indexes and views
-
-## Materialized views
-### Definitions
+## Definitions
 * `<mono-ts>` is short for monotonic timestamp, i.e. timestamps that only ever
   increase in size and which are guaranteed to not overlap with any other
   monotonic timestamp. This is most easily achieved by using the
@@ -15,6 +13,13 @@
   properly queryable using lexicographic sort, but makes it easier to see which
   strings in this documents are views; it's a convention used in this document,
   if you will
+
+
+## Materialized views
+These materialized views comprise the database portion of cable-core, and be serviced
+through leveldb. When a response from a previously issued request comes in, the data will be
+persisted and tied to its hash in the data store, and indexed in different kinds of views
+according to what type of post it is.
 
 ### Data store
 A data store where each key is a hash, and each value is the data that
@@ -55,7 +60,7 @@ question is, no, it seems better to have access to the full cablegram because
 it has more data than just the text.
 
 #### Handling deletions
-Deletions. This view allows us persist deletions to prevent resyncing deleted posts. Remove this entry to enable resyncing
+Deletions. This view allows us to persist deletions and prevent resyncing deleted posts. Remove this entry to enable resyncing
 the corresponding hash.
 
     !chat!deleted!<hash> -> 1
@@ -65,11 +70,11 @@ the corresponding hash.
 ### Channel state
 Channel state: map channel name + unique identifier to a channel state-related hash. That is, this view keeps track of:
 
-* *all* post/join or post/leave by <pubkey>
+* *all* post/join or post/leave by `<pubkey>`
 ```
 !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
 ``` 
-* *all* post/info for nick by <pubkey>
+* *all* post/info for nick by `<pubkey>`
 ```
 !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
 ```
@@ -385,7 +390,7 @@ Delete <hash> from:
 
     hash to binary blob view
 
-Get each view key using <hash>:
+Get each view key using `<hash>`:
 
     !<hash>!<mono-ts> => "chat!text!<separator>chat!text!<channel>!<ts>"
     !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<counter>"
@@ -438,7 +443,7 @@ Get the delete message payload from:
 
     hash to binary blob view
 
-Then delete <hash> of delete message itself from:
+Then delete `<hash>` of delete message itself from:
 
     hash to binary blob view
 
@@ -479,7 +484,7 @@ view.  We save the following entries in the reverse-hash lookup:
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
 
-Delete <hash> from:
+Delete `<hash>` from:
 
     hash to binary blob view
 
@@ -537,7 +542,7 @@ Add new reverse-lookup entries:
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
 
-Delete <hash> from:
+Delete `<hash>` from:
 
     hash to binary blob view
 
@@ -596,7 +601,7 @@ Add new reverse-lookup entries:
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
 
-Delete <hash> from:
+Delete `<hash>` from:
 
     hash to binary blob view
 
