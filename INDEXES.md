@@ -1,36 +1,4 @@
-# database index + view sketching 
-
-## thinking out loud, part 1
-on accreted state vs cable protocol mappings:
-
-some indexes are useful primarily for application level concerns (accreted
-state). others are useful primarily for protocol queries (protocol mappings)
-
-on unique records:
-
-we can either use a generalized counter, or timestamp.
-
-q: how do we store, retrieve and update counters? are there significant attacks that become
-possible if we prefer using timestamps over monotonic counters?  could use an instance of
-monotonic-timestamp to use as a generalized counter? might be confusing if new to the codebase
-tho X)
-
-the tradeoff for designing these indexes, and as of yet still open, is it better to...:
-
-* _not_ have to update many different indexes with basically the same data (hashes)
-    * prevents mishaps with inconsistent state! essentially only one source of truth (the posts
-      themselves)
-* or: have multiple views over the same data to save computations and secondary calls to
-  resolve hashes to posts, and then to peek inside posts for e.g. message type?
-  * simpler data pipeline! doesn't become callback -> callback -> processing -> finally returning data to client
-
-the following bullet points describe the different views / indexes under consideration atm to
-service both consumers of cable-core as well as incoming and outgoing cable req/res
-
-q: have an index of accreted state that just lists all chat messages? -> enable easier search functionality
-
-<!-- TODO (2023-02-09): view keeping track of / associating reqid needed -->
-<!-- TODO (2023-02-09): view keeping track of / associating circuits? or memory only -->
+# Database indexes and views
 
 ## Materialized views
 ### Definitions
@@ -43,6 +11,10 @@ q: have an index of accreted state that just lists all chat messages? -> enable 
 * accreted state: a view that exists primarily to simplify application-level
   concerns (e.g. make it easy to find the latest topic). Does not help
   answering cable requests.
+* view names starting with `!`: this is not necessary for the indexed views to be
+  properly queryable using lexicographic sort, but makes it easier to see which
+  strings in this documents are views; it's a convention used in this document,
+  if you will
 
 ### Data store
 A data store where each key is a hash, and each value is the data that
@@ -113,16 +85,93 @@ hash, in addition to methods that only return a list of hashes?
 have) channel state request.
 
 ### Channel membership (accreted)
-* channel membership (accreted state):
-    !channel!<channel>!member!<pubkey> -> 1 or 0
-    * might be subsumed by channel state view? doesn't give us joined or left without parsing though
-    * i guess the stable sorted set of <channel> names, derive from keys of this view, are what we
-      would respond with to answer a channel list request?
-### Channel topic (accreted)
-### Author
-### User information
+The channel membership view keeps track of which channels have which users currently joined to it.
 
-### Misc view sketching
+    !channel!<channel>!member!<pubkey> -> 1 or 0
+
+**Note:** Each accreted view needs to be potentially re-indexed if a deleted message had the same type as the view.
+
+**q:** might be subsumed by channel state view? doesn't give us joined or left without parsing though
+
+**q:** i guess the stable sorted set of <channel> names, derive from keys of
+this view, are what we would respond with to answer a channel list request?
+### Channel topic (accreted)
+The channel topic view keeps track of the topic of each channel that the local user knows about.
+
+    !channel!<channel>!topic -> <topic>
+
+**Note:** Each accreted view needs to be potentially re-indexed if a deleted message had the same type as the view.
+
+**q:** now subsumed by channel state view? doesn't give us topic name without parsing though
+
+### Author
+The author view indexes all posts by the public key that authored it. The view
+key also includes what type of post it was. It does this by mapping the public
+key and the post type to the corresponding post hash. 
+
+This view enables queries to be made regarding any given `post_type` authored by
+any given public key.
+
+    !author!<pubkey>!<post_type-id>!<counter> -> <hash>
+
+- facilitate deleting all posts authored by pubkey
+- have some type of counter to keep keys unique? otherwise can only map one pubkey to one hash
+- or ts (from cablegram, or of receive time)
+- use mono-ts?
+§
+### User information
+This view specifically deals with mapping out the different types of
+`post/info` contents that may have been authored by users. 
+
+As of writing (2023-02-15) there is only one specified key, `name`, that is
+defined to be used with `post/info` but other types of user-related information
+may be added in the future: a user description, a user image, a user's post
+expiry preference, etc.
+
+    !user!<mono-ts>!<pubkey>!member!<channel> => {post/join, post/leave} hash
+    !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
+    !user!<mono-ts>!<pubkey>!info!<property> in general
+
+The corresponding user information schema looked like the following for cabal-core:
+
+    user!<mono-ts>!about!<pubkey>
+
+**q:** This view also maps membership status for each channel; which may be superfluous?
+
+## thinking out loud, part 1
+on accreted state vs cable protocol mappings:
+
+some indexes are useful primarily for application level concerns (accreted
+state). others are useful primarily for protocol queries (protocol mappings)
+
+on unique records:
+
+we can either use a generalized counter, or timestamp.
+
+q: how do we store, retrieve and update counters? are there significant attacks that become
+possible if we prefer using timestamps over monotonic counters?  could use an instance of
+monotonic-timestamp to use as a generalized counter? might be confusing if new to the codebase
+tho X)
+
+the tradeoff for designing these indexes, and as of yet still open, is it better to...:
+
+* _not_ have to update many different indexes with basically the same data (hashes)
+    * prevents mishaps with inconsistent state! essentially only one source of truth (the posts
+      themselves)
+* or: have multiple views over the same data to save computations and secondary calls to
+  resolve hashes to posts, and then to peek inside posts for e.g. message type?
+  * simpler data pipeline! doesn't become callback -> callback -> processing -> finally returning data to client
+
+the following bullet points describe the different views / indexes under consideration atm to
+service both consumers of cable-core as well as incoming and outgoing cable req/res
+
+q: have an index of accreted state that just lists all chat messages? -> enable easier search functionality
+
+<!-- TODO (2023-02-09): view keeping track of / associating reqid needed -->
+<!-- TODO (2023-02-09): view keeping track of / associating circuits? or memory only -->
+
+
+### Misc reqid & circuits sketching
 ```
 *reqid (WIP) - maybe keep reqid and circuits maps in memory, instead?
     reqid -> {source (msg type), expects (msg type), origin (local or remote), circuitid}
@@ -148,24 +197,6 @@ have) channel state request.
       throw it out)
         * example: sending a bunch of post/topic as a response to a channel time range
           (post/text + post/delete) is incorrect behaviour (?)
-* pubkey to hash: map all posts in database made by a specific pubkey
-    !author!<pubkey>!<post_type-id>!<counter> -> <hash>
-    - facilitate deleting all posts authored by pubkey
-    - have some type of counter to keep keys unique? otherwise can only map one pubkey to one hash
-    - or ts (from cablegram, or of receive time)
-* channel topic (accreted state):
-    !channel!<channel>!topic -> <topic>
-    now subsumed by channel state view? doesn't give us topic name without parsing though
-? do we need to somehow map pubkey to different message types?
-    or is this entire view just essentially covered by !state view?
-
-    one schema for users:
-        !user!<mono-ts>!<pubkey>!member!<channel> => {post/join, post/leave} hash
-        !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
-        !user!<mono-ts>!<pubkey>!info!<property> in general
-
-    cabal-core user schema:
-        user!<mono-ts>!about!<pubkey>
 ```
 
 ## Brainstorming & verifying index sufficiency
