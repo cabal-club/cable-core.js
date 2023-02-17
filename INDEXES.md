@@ -1,14 +1,19 @@
 # Database indexes and views
 ## Definitions
+* `<thing>` signifies a placeholder value, where the text in brackets is a concrete value
+  of the type described by the text and known at runtime. e.g. `<hash>` is a
+  base16-encoded hash appearing something like `7e13a3f34f6494e539ffd32c1bb35f18`
 * `<mono-ts>` is short for monotonic timestamp, i.e. timestamps that only ever
   increase in size and which are guaranteed to not overlap with any other
   monotonic timestamp. This is most easily achieved by using the
   `monotonic-timestamp` library.
-* `<hash>` is the 32 byte blake2b hashes that cable revolves around
+* `<hash>` is the base16-encoded 32-byte blake2b hashes that cable operates on
+* `<pubkey>` is the base16-encoded public portion of a ed25519 keypair
 * `<channel>` is the utf-8 encoded string that represents a cable channel (think: chat channel, because that is what it is).
 * accreted state: a view that exists primarily to simplify application-level
   concerns (e.g. make it easy to find the latest topic). Does not help
-  answering cable requests.
+  answering cable requests. accrete because it changes over time - but maybe not the best name!
+  materialized is probably more standard?
 * view names starting with `!`: this is not necessary for the indexed views to be
   properly queryable using lexicographic sort, but makes it easier to see which
   strings in this documents are views; it's a convention used in this document,
@@ -16,10 +21,12 @@
 
 
 ## Materialized views
-These materialized views comprise the database portion of cable-core, and be serviced
-through leveldb. When a response from a previously issued request comes in, the data will be
-persisted and tied to its hash in the data store, and indexed in different kinds of views
-according to what type of post it is.
+These materialized views comprise the database portion of cable-core, and will be handled
+through instantiations of leveldb. When a cable response streams in as a result of a previously
+issued request, the received data will be persisted and tied to its hash in the data store. The
+data will indexed in different kinds of views according to what type of post it is.
+
+<!-- links (not captured by any index yet) -->
 
 ### Data store
 A data store where each key is a hash, and each value is the data that
@@ -29,9 +36,8 @@ responses, or which the local user creates by making posts themselves.
     <hash> -> <blob>
 
 ### Reverse hash lookup
-A reverse lookup table, mapping hashes to which tables and under what keys in
-those tables they have been referenced. This is how we update other views when
-a post has been deleted. 
+A reverse lookup table, mapping hashes to which views and under what keys in those views the
+hashes have been referenced. This is how we update other views when a post has been deleted. 
 
 This matters because if a post is deleted, then the hash pointing to it is now
 irrelevant to index, because we no longer have that data (and never will
@@ -42,7 +48,9 @@ again).
     (old scheme: !<hash>!<viewname>!<viewkey>! = 1 )
 
 ### Posts
-The posts view contains two different subviews, if you will. One that keeps track of hashes of `post/text`, the other which tracks `post/delete`.
+The posts view contains two different subviews, if you will. One that keeps track of hashes of
+`post/text` and `post/delete. The other keeps track of which deletes have happened in order to
+never ask for or persist those posts.
 
 #### `post/text` and `post/delete`
 The posts view maps channel name+time to a hash that resolves to either a
@@ -51,6 +59,8 @@ The posts view maps channel name+time to a hash that resolves to either a
     !chat!post!<channel>!<ts> -> <hash>
 
 **Note:** Do secondary topological sort after retrieving posts?
+
+**Note:** `post/delete` may target any kind of post, including non-`post/text` types
 
 **q:** Do we need a fulltext index as well? To e.g. enable easier search
 implementation.  But maybe it doesn't matter? To do search, we essentially get
@@ -70,15 +80,15 @@ the corresponding hash.
 ### Channel state
 Channel state: map channel name + unique identifier to a channel state-related hash. That is, this view keeps track of:
 
-* *all* post/join or post/leave by `<pubkey>`
+* *all* `post/join` or `post/leave` made by `<pubkey>`
 ```
 !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
 ``` 
-* *all* post/info for nick by `<pubkey>`
+* *all* `post/info` for nick published by `<pubkey>`
 ```
 !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
 ```
-* *all* post/topic for channel, by anyone
+* *all* `post/topic` for channel, published by anyone
 ```
 !state!<mono-ts>!<channel>!topic -> <hash>
 ``` 
@@ -90,7 +100,8 @@ hash, in addition to methods that only return a list of hashes?
 have) channel state request.
 
 ### Channel membership (accreted)
-The channel membership view keeps track of which channels have which users currently joined to it.
+The channel membership view keeps track of which channels have which users currently joined to
+it.
 
     !channel!<channel>!member!<pubkey> -> 1 or 0
 
@@ -100,8 +111,9 @@ The channel membership view keeps track of which channels have which users curre
 
 **q:** i guess the stable sorted set of <channel> names, derive from keys of
 this view, are what we would respond with to answer a channel list request?
+
 ### Channel topic (accreted)
-The channel topic view keeps track of the topic of each channel that the local user knows about.
+The channel topic view keeps track of the topic of each channel the local user knows about.
 
     !channel!<channel>!topic -> <topic>
 
@@ -110,20 +122,18 @@ The channel topic view keeps track of the topic of each channel that the local u
 **q:** now subsumed by channel state view? doesn't give us topic name without parsing though
 
 ### Author
-The author view indexes all posts by the public key that authored it. The view
-key also includes what type of post it was. It does this by mapping the public
-key and the post type to the corresponding post hash. 
+The author view indexes all posts by the public key that authored a given post. The view key
+also includes what type of post it was, a `post/text` or a `post/join` for instance. The post
+type information is represented by the post type ids defined in the cable spec. The view
+indexes these posts mapping the public key and the post type to the corresponding post hash. 
 
-This view enables queries to be made regarding any given `post_type` authored by
-any given public key.
+You can query for any given `post_type` authored by any given public key.
 
-    !author!<pubkey>!<post_type-id>!<counter> -> <hash>
+    !author!<pubkey>!<post_type-id>!<mono-ts> -> <hash>
 
-- facilitate deleting all posts authored by pubkey
-- have some type of counter to keep keys unique? otherwise can only map one pubkey to one hash
-- or ts (from cablegram, or of receive time)
-- use mono-ts?
-§
+The existence of this view facilitates deleting all posts authored by pubkey, which would be
+useful if a pubkey has been blocked and you no longer want to host the content they authored.
+
 ### User information
 This view specifically deals with mapping out the different types of
 `post/info` contents that may have been authored by users. 
@@ -133,7 +143,6 @@ defined to be used with `post/info` but other types of user-related information
 may be added in the future: a user description, a user image, a user's post
 expiry preference, etc.
 
-    !user!<mono-ts>!<pubkey>!member!<channel> => {post/join, post/leave} hash
     !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
     !user!<mono-ts>!<pubkey>!info!<property> in general
 
@@ -141,68 +150,75 @@ The corresponding user information schema looked like the following for cabal-co
 
     user!<mono-ts>!about!<pubkey>
 
-**q:** This view also maps membership status for each channel; which may be superfluous?
+## Tracking a request -> response life cycle
+Tracking the path of a request and its cousin, the response, is done with request ids
+(`req_id`).
 
-## thinking out loud, part 1
-on accreted state vs cable protocol mappings:
+A `reqid` always belongs to a request or to the response caused by a request. Thus a `reqid` has
+a source (the message type that "spawns" the request) and an expectation of what to get
+back (the message type that correctly answers the request e.g. a data response, a hash
+response, or a channel list response). We can also prepare for the circuits behaviour by
+adding an id field so that we can more efficiently route messages, instead of floodfilling
+to all connected peers.
 
-some indexes are useful primarily for application level concerns (accreted
-state). others are useful primarily for protocol queries (protocol mappings)
+When we deal with a request, we can associate the generated `reqid` with:
 
-on unique records:
+* source (the message type of the request), a varint
+* expects (the expected message type of the response), a varint
+* origin (are we the end destination for the returning response, or are we passing on
+  information between other nodes), a boolean
+* circuitid (which connected node to send the response to), a varint; might be premature and
+  pending on how it is specified
 
-we can either use a generalized counter, or timestamp.
+### Associating request and response pairs
+We could go one step further, and associate the two request-response pairs that will be
+required to fulfill the entire life cycle. That is:
 
-q: how do we store, retrieve and update counters? are there significant attacks that become
-possible if we prefer using timestamps over monotonic counters?  could use an instance of
-monotonic-timestamp to use as a generalized counter? might be confusing if new to the codebase
-tho X)
+Let's say we make a channel time range request. The intent of that is to eventually receive
+cablegrams of types `post/text` and `post/delete`. To achieve this, the channel time range
+request is sent. The reply that comes back is a hash response (list of hashes). To get the
+actual cablegrams, we send out a new request, this time a request by hash. Back comes a data
+response, containing some or all of the requested hashes. So we have two roundtrips:
 
-the tradeoff for designing these indexes, and as of yet still open, is it better to...:
+1. request: channel time range, response: hash response
+2. request: request by hash, response: data response
 
-* _not_ have to update many different indexes with basically the same data (hashes)
-    * prevents mishaps with inconsistent state! essentially only one source of truth (the posts
-      themselves)
-* or: have multiple views over the same data to save computations and secondary calls to
-  resolve hashes to posts, and then to peek inside posts for e.g. message type?
-  * simpler data pipeline! doesn't become callback -> callback -> processing -> finally returning data to client
+In 1, the request and response are to have the same reqid. The request and response in 2 have a
+different reqid than in 1 but which is shared by 2's request and response. i.e. there is
+potentially a a gap missing between associating the actions in 1 and the actions in 2, even
+though 2 happens as a direct result of 1.
 
-the following bullet points describe the different views / indexes under consideration atm to
-service both consumers of cable-core as well as incoming and outgoing cable req/res
+### Forwarding facilitation 
+To facilitate forwarding, we could have a map to keep track of where a request came from, in
+order to send the response that same way. In case we get the same request from multiple
+sources, the actual intended destination is uncertain. We should maintain a list of
+destinations.
 
-q: have an index of accreted state that just lists all chat messages? -> enable easier search functionality
+    originMap: reqid -> [peerid]
 
-<!-- TODO (2023-02-09): view keeping track of / associating reqid needed -->
-<!-- TODO (2023-02-09): view keeping track of / associating circuits? or memory only -->
+### Receiving a response
+When we receive a response we look up the `reqid`:
 
+* Is this intended for us? If `origin = true` then, yes. Otherwise we should forward it
+  onwards: look in the `originMap` for where to try forwarding (all entries in it might have
+  gone offline).
+* Does the response adhere to the expected message type? 
+    * If not: throw it out? log?
+* Are the *contents* of the response what was requested? 
+* If not: throw it out? log?
+    * for example: sending a bunch of `post/topic` as a response to a channel time range
+      (post/text + post/delete) is not the expected behaviour
 
-### Misc reqid & circuits sketching
-```
-*reqid (WIP) - maybe keep reqid and circuits maps in memory, instead?
-    reqid -> {source (msg type), expects (msg type), origin (local or remote), circuitid}
+If we throw out unexpected responses, we risk running foul of the robustness principle:
 
-    a reqid always belongs to a request or to a response caused by a request. thus a reqid has
-    a source (the message type that "spawns" the request) and an expectation of what to get
-    back (the message type that correctly answers the request e.g. a data response, a hash
-    response, or a channel list response). we can also prepare for the circuits behaviour by
-    adding an id field so that we can more efficiently route messages, instead of floodfilling
-    to all connected peers.
+> "be conservative in what you do, be liberal in what you accept from others". It is often
+> reworded as: "be conservative in what you send, be liberal in what you accept". The principle
+> is also known as Postel's law, after Jon Postel, who used the wording in an early
+> specification of TCP.
 
-    when we receive a request, we log the reqid with:
-    * source (the message type of the request)
-    * expects (the expected message type of the response)
-    * origin (are we the end destination for the returning response, or are we passing on
-      information between other nodes)
-    * circuitid (which connected node to send the response to)
-
-    when we receive a response we look up the reqid:
-
-    * is the response of the expected message type? (if not: throw it out)
-    * are the /contents/ of the response what was requested? (if not:
-      throw it out)
-        * example: sending a bunch of post/topic as a response to a channel time range
-          (post/text + post/delete) is incorrect behaviour (?)
-```
+Perhaps the best recourse is to log the failed expectations, and in the specification describe
+the expected behaviour such that other implementations try their best at "being conservative in
+what they send".
 
 ## Brainstorming & verifying index sufficiency
 
