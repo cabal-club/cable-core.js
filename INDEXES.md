@@ -29,7 +29,6 @@
   strings in this documents are views; it's a convention used in this document,
   if you will
 
-
 ## Materialized views
 These materialized views comprise the database portion of cable-core, and will be serviced by
 instantiations of leveldb e.g. the nodejs wrapping module `level`, which works in browsers and
@@ -263,7 +262,10 @@ that helps to identify gaps ahead of time, before the views have been written.
 
 -->
 
-### Request & Response expectations
+### Request expectations
+The following brief sections outline what each cable request ultimately expects to receive as
+a result of making the request.
+
 #### Request by hash
 
 Request by hash expects:
@@ -301,13 +303,15 @@ Channel list expects:
 * payloads to be UTF-8 strings
 
 ### Answering requests
+This section outlines the indexes queries and operations needed to answer the different cable
+requests.
 
 #### Answer a request by hash (`msg_type = 2`)
 A request by hash wants the data identified by a list of hashes.
 
 Query:
 
-    hash to binary blob view
+    <hash> -> <blob>
 
 Use the returned binary payloads, i.e. cablegrams, to fashion the data response. Construct a
 list and fill it with the payloads that were found when querying the view.
@@ -375,13 +379,13 @@ And in all cases: the cryptographic signature of the post/delete payload must be
 1) Honor the delete request by removing the associated payload from:
 
 ```
-hash to binary blob view
+<hash> -> <blob>
 ```
 
 2) Persist the post/delete cablegram by saving the binary payload in: 
 
 ```
-hash to binary blob view
+<hash> -> <blob>
 ```
 
 3) Persist the hash of the post/delete cablegram in the posts view:
@@ -398,15 +402,14 @@ post, by making an entry in:
 ```
 
 ### Updating the database indices
-
-Each time a view has a new entry added which maps to a hash, add a new entry to
-the reverse lookup table:
-
-    !<hash>!<mono-ts> => "<viewname><separator><viewkey>"
-
 The following sections depict the indexing actions that spring forth when a new
 post is added to the database, and how to update the database when the
 underlying post is deleted from the database.
+
+**In general**: each time a view has a new entry added which maps to a hash, add a new entry to
+the reverse lookup table:
+
+    !<hash>!<mono-ts> => "<viewname><separator><viewkey>"
 
 #### post/text (`post_type=0`)
 ##### Creation
@@ -415,7 +418,7 @@ payload and persisted in the database.
 
 The following tables are updated:
 
-    hash to binary blob view
+    <hash> -> <blob>
     !chat!text!<channel>!<ts> -> <hash>
     !author!<pubkey>!0!<counter> -> <hash> // post/text
 
@@ -431,7 +434,7 @@ When we delete the corresponding hash, the following operations take place:
 
 Delete <hash> from:
 
-    hash to binary blob view
+    <hash> -> <blob>
 
 Get each view key using `<hash>`:
 
@@ -458,7 +461,7 @@ meaning a hash is mapped to a binary payload and persisted in the database.
 
 The following tables are updated:
 
-    hash to binary blob view
+    <hash> -> <blob>
     !chat!deleted!<hash> -> 1
     !author!<pubkey>!1!<counter> -> <hash> // post/topic
 
@@ -470,7 +473,7 @@ view.  We save the following entries in the reverse-hash lookup:
 
 Now: time to delete the pointed to content:
 
-* Use the hash to delete the payload from: hash to binary blob view
+* Use the hash to delete the payload from: <hash> -> <blob>
 * Look up the hash to be deleted in the reverse-lookup, getting table names and the keys.
 * For each view name and key pair: remove the entry identified by the key from the associated view.
 
@@ -484,11 +487,11 @@ When we delete the corresponding hash (of the delete request itself), the follow
 
 Get the delete message payload from:
 
-    hash to binary blob view
+    <hash> -> <blob>
 
 Then delete `<hash>` of delete message itself from:
 
-    hash to binary blob view
+    <hash> -> <blob>
 
 Using the delete message payload, "forget" that we deleted the pointed-to post
 hash (this is the hash inside the delete payload, *not* the hash of the delete
@@ -511,7 +514,7 @@ payload and persisted in the database.
 
 The following tables are updated:
 
-    hash to binary blob view
+    <hash> -> <blob>
     !author!<pubkey>!2!<counter> -> <hash> // post/topic
     !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
     !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property ??
@@ -529,7 +532,7 @@ When we delete the corresponding hash, the following operations take place:
 
 Delete `<hash>` from:
 
-    hash to binary blob view
+    <hash> -> <blob>
 
 Get each view key using <hash>:
 
@@ -550,7 +553,7 @@ payload and persisted in the database.
 
 The following tables are updated:
 
-    hash to binary blob view
+    <hash> -> <blob>
     !channel!<channel>!topic -> <topic>
     !state!<channel>!topic -> <hash>
     !author!<pubkey>!3!<counter> -> <hash> // post/topic
@@ -587,7 +590,7 @@ When we delete the corresponding hash, the following operations take place:
 
 Delete `<hash>` from:
 
-    hash to binary blob view
+    <hash> -> <blob>
 
 Get each view key using <hash>:
 
@@ -606,7 +609,7 @@ payload and persisted in the database.
 
 The following tables are updated:
 
-    hash to binary blob view
+    <hash> -> <blob>
     !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
     !channel!<channel>!member!<pubkey> -> 1
     !author!<pubkey>!4!<counter> -> <hash> // post/topic
@@ -646,7 +649,7 @@ When we delete the corresponding hash, the following operations take place:
 
 Delete `<hash>` from:
 
-    hash to binary blob view
+    <hash> -> <blob>
 
 Get each view key using <hash>:
 
@@ -665,7 +668,7 @@ Get all the most recent membership messages for this user:
 
     !author!<pubkey>!4!<counter> -> <hash> // post/topic
     !author!<pubkey>!5!<counter> -> <hash> // post/topic
-    hash to binary blob view
+    <hash> -> <blob>
 
 Sort the list of entries and pick the latest {join, leave} for the target
 channel, if there is such a latest message left in the database. If there is,
