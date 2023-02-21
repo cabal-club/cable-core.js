@@ -1,15 +1,25 @@
 # Database indexes and views
 ## Definitions
 * `<thing>` signifies a placeholder value, where the text in brackets is a concrete value
-  of the type described by the text and known at runtime. e.g. `<hash>` is a
+  of the type described by the text and only known at runtime. e.g. `<hash>` is a
   base16-encoded hash appearing something like `7e13a3f34f6494e539ffd32c1bb35f18`
 * `<mono-ts>` is short for monotonic timestamp, i.e. timestamps that only ever
   increase in size and which are guaranteed to not overlap with any other
-  monotonic timestamp. This is most easily achieved by using the
-  `monotonic-timestamp` library.
+  monotonic timestamp. This can be used to yield unique database view keys that can also be
+  ranged over to sort by time. We will be using the `monotonic-timestamp` nodejs module.
+  Monotonic timestamps may look like the following:
+  ```
+  1676993016405
+  1676993016406        < concurrent calls cause a suffix to ensure uniqueness
+  1676993016406.001    < concurrent example 1
+  1676993016406.002    < concurrent example 2
+  1676993016406.003    < concurrent example 3 
+  ```
 * `<hash>` is the base16-encoded 32-byte blake2b hashes that cable operates on
 * `<pubkey>` is the base16-encoded public portion of a ed25519 keypair
 * `<channel>` is the utf-8 encoded string that represents a cable channel (think: chat channel, because that is what it is).
+
+### Notes on conventions in this document
 * accreted state: a view that exists primarily to simplify application-level
   concerns (e.g. make it easy to find the latest topic). Does not help
   answering cable requests. accrete because it changes over time - but maybe not the best name!
@@ -21,12 +31,18 @@
 
 
 ## Materialized views
-These materialized views comprise the database portion of cable-core, and will be handled
-through instantiations of leveldb. When a cable response streams in as a result of a previously
-issued request, the received data will be persisted and tied to its hash in the data store. The
-data will indexed in different kinds of views according to what type of post it is.
+These materialized views comprise the database portion of cable-core, and will be serviced by
+instantiations of leveldb e.g. the nodejs wrapping module `level`, which works in browsers and
+in nodejs. 
+
+When a cable response streams in as a result of a previously issued request, the received data
+will be persisted and tied to its hash in the data store. The data is indexed in different
+kinds of views according to what type of post it is.
 
 <!-- links (not captured by any index yet) -->
+
+The following sections describe the different indexes and stores planned for `cable-core`. Each
+section explains what the view is used for and what the storage schema looks like.
 
 ### Data store
 A data store where each key is a hash, and each value is the data that
@@ -48,37 +64,43 @@ again).
     (old scheme: !<hash>!<viewname>!<viewkey>! = 1 )
 
 ### Posts
-The posts view contains two different subviews, if you will. One that keeps track of hashes of
-`post/text` and `post/delete. The other keeps track of which deletes have happened in order to
-never ask for or persist those posts.
+The posts view tracks two different kinds of data. One part of the view keeps track of hashes
+of `post/text` and `post/delete. The other keeps track of which deletes have happened in order
+to never ask for or persist those posts. The key schema, as denoted below, is different for the
+two subviews.
 
 #### `post/text` and `post/delete`
-The posts view maps channel name+time to a hash that resolves to either a
-`post/text` or a `post/delete`.
+The posts view maps channel name+time to a hash, where the hash should resolve to either a
+`post/text` or a `post/delete` when queried for in the data store.
 
-    !chat!post!<channel>!<ts> -> <hash>
+    !chat!<mono-ts>!post!<channel> -> <hash>
+
+**Note:** mono-ts here should be related to the indexed post's claimed timestamp; do some kind
+of pass / logic that lets us index uniquely but with claimed timestamp instead of current time
 
 **Note:** Do secondary topological sort after retrieving posts?
 
 **Note:** `post/delete` may target any kind of post, including non-`post/text` types
 
+<!-- 
 **q:** Do we need a fulltext index as well? To e.g. enable easier search
 implementation.  But maybe it doesn't matter? To do search, we essentially get
 a window of history, resolve the text and then figure out which of the messages
 are relevant to return as results. So: I guess the answer to the initial
 question is, no, it seems better to have access to the full cablegram because
-it has more data than just the text.
+it has more data than just the text. 
+-->
 
 #### Handling deletions
-Deletions. This view allows us to persist deletions and prevent resyncing deleted posts. Remove this entry to enable resyncing
-the corresponding hash.
+Deletions. This view allows us to persist deletions and can be used to prevent resyncing deleted posts. 
 
     !chat!deleted!<hash> -> 1
 
 **Note**: This only tracks the *hash of the deleted post* i.e. NOT the hash of the `post/delete` itself. 
 
 ### Channel state
-Channel state: map channel name + unique identifier to a channel state-related hash. That is, this view keeps track of:
+Channel state maps channel name of a post, alongside extra details part of the key, to a
+channel state-related hash. This view keeps track of:
 
 * *all* `post/join` or `post/leave` made by `<pubkey>`
 ```
@@ -96,7 +118,7 @@ Channel state: map channel name + unique identifier to a channel state-related h
 **q:** Should we include convenience methods that returns cablegram pointed to by
 hash, in addition to methods that only return a list of hashes? 
 
-**Note:** this *does* handle the case of answering a historic (give all history you
+**Note:** this view *does* handle the case of answering a historic (give all history you
 have) channel state request.
 
 ### Channel membership (accreted)
@@ -105,7 +127,7 @@ it.
 
     !channel!<channel>!member!<pubkey> -> 1 or 0
 
-**Note:** Each accreted view needs to be potentially re-indexed if a deleted message had the same type as the view.
+**Note:** Each accreted view needs to be potentially flushed & re-indexed if a deleted message had the same type as the view.
 
 **q:** might be subsumed by channel state view? doesn't give us joined or left without parsing though
 
@@ -123,13 +145,13 @@ The channel topic view keeps track of the topic of each channel the local user k
 
 ### Author
 The author view indexes all posts by the public key that authored a given post. The view key
-also includes what type of post it was, a `post/text` or a `post/join` for instance. The post
-type information is represented by the post type ids defined in the cable spec. The view
-indexes these posts mapping the public key and the post type to the corresponding post hash. 
+also includes what type of post it was; e.g. a `post/text` or a `post/join`. Which type of post
+it was is encoded by using the corresponding post type ID as defined in the cable spec. Entries
+are indexed by mapping the public key and the post type to the corresponding post hash. 
 
 You can query for any given `post_type` authored by any given public key.
 
-    !author!<pubkey>!<post_type-id>!<mono-ts> -> <hash>
+    !author!<mono-ts>!<pubkey>!<post_type-id> -> <hash>
 
 The existence of this view facilitates deleting all posts authored by pubkey, which would be
 useful if a pubkey has been blocked and you no longer want to host the content they authored.
@@ -138,10 +160,9 @@ useful if a pubkey has been blocked and you no longer want to host the content t
 This view specifically deals with mapping out the different types of
 `post/info` contents that may have been authored by users. 
 
-As of writing (2023-02-15) there is only one specified key, `name`, that is
-defined to be used with `post/info` but other types of user-related information
-may be added in the future: a user description, a user image, a user's post
-expiry preference, etc.
+As of writing (2023-02-15) the cable spec only has one specified `post/info` key: `name. Other
+types of user-related information may be added in the future: a user description, a user image,
+a user's post expiry preference, etc.
 
     !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
     !user!<mono-ts>!<pubkey>!info!<property> in general
@@ -151,15 +172,20 @@ The corresponding user information schema looked like the following for cabal-co
     user!<mono-ts>!about!<pubkey>
 
 ## Tracking a request -> response life cycle
+Some notes now follow on how we could better keep track of whether respones we get back for
+requests made are sensible or not. These notes of this section are more exploratory than
+explicative. Jump to section **Verifying index sufficiency** if this is not your jam.
+
 Tracking the path of a request and its cousin, the response, is done with request ids
 (`req_id`).
 
 A `reqid` always belongs to a request or to the response caused by a request. Thus a `reqid` has
 a source (the message type that "spawns" the request) and an expectation of what to get
-back (the message type that correctly answers the request e.g. a data response, a hash
-response, or a channel list response). We can also prepare for the circuits behaviour by
-adding an id field so that we can more efficiently route messages, instead of floodfilling
-to all connected peers.
+back (the message type that correctly answers the request e.g. a `data response` for a `request by
+hash`, a `hash response` for a `channel time range request`, or a `channel list response` for a
+`channel list request`). We can also prepare for the cable specification's _circuits_ behaviour
+by keeping track of an extra id to more efficiently route messages, instead of floodfilling to
+all connected peers.
 
 When we deal with a request, we can associate the generated `reqid` with:
 
@@ -220,14 +246,14 @@ Perhaps the best recourse is to log the failed expectations, and in the specific
 the expected behaviour such that other implementations try their best at "being conservative in
 what they send".
 
-## Brainstorming & verifying index sufficiency
+## Verifying index sufficiency
 
-The following sections try to map each cable request to what kind of database index operations
-will suffice to correctly answer the request. Intended as a form of sketching / thinking out loud that
-helps to identify gaps ahead of time, before views have been written.
+The following sections map each cable request to what kind of database index operations will
+suffice to correctly answer the request. Intended as a form of sketching / thinking out loud
+that helps to identify gaps ahead of time, before the views have been written.
 
-### Request expectations
 <!-- 
+### Request expectations
     might need views to handle the following cases:
 
     * track requested hashes (and check against hashes of response payloads)
@@ -237,6 +263,7 @@ helps to identify gaps ahead of time, before views have been written.
 
 -->
 
+### Request & Response expectations
 #### Request by hash
 
 Request by hash expects:
