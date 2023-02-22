@@ -1,11 +1,66 @@
-// these all generate a cablegram using the local keypair
-// equivalents are needed for storing their resulting messages into the database. these equivalents would also be used when receiving messages from the network
+const EventEmitter = require('events').EventEmitter
+const ts = require("monotonic-timestamp")
+const b4a = require("b4a")
+const storedebug = require("debug")("core/store")
+const coredebug = require("debug")("core/")
+const { Level } = require("level")
+const { MemoryLevel } = require("memory-level")
+
+const cable = require("../cable/index.js")
+const crypto = require("../cable/cryptography.js")
+const JOIN_POST = cable.JOIN_POST
+const LEAVE_POST = cable.LEAVE_POST
+
+const datastore = require("./data-store")
 
 // database interaction, operate on the cablegram?
 class CableStore {
+  constructor(opts) {
+    if (!opts) { opts = { temp: true } }
+
+    this._db = new Level("data")
+    if (opts.temp) {
+      this._db = new MemoryLevel("data")
+    }
+    // stores binary representations of message payloads by their hashes
+    this.blobs = datastore(this._db.sublevel("data-store", { valueEncoding: "binary" }))
+  }
+
   // storage methods
-  join(buf) {}
-  leave(buf) {}
+  join(buf) {
+    const hash = crypto.hash(buf)
+    this.blobs.api.put(hash, buf, (err) => {
+     if (err !== null) {
+       storedebug("join (error: %o)", err) 
+     } else {
+       storedebug("join", err) 
+     }
+    })
+    
+    // TODO (2023-02-22): index in more ways, as indexes come online:
+    // * reverse hash map
+    // * channel state index
+    // * channel membership index
+    // * author index
+  }
+
+  leave(buf) {
+    const hash = crypto.hash(buf)
+    this.blobs.api.put(hash, buf, (err) => {
+     if (err !== null) {
+       storedebug("join (error: %o)", err) 
+     } else {
+       storedebug("join", err) 
+     }
+    })
+    
+    // TODO (2023-02-22): index in more ways, as indexes come online:
+    // * reverse hash map
+    // * channel state index
+    // * channel membership index
+    // * author index
+  }
+
   delete(buf) {}
   topic(buf) {}
   post(buf) {}
@@ -14,20 +69,30 @@ class CableStore {
   request(buf) {}
 
   // get data by list of hashes
-  getData(hashes, cb) {}
+  getData(hashes, cb) {
+    this.blobs.api.getMany(hashes, cb)
+  }
   // get hashes by channel name + channel time range
-  getHashes(channel, start, end, cb) {}
+  getHashes(channel, start, end, limit, cb) {}
   // hashes relating to channel state
   // (superfluous if we only ever store latest channel membership?)
-  getChannelState(channel, cb) {} // superfluous?
+  getChannelState(channel, historic, limit, cb) {} // superfluous?
   // get all channel names
   getChannelNames(cb) {}
+
+  // rebuild the specified index. could be required if a delete happened for a post type which has an accreted
+  // (application state-only) index, such as deleting a post/join or a post/topic
+  _rebuildIndex(name) {}
 }
 
 class CableCore extends EventEmitter {
   constructor(opts) {
+    super()
+    if (!opts) { opts = {} }
     if (!opts.storage) {}
     if (!opts.network) {}
+
+    this.kp = crypto.generateKeypair()
 
     this.store = new CableStore()
     /* used as: 
@@ -56,21 +121,44 @@ class CableCore extends EventEmitter {
     //  leave - emit(peer)
   }
 
+  hash (buf) {
+    if (b4a.isBuffer(buf)) {
+      return crypto.hash(buf)
+    }
+    return null
+  }
+
   /* methods that produce cablegrams, and which we store in our database */
 	// post/text
 	post(channel, text) {}
 
-	// post/info key=nick
+	// post/info key=name
 	setNick(name) {}
 
 	// post/topic
 	setTopic(channel, topic) {}
 
+  // get the latest links for the given context. with `links` peers have a way to partially order message history
+  // without relying on claimed timestamps
+  _links(channel) {
+    return crypto.hash(b4a.from("not a message payload at all"))
+  }
+
 	// post/join
-	join(channel) {}
+	join(channel) {
+    const link = this._links()
+    const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts())
+    this.store.join(buf)
+    return buf
+  }
 
 	// post/leave
-	leave(channel) {}
+	leave(channel) {
+    const link = this._links()
+    const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts())
+    this.store.leave(buf)
+    return buf
+  }
 
 	// post/delete
   // note: store deleted hash to keep track of hashes we don't want to sync.  
@@ -93,7 +181,7 @@ class CableCore extends EventEmitter {
   getJoinedChannels(cb) {}
 
   // get users in channel? map pubkey -> user object
-  getUsers(channel, cb)
+  getUsers(channel, cb) {}
 
   getChannelState(channel, cb) {
     // 1) either:
@@ -153,7 +241,7 @@ class CableCore extends EventEmitter {
 
   /* methods that handle responses */
   // TODO (2023-02-06):
-  // * ignore hashes that have not been requested 
+  // * ignore hashes that have not been requested
   // -> track "outbound hashes"
   // -> hash buf
   // * ignore responses that don't map to tracked reqids
@@ -173,3 +261,5 @@ class CableCore extends EventEmitter {
   _handleHashResponse(hash, buf) {}
   _handleChannelListResponse(buf) {}
 }
+
+module.exports = { CableCore, CableStore }

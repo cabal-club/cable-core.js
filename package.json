@@ -1,0 +1,31 @@
+{
+  "name": "cable-core",
+  "version": "1.0.0",
+  "description": "database and network interactions for cable+cabal",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cabal-club/cable-core.js.git"
+  },
+  "keywords": [
+    "p2p",
+    "cable",
+    "cabal"
+  ],
+  "author": "cabal-club authors",
+  "license": "AGPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/cabal-club/cable-core.js/issues"
+  },
+  "homepage": "https://github.com/cabal-club/cable-core.js#readme",
+  "dependencies": {
+    "b4a": "^1.6.1",
+    "debug": "^4.3.4",
+    "level": "^8.0.0",
+    "memory-level": "^1.0.0",
+    "monotonic-timestamp": "0.0.9"
+  }
+}

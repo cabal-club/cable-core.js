@@ -1,3 +1,4 @@
 *.sw[a-z]
 node_modules/
 package-lock.json
+data/
