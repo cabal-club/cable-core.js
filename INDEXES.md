@@ -91,6 +91,8 @@ it has more data than just the text.
 -->
 
 #### Handling deletions
+<!-- deleted should be its own view -->
+
 Deletions. This view allows us to persist deletions and can be used to prevent resyncing deleted posts. 
 
     !chat!deleted!<hash> -> 1

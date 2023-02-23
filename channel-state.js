@@ -70,7 +70,7 @@ module.exports = function (lvl) {
             variableKey = `!topic`
             break
           default:
-            throw new Error("channel-state: unhandled message type")
+            throw new Error(`channel-state: unhandled post type (${msg.postType})`)
             break
         }
 
@@ -110,8 +110,9 @@ module.exports = function (lvl) {
 
     api: {
       getLatestState: function (channel, cb) {
-        // return the latest topic, and the latest name and member for each known pubkey
+        // return the latest topic set on channel + latest name and membership change for each known pubkey in channel
         ready(async function () {
+          debug("api.getLatestState")
           const iter = lvl.values({
             reverse: true,
             gt: `latest!${channel}!`,
@@ -120,8 +121,6 @@ module.exports = function (lvl) {
           const hashes = await iter.all()
           cb(null, hashes) // only return one hash
         })
-        // either get a list of known public keys and use it to get each latest record per public key, or
-        // use historic state and then filter afterwards per unique pubkey?
       },
       getLatestNameHash: function (channel, publicKey, cb) {
         // return latest post/info hash for pubkey
@@ -164,28 +163,6 @@ module.exports = function (lvl) {
           cb(hashes)
         })
       },
-      getMany: function (hashes, cb) {
-        debug("api.getMany")
-        const ops = []
-
-        ready(function () {
-          lvl.getMany(hashes, function (err, buflist) {
-            console.log(err, buflist)
-            if (err) { return cb(err, null) }
-            return cb(null, buflist)
-          })
-        })
-      },
-      // del: function (hash, cb) {
-      //   debug("api.del")
-      //   if (typeof cb === "undefined") { cb = noop }
-      //   ready(function () {
-      //     lvl.del(hash, function (err) {
-      //       if (err) { return cb(err) }
-      //       return cb(null)
-      //     })
-      //   })
-      // },
       events: events
     },
 

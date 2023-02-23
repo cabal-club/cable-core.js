@@ -13,11 +13,12 @@ const crypto = require("../cable/cryptography.js")
 const constants = require("../cable/constants.js")
 const createDatastore = require("./data-store.js")
 const createChannelStateView = require("./channel-state.js")
+const createMessagesView = require("./messages.js")
 // aliases
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
 const TOPIC_POST = cable.TOPIC_POST
-
+const TEXT_POST = cable.TEXT_POST
 
 // database interaction, operate on the cablegram?
 class CableStore {
@@ -31,6 +32,7 @@ class CableStore {
     // stores binary representations of message payloads by their hashes
     this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }))
     this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }))
+    this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }))
   }
 
   // storage methods
@@ -73,7 +75,22 @@ class CableStore {
     // * author index
   }
 
-  delete(buf) {}
+  del(buf) {
+    const hash = crypto.hash(buf)
+    this.blobs.map([{hash, buf}], (err) => {
+     if (err !== null) {
+       storedebug("delete (error: %O)", err) 
+     } else {
+       storedebug("delete", err) 
+     }
+    })
+    const obj = DELETE_POST.toJSON(buf)
+    
+    this.messagesView.map([{ ...obj, hash}])
+    // TODO (2023-02-23): delete entry in data store corresponding to targeted hash
+    // TODO (2023-02-23): record hash of deleted post in upcoming 
+    // deletedView
+  }
 
   topic(buf) {
     const hash = crypto.hash(buf)
@@ -89,7 +106,19 @@ class CableStore {
     this.channelStateView.map([{ ...obj, hash}])
   }
 
-  post(buf) {}
+  text(buf) {
+    const hash = crypto.hash(buf)
+    this.blobs.map([{hash, buf}], (err) => {
+     if (err !== null) {
+       storedebug("text (error: %O)", err) 
+     } else {
+       storedebug("text", err) 
+     }
+    })
+    const obj = TEXT_POST.toJSON(buf)
+    
+    this.messagesView.map([{ ...obj, hash}])
+  }
   info(buf) {}
   // store a dispatched request; by reqid?
   request(buf) {}
@@ -99,7 +128,9 @@ class CableStore {
     this.blobs.api.getMany(hashes, cb)
   }
   // get hashes by channel name + channel time range
-  getHashes(channel, start, end, limit, cb) {}
+  getChannelTimeRange(channel, start, end, limit, cb) {
+    this.messagesView.api.getChannelTimeRange(channel, start, end, limit, cb)
+  }
   // hashes relating to channel state
   // (superfluous if we only ever store latest channel membership?)
   getChannelState(channel, historic, limit, cb) {} // superfluous?
@@ -156,7 +187,12 @@ class CableCore extends EventEmitter {
 
   /* methods that produce cablegrams, and which we store in our database */
 	// post/text
-	post(channel, text) {}
+	postText(channel, text) {
+    const link = this._links()
+    const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts(), text)
+    this.store.text(buf)
+    return buf
+  }
 
 	// post/info key=name
 	setNick(name) {}
@@ -197,11 +233,17 @@ class CableCore extends EventEmitter {
   // 
   // q: should we have a flag that is like `persistDelete: true`? enables for deleting for storage reasons, but not
   // blocking reasons. otherwise all deletes are permanent and not reversible, seems bad 
-	delete(hash) {}
+	del(hash) {}
 
 
   /* methods to get data we already have locally */
-  getPosts(channel, start, end, limit, cb) {}
+  getChat(channel, start, end, limit, cb) {
+    coredebug(channel, start, end, limit, cb)
+    this.store.getChannelTimeRange(channel, start, end, limit, (err, hashes) => {
+      if (err) { return cb(err) }
+      this.resolveHashes(hashes, cb)
+    })
+  }
 
   getNick(cb) {}
 
@@ -225,16 +267,19 @@ class CableCore extends EventEmitter {
   // get users in channel? map pubkey -> user object
   getUsers(channel, cb) {}
 
-  // resolves hashes into posts
+  // resolves hashes into post objects
   resolveHashes(hashes, cb) {
-    this.store.blobs.api.getMany(hashes, cb)
+    this.store.blobs.api.getMany(hashes, (err, cablegrams) => {
+      if (err) { return cb(err) }
+      const posts = cablegrams.map(cable.parsePost)
+      cb(null, posts)
+    })
   }
 
   getChannelState(channel, cb) {
     this.store.channelStateView.api.getLatestState(channel, (err, hashes) => {
-      if (!err) {
-        this.resolveHashes(hashes, cb)
-      }
+      if (err) { return cb(err) }
+      this.resolveHashes(hashes, cb)
     })
     // 1) either:
    
