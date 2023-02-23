@@ -33,28 +33,31 @@ module.exports = function (lvl) {
   return {
     maxBatch: 100,
 
+    // TODO (2023-02-23): rethink usage of `view.map` given that kappa-views are not a necessary part of the dependencies atm
     map: function (msgs, next) {
       debug("view.map")
+
       let seen = {}
       let ops = []
       let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
-        // TODO: decide format of input; should we operate on a json object or not?
+        // TODO: decide format of input; should we operate on a json object or not? 
         if (!sanitize(msg)) return
-        // [{buffer: <buffer>, hash: "0x123123"}]
-        const key = `${msg.hash}`
-        const hash = msg.hash
-        const buf = msg.buffer
+        // TODO (2023-02-23): decide on if key should be binary form of hash, or hex encoded hash.
+        // benefits of binary: don't need to convert back and forth
+        // drawbacks: can't be used in string keys of other indices -> inconsistencies in handling across indices
+        const key = msg.hash
+        const value = msg.buf
 
         pending++
         lvl.get(key, function (err) {
           if (err && err.notFound) {
-            if (!seen[hash]) events.emit('add', hash)
+            if (!seen[key]) events.emit('add', key)
             ops.push({
               type: 'put',
               key,
-              value: buf
+              value
             })
           }
           if (!--pending) done()
@@ -63,6 +66,7 @@ module.exports = function (lvl) {
       if (!pending) done()
 
       function done () {
+        debug("ops %O",  ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
         unprocessedBatches--
@@ -74,14 +78,13 @@ module.exports = function (lvl) {
       get: function (hash, cb) {
         debug("api.get")
         /* what we can do if we want to introduce opts:
-        
+
         if (typeof opts === "function") {
           cb = opts
           opts = {}
         }
         if (!opts) { opts = {} }
-
-        */
+*/
         ready(function () {
           lvl.get(hash, function (err, buf) {
             if (err) { return cb(err, null) }
@@ -101,25 +104,15 @@ module.exports = function (lvl) {
           })
         })
       },
-      put: function (hash, buf, cb) {
-        debug("api.put")
-        if (typeof cb === "undefined") { cb = noop }
-        ready(function () {
-            lvl.put(hash, buf, function (err) {
-              if (err) { return cb(err) }
-              return cb(null)
-            })
-          })
-      },
       del: function (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
         ready(function () {
-            lvl.del(hash, function (err) {
-              if (err) { return cb(err) }
-              return cb(null)
-            })
+          lvl.del(hash, function (err) {
+            if (err) { return cb(err) }
+            return cb(null)
           })
+        })
       },
       events: events
     },

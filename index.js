@@ -1,17 +1,23 @@
+// node core dependencies
 const EventEmitter = require('events').EventEmitter
+// external dependencies
 const ts = require("monotonic-timestamp")
 const b4a = require("b4a")
 const storedebug = require("debug")("core/store")
 const coredebug = require("debug")("core/")
 const { Level } = require("level")
 const { MemoryLevel } = require("memory-level")
-
+// internal dependencies
 const cable = require("../cable/index.js")
 const crypto = require("../cable/cryptography.js")
+const constants = require("../cable/constants.js")
+const createDatastore = require("./data-store.js")
+const createChannelStateView = require("./channel-state.js")
+// aliases
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
+const TOPIC_POST = cable.TOPIC_POST
 
-const datastore = require("./data-store")
 
 // database interaction, operate on the cablegram?
 class CableStore {
@@ -23,19 +29,22 @@ class CableStore {
       this._db = new MemoryLevel("data")
     }
     // stores binary representations of message payloads by their hashes
-    this.blobs = datastore(this._db.sublevel("data-store", { valueEncoding: "binary" }))
+    this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }))
+    this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }))
   }
 
   // storage methods
   join(buf) {
     const hash = crypto.hash(buf)
-    this.blobs.api.put(hash, buf, (err) => {
+    this.blobs.map([{hash, buf}], (err) => {
      if (err !== null) {
        storedebug("join (error: %o)", err) 
      } else {
        storedebug("join", err) 
      }
     })
+    const obj = JOIN_POST.toJSON(buf)
+    this.channelStateView.map([{ ...obj, hash}])
     
     // TODO (2023-02-22): index in more ways, as indexes come online:
     // * reverse hash map
@@ -46,13 +55,16 @@ class CableStore {
 
   leave(buf) {
     const hash = crypto.hash(buf)
-    this.blobs.api.put(hash, buf, (err) => {
+    this.blobs.map([{hash, buf}], (err) => {
      if (err !== null) {
-       storedebug("join (error: %o)", err) 
+       storedebug("leave (error: %O)", err) 
      } else {
-       storedebug("join", err) 
+       storedebug("leave", err) 
      }
     })
+    const obj = LEAVE_POST.toJSON(buf)
+    
+    this.channelStateView.map([{ ...obj, hash}])
     
     // TODO (2023-02-22): index in more ways, as indexes come online:
     // * reverse hash map
@@ -62,7 +74,21 @@ class CableStore {
   }
 
   delete(buf) {}
-  topic(buf) {}
+
+  topic(buf) {
+    const hash = crypto.hash(buf)
+    this.blobs.map([{hash, buf}], (err) => {
+     if (err !== null) {
+       storedebug("topic (error: %O)", err) 
+     } else {
+       storedebug("topic", err) 
+     }
+    })
+    const obj = TOPIC_POST.toJSON(buf)
+    
+    this.channelStateView.map([{ ...obj, hash}])
+  }
+
   post(buf) {}
   info(buf) {}
   // store a dispatched request; by reqid?
@@ -136,7 +162,12 @@ class CableCore extends EventEmitter {
 	setNick(name) {}
 
 	// post/topic
-	setTopic(channel, topic) {}
+	setTopic(channel, topic) {
+    const link = this._links()
+    const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts(), topic)
+    this.store.topic(buf)
+    return buf
+  }
 
   // get the latest links for the given context. with `links` peers have a way to partially order message history
   // without relying on claimed timestamps
@@ -174,16 +205,32 @@ class CableCore extends EventEmitter {
 
   getNick(cb) {}
 
-  getTopic(channel, cb) {}
+  getTopic(channel, cb) {
+    // TODO (2023-02-23): should resolve to a string topic, not the hash of the post/topic message
+    this.store.channelStateView.api.getLatestTopicHash("channel", cb)
+  }
 
   getChannels(cb) {}
 
-  getJoinedChannels(cb) {}
+  getJoinedChannels(channel, cb) {
+    // TODO (2023-02-23): make this return joined channels and not be a weird verification that getLatestMembership
+    // works X)
+    this.store.channelStateView.api.getLatestMembershipHash(channel, this.kp.publicKey, (err, hash) => {
+      if (!err) {
+        this.store.blobs.api.get(hash, cb)
+      }
+    })
+  }
 
   // get users in channel? map pubkey -> user object
   getUsers(channel, cb) {}
 
   getChannelState(channel, cb) {
+    this.store.channelStateView.api.getLatestState(channel, (err, hashes) => {
+      if (!err) {
+        this.store.blobs.api.getMany(hashes, cb)
+      }
+    })
     // 1) either:
    
     /* return something like {
