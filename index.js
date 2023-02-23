@@ -225,10 +225,15 @@ class CableCore extends EventEmitter {
   // get users in channel? map pubkey -> user object
   getUsers(channel, cb) {}
 
+  // resolves hashes into posts
+  resolveHashes(hashes, cb) {
+    this.store.blobs.api.getMany(hashes, cb)
+  }
+
   getChannelState(channel, cb) {
     this.store.channelStateView.api.getLatestState(channel, (err, hashes) => {
       if (!err) {
-        this.store.blobs.api.getMany(hashes, cb)
+        this.resolveHashes(hashes, cb)
       }
     })
     // 1) either:

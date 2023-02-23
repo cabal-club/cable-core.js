@@ -32,7 +32,6 @@ core.getChannelState("introduction", (err, data) => {
   console.log("latest channel state")
   console.log("error?", err)
   console.log("data?", data)
-  data.forEach(cablegram => {
-    console.log(cable.parsePost(cablegram))
-  })
+  const posts = data.map(cable.parsePost)
+  console.log(posts)
 })
