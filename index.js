@@ -14,14 +14,18 @@ const constants = require("../cable/constants.js")
 const createDatastore = require("./data-store.js")
 const createChannelStateView = require("./channel-state.js")
 const createMessagesView = require("./messages.js")
+const createDeletedView = require("./deleted.js")
 // aliases
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
 const TOPIC_POST = cable.TOPIC_POST
 const TEXT_POST = cable.TEXT_POST
+const DELETE_POST = cable.DELETE_POST
 
 // database interaction, operate on the cablegram?
 class CableStore {
+  // TODO (2023-02-23): ensure proper handling of duplicates in views that index hashes
+
   constructor(opts) {
     if (!opts) { opts = { temp: true } }
 
@@ -33,6 +37,7 @@ class CableStore {
     this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }))
     this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }))
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }))
+    this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
   }
 
   // storage methods
@@ -76,7 +81,9 @@ class CableStore {
   }
 
   del(buf) {
+    // the hash of the post/delete message
     const hash = crypto.hash(buf)
+    // persist cablegram of the post/delete message
     this.blobs.map([{hash, buf}], (err) => {
      if (err !== null) {
        storedebug("delete (error: %O)", err) 
@@ -84,12 +91,21 @@ class CableStore {
        storedebug("delete", err) 
      }
     })
+    // note: obj.hash is hash of the deleted post (not of the post/delete!)
     const obj = DELETE_POST.toJSON(buf)
-    
-    this.messagesView.map([{ ...obj, hash}])
-    // TODO (2023-02-23): delete entry in data store corresponding to targeted hash
-    // TODO (2023-02-23): record hash of deleted post in upcoming 
-    // deletedView
+    const hashToDelete = obj.hash
+
+    this.blobs.api.get(hashToDelete, (err, cablegram) => {
+      const post = cable.parsePost(cablegram)
+      storedebug("le post to delete %O", post)
+      const channel = post.channel
+      // record the post/delete in the messages view
+      this.messagesView.map([{ ...obj, channel, hash}])
+      // delete the targeted post in the data store using obj.hash
+      this.blobs.api.del(hashToDelete)
+      // record hash of deleted post in upcoming deletedView
+      this.deletedView.map([hashToDelete])
+    })
   }
 
   topic(buf) {
@@ -233,7 +249,12 @@ class CableCore extends EventEmitter {
   // 
   // q: should we have a flag that is like `persistDelete: true`? enables for deleting for storage reasons, but not
   // blocking reasons. otherwise all deletes are permanent and not reversible, seems bad 
-	del(hash) {}
+	del(hash) {
+    const link = this._links()
+    const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, link, ts(), hash)
+    this.store.del(buf)
+    return buf
+  }
 
 
   /* methods to get data we already have locally */
@@ -269,9 +290,18 @@ class CableCore extends EventEmitter {
 
   // resolves hashes into post objects
   resolveHashes(hashes, cb) {
+    coredebug("the hashes", hashes)
     this.store.blobs.api.getMany(hashes, (err, cablegrams) => {
       if (err) { return cb(err) }
-      const posts = cablegrams.map(cable.parsePost)
+      coredebug("resolveHashes cablegrams %O", cablegrams)
+      const posts = []
+      cablegrams.forEach(gram => {
+        if (typeof gram === "undefined") {
+          posts.push(null)
+          return
+        }
+        posts.push(cable.parsePost(gram))
+      })
       cb(null, posts)
     })
   }

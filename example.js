@@ -39,3 +39,12 @@ core.getChat("introduction", 0, 0, -1, (err, chat) => {
   console.log("error?", err)
   console.log("chat?", chat)
 })
+core.del(core.hash(bufText))
+
+setTimeout(() => {
+  core.getChat("introduction", 0, 0, -1, (err, chat) => {
+    console.log("2 chat messages")
+    console.log("2 error?", err)
+    console.log("2 chat?", chat)
+  })
+}, 100)
