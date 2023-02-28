@@ -1,6 +1,6 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const debug = require("debug")("core/user-info")
+const debug = require("debug")("core/author")
 const constants = require("../cable/constants.js")
 
 function noop () {}
@@ -41,29 +41,26 @@ module.exports = function (lvl) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
-        /*
-        !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
-        !user!<mono-ts>!<pubkey>!info!<property> in general
-
-        The corresponding user information schema looked like the following for cabal-core:
-
-        user!<mono-ts>!about!<pubkey>
-        */
         // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
-        // TODO (2023-02-28): should we only store the latest value instead? 
-        const key = `${msg.timestamp}!${msg.publicKey.toString("hex")}!info!${msg.key}`
+        // <mono-ts>!<pubkey>!<post_type-id> -> <hash>
+        const key = `${msg.timestamp}!${msg.publicKey.toString("hex")}!${msg.postType}`
         const hash = msg.hash
 
         // make sure we find unhandled cases, because they are likely to be either bugs or new functionality that needs
         // to be handled in other parts of the codebase
-        switch (msg.key) {
-          case "name": 
-            // pass
+        switch (msg.postType) {
+          case constants.TEXT_POST:
+          case constants.DELETE_POST:
+          case constants.INFO_POST:
+          case constants.TOPIC_POST:
+          case constants.JOIN_POST:
+          case constants.LEAVE_POST:
+            // do nothing
             break
           default:
-            throw new Error(`user-info: unhandled key type (${msg.key})`)
+            throw new Error(`author: unhandled post type (${msg.postType})`)
             break
         }
 
@@ -77,14 +74,6 @@ module.exports = function (lvl) {
               value: hash
             })
           }
-          // keeps track of the latest key:value pair made by any user, let's us easily get the latest value
-          //
-          // note: need to track & remove these keys via the reverse hash map in case of delete
-          ops.push({
-            type: 'put',
-            key: `latest!${msg.publicKey.toString("hex")}!info!${msg.key}`,
-            value: hash
-          })
           if (!--pending) done()
         })
       })
@@ -100,14 +89,30 @@ module.exports = function (lvl) {
     },
 
     api: {
-      getLatestNameHash: function (publicKey, cb) {
-        // return latest post/info hash for pubkey
-        ready(function () {
-          debug("api.getLatestNameHash")
-          lvl.get(`latest!${publicKey.toString("hex")}!info!name`, (err, hash) => {
-            if (err) { return cb(err, null) }
-            return cb(null, hash)
+      getAllHashesByAuthor: function (publicKey, cb) {
+        // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
+        ready(async function () {
+          debug("api.getAllHashesByAuthor")
+          const iter = lvl.values({
+            reverse: true,
+            gt: `!!${publicKey.toString("hex")}!!`,
+            lt: `~!${publicKey.toString("hex")}!~`
           })
+          const hashes = await iter.all()
+          cb(null, hashes) // only return one hash
+        })
+      },
+      getAllHashesByAuthorAndType: function (publicKey, postType, cb) {
+        // get all post hashes made by publicKey for the specified postType
+        ready(async function () {
+          debug("api.getAllHashesByAuthorAndType")
+          const iter = lvl.values({
+            reverse: true,
+            gt: `!!${publicKey.toString("hex")}!${postType}`,
+            lt: `~!${publicKey.toString("hex")}!${postType}`
+          })
+          const hashes = await iter.all()
+          cb(null, hashes) // only return one hash
         })
       },
       events: events

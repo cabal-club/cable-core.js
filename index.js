@@ -11,19 +11,21 @@ const { MemoryLevel } = require("memory-level")
 const cable = require("../cable/index.js")
 const crypto = require("../cable/cryptography.js")
 const constants = require("../cable/constants.js")
+// materialized views and indices
 const createDatastore = require("./data-store.js")
 const createChannelStateView = require("./channel-state.js")
 const createChannelMembershipView = require("./channel-membership.js")
 const createUserInfoView = require("./user-info.js")
+const createAuthorView = require("./author.js")
 const createMessagesView = require("./messages.js")
 const createDeletedView = require("./deleted.js")
 // aliases
-const JOIN_POST = cable.JOIN_POST
-const LEAVE_POST = cable.LEAVE_POST
-const TOPIC_POST = cable.TOPIC_POST
 const TEXT_POST = cable.TEXT_POST
 const DELETE_POST = cable.DELETE_POST
 const INFO_POST = cable.INFO_POST
+const TOPIC_POST = cable.TOPIC_POST
+const JOIN_POST = cable.JOIN_POST
+const LEAVE_POST = cable.LEAVE_POST
 
 // database interaction, operate on the cablegram?
 class CableStore {
@@ -41,40 +43,46 @@ class CableStore {
     this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }))
     this.channelMembershipView = createChannelMembershipView(this._db.sublevel("channel-membership", { valueEncoding: "json" }))
     this.userInfoView = createUserInfoView(this._db.sublevel("user-info", { valueEncoding: "binary" }))
+    this.authorView = createAuthorView(this._db.sublevel("author", { valueEncoding: "binary" }))
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }))
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
+  }
+
+  _storeNewPost(buf, hash) {
+    // store each new post by associating its hash to the binary post payload
+    this.blobs.map([{hash, buf}], (err) => {
+      if (err !== null) {
+        storedebug("blobs (error: %o)", err) 
+      } else {
+        storedebug("blobs", err) 
+      }
+    })
+    const obj = cable.parsePost(buf)
+    // index posts made by author's public key and type of post
+    this.authorView.map([{...obj, hash}], (err) => {
+      if (err !== null) {
+        storedebug("author (error: %o)", err) 
+      } else {
+        storedebug("author", err) 
+      }
+    })
   }
 
   // storage methods
   join(buf) {
     const hash = crypto.hash(buf)
-    this.blobs.map([{hash, buf}], (err) => {
-     if (err !== null) {
-       storedebug("join (error: %o)", err) 
-     } else {
-       storedebug("join", err) 
-     }
-    })
+    this._storeNewPost(buf, hash)
     const obj = JOIN_POST.toJSON(buf)
     this.channelStateView.map([{ ...obj, hash}])
     this.channelMembershipView.map([obj])
     
     // TODO (2023-02-22): index in more ways, as indexes come online:
     // * reverse hash map
-    // * channel state index
-    // * channel membership index
-    // * author index
   }
 
   leave(buf) {
     const hash = crypto.hash(buf)
-    this.blobs.map([{hash, buf}], (err) => {
-     if (err !== null) {
-       storedebug("leave (error: %O)", err) 
-     } else {
-       storedebug("leave", err) 
-     }
-    })
+    this._storeNewPost(buf, hash)
     const obj = LEAVE_POST.toJSON(buf)
     
     this.channelStateView.map([{ ...obj, hash}])
@@ -82,29 +90,24 @@ class CableStore {
     
     // TODO (2023-02-22): index in more ways, as indexes come online:
     // * reverse hash map
-    // * channel state index
-    // * channel membership index
-    // * author index
   }
 
   del(buf) {
     // the hash of the post/delete message
     const hash = crypto.hash(buf)
     // persist cablegram of the post/delete message
-    this.blobs.map([{hash, buf}], (err) => {
-     if (err !== null) {
-       storedebug("delete (error: %O)", err) 
-     } else {
-       storedebug("delete", err) 
-     }
-    })
+    this._storeNewPost(buf, hash)
     // note: obj.hash is hash of the deleted post (not of the post/delete!)
     const obj = DELETE_POST.toJSON(buf)
     const hashToDelete = obj.hash
 
     this.blobs.api.get(hashToDelete, (err, cablegram) => {
+      if (err) {
+        storedebug("delete err'd", err)
+        return
+      }
       const post = cable.parsePost(cablegram)
-      storedebug("le post to delete %O", post)
+      storedebug("post to delete %O", post)
       const channel = post.channel
       // record the post/delete in the messages view
       this.messagesView.map([{ ...obj, channel, hash}])
@@ -117,13 +120,7 @@ class CableStore {
 
   topic(buf) {
     const hash = crypto.hash(buf)
-    this.blobs.map([{hash, buf}], (err) => {
-     if (err !== null) {
-       storedebug("topic (error: %O)", err) 
-     } else {
-       storedebug("topic", err) 
-     }
-    })
+    this._storeNewPost(buf, hash)
     const obj = TOPIC_POST.toJSON(buf)
     
     this.channelStateView.map([{ ...obj, hash}])
@@ -131,13 +128,7 @@ class CableStore {
 
   text(buf) {
     const hash = crypto.hash(buf)
-    this.blobs.map([{hash, buf}], (err) => {
-     if (err !== null) {
-       storedebug("text (error: %O)", err) 
-     } else {
-       storedebug("text", err) 
-     }
-    })
+    this._storeNewPost(buf, hash)
     const obj = TEXT_POST.toJSON(buf)
     
     this.messagesView.map([{ ...obj, hash}])
@@ -145,22 +136,24 @@ class CableStore {
 
   info(buf) {
     const hash = crypto.hash(buf)
-    this.blobs.map([{hash, buf}], (err) => {
-     if (err !== null) {
-       storedebug("info (error: %O)", err) 
-     } else {
-       storedebug("info", err) 
-     }
-    })
+    this._storeNewPost(buf, hash)
     const obj = INFO_POST.toJSON(buf)
     
     this.userInfoView.map([{ ...obj, hash}])
     // channel state view keeps track of info posts that set the name
     if (obj.key === "name") {
-      // TODO (2023-02-28): if we're setting a post/info:name via core.setNick() we are not passed a channel. so to do
+      // if we're setting a post/info:name via core.setNick() we are not passed a channel. so to do
       // this correctly, for how the channel state index looks like right now, we need to get a list of channels that the
       // user is in and post the update to each of those channels
-      this.channelStateView.map([{ ...obj, hash}])
+      this.channelMembershipView.api.getHistoricMembership(obj.publicKey, (err, channels) => {
+        const channelStateMessages = []
+        channels.forEach(channel => {
+          channelStateMessages.push({...obj, hash, channel})
+        })
+        storedebug(channelStateMessages)
+        this.channelStateView.map(channelStateMessages)
+      })
+      // TODO (2023-02-28): also get for channels that have been left
     }
   }
 

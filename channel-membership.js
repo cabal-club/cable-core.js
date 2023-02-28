@@ -1,9 +1,3 @@
-/*
-!state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
-!state!<mono-ts>!<channel>!name!<pubkey> -> <hash>
-!state!<mono-ts>!<channel>!topic -> <hash>
-*/
-
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const debug = require("debug")("core/channel-membership")
@@ -106,6 +100,24 @@ module.exports = function (lvl) {
             if (err ) { return cb(err) }
             cb(null, parseInt(value) === 1)
           })
+        })
+      },
+      getHistoricMembership: function (publicKey, cb) {
+        // return set of channel names that pubkey is in according to our local knowledge
+        // also includes channels that have been joined previously but are marked as left
+        ready(async function () {
+          debug("api.getJoinedChannels")
+          const iter = lvl.iterator({
+            reverse: true,
+            gt: `${publicKey.toString("hex")}!!`,
+            lt: `${publicKey.toString("hex")}!~`
+          })
+          const entries = await iter.all()
+          const joined = entries.map(e => {
+            return e[0].slice(e[0].indexOf("!")+1)
+          })
+          joined.sort()
+          cb(null, joined)
         })
       },
       getJoinedChannels: function (publicKey, cb) {

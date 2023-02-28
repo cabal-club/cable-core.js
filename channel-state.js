@@ -1,9 +1,3 @@
-/*
-!state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
-!state!<mono-ts>!<channel>!name!<pubkey> -> <hash>
-!state!<mono-ts>!<channel>!topic -> <hash>
-*/
-
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const debug = require("debug")("core/channel-state")

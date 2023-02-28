@@ -3,7 +3,7 @@ const CableCore = require("./index.js").CableCore
 let hash
 
 const core = new CableCore()
-// const bufJoin = core.join("introduction")
+const bufJoin = core.join("introduction")
 // hash = core.hash(bufJoin)
 // console.log("join hash", hash)
 // // TODO (2023-02-23): enable synchronization point (allIndexes.ready(cb)) or sync usage of apis
@@ -17,10 +17,10 @@ function logem (err, key, res) {
   console.log("err", err)
   console.log(key, res)
 }
-const bufTopic = core.setTopic("introduction", "hello cablers")
-core.getTopic("introduction", (err, topic) => {
-  logem(err, "topic", topic)
-})
+// const bufTopic = core.setTopic("introduction", "hello cablers")
+// core.getTopic("introduction", (err, topic) => {
+//   logem(err, "topic", topic)
+// })
 
 // const bufLeave = core.leave("introduction")
 // hash = core.hash(bufLeave)
@@ -56,16 +56,16 @@ core.getTopic("introduction", (err, topic) => {
 //     console.log("2 chat?", chat)
 //   })
 // }, 100)
-// core.setNick("boop")
 // setTimeout(() => {
 // core.getNick((err, nick) => {
 //   console.log(nick)
 // })
 // }, 100)
 // core.join("introductions")
-// core.join("help-channel")
-// core.join("testing")
-// core.leave("testing")
+core.join("help-channel")
+core.join("testing")
+core.leave("testing")
+core.setNick("boop")
 // core.getJoinedChannels((err, channels) => {
 //   console.log("err", err)
 //   console.log(channels)
@@ -75,3 +75,11 @@ core.getTopic("introduction", (err, topic) => {
 //   console.log("err", err)
 //   console.log(channels)
 // })
+// core.store.authorView.api.getAllHashesByAuthor(core.kp.publicKey, (err, hashes) => {
+//   logem(err, "author hashes", hashes)
+// })
+setTimeout(() => {
+core.getChannelState("introduction", (err, data) => {
+  logem(err, "channel state", data)
+})
+}, 100)
