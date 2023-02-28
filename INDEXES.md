@@ -167,6 +167,7 @@ a user's post expiry preference, etc.
 
     !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
     !user!<mono-ts>!<pubkey>!info!<property> in general
+    !user!latest!<pubkey>!info!<property> in general
 
 The corresponding user information schema looked like the following for cabal-core:
 

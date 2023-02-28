@@ -13,6 +13,8 @@ const crypto = require("../cable/cryptography.js")
 const constants = require("../cable/constants.js")
 const createDatastore = require("./data-store.js")
 const createChannelStateView = require("./channel-state.js")
+const createChannelMembershipView = require("./channel-membership.js")
+const createUserInfoView = require("./user-info.js")
 const createMessagesView = require("./messages.js")
 const createDeletedView = require("./deleted.js")
 // aliases
@@ -21,6 +23,7 @@ const LEAVE_POST = cable.LEAVE_POST
 const TOPIC_POST = cable.TOPIC_POST
 const TEXT_POST = cable.TEXT_POST
 const DELETE_POST = cable.DELETE_POST
+const INFO_POST = cable.INFO_POST
 
 // database interaction, operate on the cablegram?
 class CableStore {
@@ -36,6 +39,8 @@ class CableStore {
     // stores binary representations of message payloads by their hashes
     this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }))
     this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }))
+    this.channelMembershipView = createChannelMembershipView(this._db.sublevel("channel-membership", { valueEncoding: "json" }))
+    this.userInfoView = createUserInfoView(this._db.sublevel("user-info", { valueEncoding: "binary" }))
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }))
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
   }
@@ -52,6 +57,7 @@ class CableStore {
     })
     const obj = JOIN_POST.toJSON(buf)
     this.channelStateView.map([{ ...obj, hash}])
+    this.channelMembershipView.map([obj])
     
     // TODO (2023-02-22): index in more ways, as indexes come online:
     // * reverse hash map
@@ -72,6 +78,7 @@ class CableStore {
     const obj = LEAVE_POST.toJSON(buf)
     
     this.channelStateView.map([{ ...obj, hash}])
+    this.channelMembershipView.map([obj])
     
     // TODO (2023-02-22): index in more ways, as indexes come online:
     // * reverse hash map
@@ -135,7 +142,28 @@ class CableStore {
     
     this.messagesView.map([{ ...obj, hash}])
   }
-  info(buf) {}
+
+  info(buf) {
+    const hash = crypto.hash(buf)
+    this.blobs.map([{hash, buf}], (err) => {
+     if (err !== null) {
+       storedebug("info (error: %O)", err) 
+     } else {
+       storedebug("info", err) 
+     }
+    })
+    const obj = INFO_POST.toJSON(buf)
+    
+    this.userInfoView.map([{ ...obj, hash}])
+    // channel state view keeps track of info posts that set the name
+    if (obj.key === "name") {
+      // TODO (2023-02-28): if we're setting a post/info:name via core.setNick() we are not passed a channel. so to do
+      // this correctly, for how the channel state index looks like right now, we need to get a list of channels that the
+      // user is in and post the update to each of those channels
+      this.channelStateView.map([{ ...obj, hash}])
+    }
+  }
+
   // store a dispatched request; by reqid?
   request(buf) {}
 
@@ -202,6 +230,7 @@ class CableCore extends EventEmitter {
   }
 
   /* methods that produce cablegrams, and which we store in our database */
+
 	// post/text
 	postText(channel, text) {
     const link = this._links()
@@ -211,7 +240,12 @@ class CableCore extends EventEmitter {
   }
 
 	// post/info key=name
-	setNick(name) {}
+	setNick(name) {
+    const link = this._links()
+    const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, link, ts(), "name", name)
+    this.store.info(buf)
+    return buf
+  }
 
 	// post/topic
 	setTopic(channel, topic) {
@@ -258,6 +292,7 @@ class CableCore extends EventEmitter {
 
 
   /* methods to get data we already have locally */
+
   getChat(channel, start, end, limit, cb) {
     coredebug(channel, start, end, limit, cb)
     this.store.getChannelTimeRange(channel, start, end, limit, (err, hashes) => {
@@ -266,22 +301,40 @@ class CableCore extends EventEmitter {
     })
   }
 
-  getNick(cb) {}
-
-  getTopic(channel, cb) {
-    // TODO (2023-02-23): should resolve to a string topic, not the hash of the post/topic message
-    this.store.channelStateView.api.getLatestTopicHash("channel", cb)
+  // gets the local user's most recently set nickname
+  getNick(cb) {
+    this.store.userInfoView.api.getLatestNameHash(this.kp.publicKey, (err, hash) => {
+      if (err) { return cb(err) }
+      this.resolveHashes([hash], (err, results) => {
+        if (err) { return cb(err) }
+        const obj = results[0]
+        cb(null, obj.value)
+      })
+    })
   }
 
-  getChannels(cb) {}
+  // gets the string topic of a particular channel
+  getTopic(channel, cb) {
+    this.store.channelStateView.api.getLatestTopicHash(channel, (err, hash) => {
+      this.resolveHashes([hash], (err, results) => {
+        if (err) { return cb(err) }
+        const obj = results[0]
+        cb(null, obj.topic)
+      })
+    })
+  }
 
-  getJoinedChannels(channel, cb) {
-    // TODO (2023-02-23): make this return joined channels and not be a weird verification that getLatestMembership
-    // works X)
-    this.store.channelStateView.api.getLatestMembershipHash(channel, this.kp.publicKey, (err, hash) => {
-      if (!err) {
-        this.store.blobs.api.get(hash, cb)
-      }
+  // returns a list of channel names, sorted lexicographically
+  getChannels(cb) {
+    this.store.channelMembershipView.api.getChannelNames(0, 0, (err, channels) => {
+      cb(err, channels)
+    })
+  }
+
+  // returns a list of channel names the user has joined, sorted lexicographically
+  getJoinedChannels(cb) {
+    this.store.channelMembershipView.api.getJoinedChannels(this.kp.publicKey, (err, channels) => {
+      cb(err, channels)
     })
   }
 
