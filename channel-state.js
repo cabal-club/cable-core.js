@@ -150,7 +150,7 @@ module.exports = function (lvl, reverseIndex) {
           })
         })
       },
-      getHistoricState: function (cb) {
+      getHistoricState: function (channel, cb) {
         ready(async function () {
           debug("api.getHistoricState")
           const iter = lvl.values({

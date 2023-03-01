@@ -91,14 +91,11 @@ class CableStore {
   // storage methods
   join(buf) {
     const hash = crypto.hash(buf)
-    storedebug("join's hashing of buf: %O", hash.toString("hex"))
     this._storeNewPost(buf, hash)
     const obj = JOIN_POST.toJSON(buf)
+
     this.channelStateView.map([{ ...obj, hash}])
     this.channelMembershipView.map([obj])
-    
-    // TODO (2023-02-22): index in more ways, as indexes come online:
-    // * reverse hash map
   }
 
   leave(buf) {
@@ -108,9 +105,6 @@ class CableStore {
     
     this.channelStateView.map([{ ...obj, hash}])
     this.channelMembershipView.map([obj])
-    
-    // TODO (2023-02-22): index in more ways, as indexes come online:
-    // * reverse hash map
   }
 
   del(buf) {
@@ -147,6 +141,9 @@ class CableStore {
         }
         // finally, remove the related entries in the reverse hash map
         this.reverseMapView.api.del(hashToDelete)
+        // TODO (2023-03-01): reindex accreted views if they were likely to be impacted (e.g. reindex channel topic view if channel topic was deleted)
+        // create utility methods to reindex accreted views by querying the appropriate hash views to get latest hash +
+        // value and just putting the result in the corresponding accreted view, regardless if the value is the same or not 
       })
     })
   }
@@ -157,6 +154,7 @@ class CableStore {
     const obj = TOPIC_POST.toJSON(buf)
     
     this.channelStateView.map([{ ...obj, hash}])
+    // TODO (2023-03-01): create accreted view for topic names
   }
 
   text(buf) {
@@ -186,7 +184,6 @@ class CableStore {
         storedebug(channelStateMessages)
         this.channelStateView.map(channelStateMessages)
       })
-      // TODO (2023-02-28): also get for channels that have been left
     }
   }
 
@@ -203,9 +200,17 @@ class CableStore {
   }
   // hashes relating to channel state
   // (superfluous if we only ever store latest channel membership?)
-  getChannelState(channel, historic, limit, cb) {} // superfluous?
+  getChannelState(channel, historic, cb) {
+    if (historic) {
+      this.channelStateView.api.getHistoricState(channel, cb)
+    } else {
+      this.channelStateView.api.getLatestState(channel, cb)
+    }
+  } 
   // get all channel names
-  getChannelNames(cb) {}
+  getChannelNames(offset, limit, cb) {
+    this.channelMembershipView.api.getChannelNames(offset, limit, cb)
+  }
 
   // rebuild the specified index. could be required if a delete happened for a post type which has an accreted
   // (application state-only) index, such as deleting a post/join or a post/topic
