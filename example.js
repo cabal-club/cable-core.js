@@ -1,10 +1,7 @@
 const CableCore = require("./index.js").CableCore
 
-let hash
-
 const core = new CableCore()
-const bufJoin = core.join("introduction")
-// hash = core.hash(bufJoin)
+// let hash = core.hash(bufJoin)
 // console.log("join hash", hash)
 // // TODO (2023-02-23): enable synchronization point (allIndexes.ready(cb)) or sync usage of apis
 // core.store.getData([hash], (err, data) => {
@@ -62,7 +59,8 @@ function logem (err, key, res) {
 // })
 // }, 100)
 // core.join("introductions")
-core.join("help-channel")
+const buf = core.join("help-channel")
+
 core.join("testing")
 core.leave("testing")
 core.setNick("boop")
@@ -78,8 +76,28 @@ core.setNick("boop")
 // core.store.authorView.api.getAllHashesByAuthor(core.kp.publicKey, (err, hashes) => {
 //   logem(err, "author hashes", hashes)
 // })
+// setTimeout(() => {
+// core.getChannelState("introduction", (err, data) => {
+//   logem(err, "channel state", data)
+// })
+// }, 100)
+//
+const hash2 = core.hash(buf)
 setTimeout(() => {
-core.getChannelState("introduction", (err, data) => {
-  logem(err, "channel state", data)
-})
-}, 100)
+  core.del(hash2)
+  // core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
+  //   console.log("the queried hash (post/join) was", hash2.toString("hex"))
+  //   logem(err, "reverse map uses", uses)
+  //   core.store.reverseMapView.api.del(hash2, () => {
+  //     setTimeout(() => {
+  //       core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
+  //         logem(err, "post del reverse map uses", uses)
+  //       })
+  //     }, 1000)
+  //   })
+  // })
+}, 1000)
+
+
+
+

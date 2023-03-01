@@ -1,6 +1,7 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const debug = require("debug")("core/deleted")
+const viewName = "deleted"
+const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 const ts = require("monotonic-timestamp")
 
@@ -46,7 +47,7 @@ module.exports = function (lvl) {
         if (!sanitize(hash)) return
 
         /* key scheme
-          !deleted!<hash> -> 1
+          deleted!<hash> -> 1
         */
         let key = hash
         const value = 1
@@ -104,6 +105,16 @@ module.exports = function (lvl) {
               }
             }
             cb(null, result)
+          })
+        })
+      },
+      del: function (hash, cb) {
+        debug("api.del")
+        if (typeof cb === "undefined") { cb = noop }
+        ready(function () {
+          lvl.del(hash, function (err) {
+            if (err) { return cb(err) }
+            return cb(null)
           })
         })
       },

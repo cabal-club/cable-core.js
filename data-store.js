@@ -1,11 +1,12 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const debug = require("debug")("core/data-store")
+const viewName = "data-store"
+const debug = require("debug")(`core/${viewName}`)
 
 function noop () {}
 
 // takes a (sub)level instance
-module.exports = function (lvl) {
+module.exports = function (lvl, reverseIndex) {
   const events = new EventEmitter()
 
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
@@ -66,6 +67,9 @@ module.exports = function (lvl) {
       if (!pending) done()
 
       function done () {
+        const getHash = (m) => m.key
+        const getKey = (m) => m.key
+        reverseIndex.map(reverseIndex.transformOps(viewName, getHash, getKey, ops))
         debug("ops %O",  ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)

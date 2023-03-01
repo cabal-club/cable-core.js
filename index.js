@@ -5,6 +5,7 @@ const ts = require("monotonic-timestamp")
 const b4a = require("b4a")
 const storedebug = require("debug")("core/store")
 const coredebug = require("debug")("core/")
+// external database dependencies
 const { Level } = require("level")
 const { MemoryLevel } = require("memory-level")
 // internal dependencies
@@ -19,6 +20,7 @@ const createUserInfoView = require("./user-info.js")
 const createAuthorView = require("./author.js")
 const createMessagesView = require("./messages.js")
 const createDeletedView = require("./deleted.js")
+const createReverseMapView = require("./reverse-hash-map.js")
 // aliases
 const TEXT_POST = cable.TEXT_POST
 const DELETE_POST = cable.DELETE_POST
@@ -38,14 +40,32 @@ class CableStore {
     if (opts.temp) {
       this._db = new MemoryLevel("data")
     }
+    // reverseMapView maps which views have stored a particular hash. using this view we can removes those entries in
+    // other views if needed e.g.  when a delete happens, when a peer has been blocked and their contents removed, or we are truncating the local database to save space
+    // note: this view is used by many of the other views which only stores a cable post hash, so it must be initialized
+    // before other views
+    this.reverseMapView = createReverseMapView(this._db.sublevel("reverse-hash-map", { valueEncoding: "json" }))
+
     // stores binary representations of message payloads by their hashes
-    this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }))
-    this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }))
+    this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }), this.reverseMapView)
+    this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }), this.reverseMapView)
     this.channelMembershipView = createChannelMembershipView(this._db.sublevel("channel-membership", { valueEncoding: "json" }))
-    this.userInfoView = createUserInfoView(this._db.sublevel("user-info", { valueEncoding: "binary" }))
-    this.authorView = createAuthorView(this._db.sublevel("author", { valueEncoding: "binary" }))
-    this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }))
+    this.userInfoView = createUserInfoView(this._db.sublevel("user-info", { valueEncoding: "binary" }), this.reverseMapView)
+    this.authorView = createAuthorView(this._db.sublevel("author", { valueEncoding: "binary" }), this.reverseMapView)
+    this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }), this.reverseMapView)
+    // TODO (2023-03-01) hook up deleted view to all the appropriate locations in CabalStore
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
+
+    this._viewsMap = {
+      "reverse-hash-map": this.reverseMapView,
+      "data-store": this.blobs,
+      "channel-state": this.channelStateView,
+      "channel-membership": this.channelMembershipView,
+      "user-info": this.userInfoView,
+      "author": this.authorView,
+      "messages": this.messagesView,
+      "deleted": this.deletedView,
+    }
   }
 
   _storeNewPost(buf, hash) {
@@ -71,6 +91,7 @@ class CableStore {
   // storage methods
   join(buf) {
     const hash = crypto.hash(buf)
+    storedebug("join's hashing of buf: %O", hash.toString("hex"))
     this._storeNewPost(buf, hash)
     const obj = JOIN_POST.toJSON(buf)
     this.channelStateView.map([{ ...obj, hash}])
@@ -115,6 +136,18 @@ class CableStore {
       this.blobs.api.del(hashToDelete)
       // record hash of deleted post in upcoming deletedView
       this.deletedView.map([hashToDelete])
+      // remove hash from indices that referenced it
+      this.reverseMapView.api.getUses(hashToDelete, (err, uses) => {
+        storedebug(uses)
+        for (let viewName of Object.keys(uses)) {
+        // go through each index and delete the entry referencing this hash
+          uses[viewName].forEach(key => {
+            this._viewsMap[viewName].api.del(key)
+          })
+        }
+        // finally, remove the related entries in the reverse hash map
+        this.reverseMapView.api.del(hashToDelete)
+      })
     })
   }
 

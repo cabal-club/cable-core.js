@@ -1,18 +1,14 @@
-/*
-    chat!<mono-ts>!text!<channel> -> <hash>
-    chat!<mono-ts>!delete!<channel> -> <hash>
-*/
-
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const debug = require("debug")("core/messages")
+const viewName = "messages"
+const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 const ts = require("monotonic-timestamp")
 
 function noop () {}
 
 // takes a (sub)level instance
-module.exports = function (lvl) {
+module.exports = function (lvl, reverseIndex) {
   const events = new EventEmitter()
 
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
@@ -63,7 +59,7 @@ module.exports = function (lvl) {
             key = `${msg.timestamp}!delete!${msg.channel}`
             break
           default:
-            throw new Error("messages: unhandled post type")
+            throw new Error(`${viewName}: unhandled post type (${msg.postType})`)
             break
         }
 
@@ -85,6 +81,9 @@ module.exports = function (lvl) {
       if (!pending) done()
 
       function done () {
+        const getHash = (m) => m.value
+        const getKey = (m) => m.key
+        reverseIndex.map(reverseIndex.transformOps(viewName, getHash, getKey, ops))
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
@@ -115,6 +114,16 @@ module.exports = function (lvl) {
           const hashes = await iter.all()
           debug("ctr hashes %O", hashes)
           cb(null, hashes) // only return one hash
+        })
+      },
+      del: function (hash, cb) {
+        debug("api.del")
+        if (typeof cb === "undefined") { cb = noop }
+        ready(function () {
+          lvl.del(hash, function (err) {
+            if (err) { return cb(err) }
+            return cb(null)
+          })
         })
       },
       events: events

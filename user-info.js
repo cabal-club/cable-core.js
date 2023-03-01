@@ -1,12 +1,13 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const debug = require("debug")("core/user-info")
+const viewName = "user-info"
+const debug = require("debug")(`$core/${viewName}`)
 const constants = require("../cable/constants.js")
 
 function noop () {}
 
 // takes a (sub)level instance
-module.exports = function (lvl) {
+module.exports = function (lvl, reverseIndex) {
   const events = new EventEmitter()
 
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
@@ -63,7 +64,7 @@ module.exports = function (lvl) {
             // pass
             break
           default:
-            throw new Error(`user-info: unhandled key type (${msg.key})`)
+            throw new Error(`${viewName}: unhandled key type (${msg.key})`)
             break
         }
 
@@ -91,6 +92,9 @@ module.exports = function (lvl) {
       if (!pending) done()
 
       function done () {
+        const getHash = (m) => m.value
+        const getKey = (m) => m.key
+        reverseIndex.map(reverseIndex.transformOps(viewName, getHash, getKey, ops))
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
@@ -107,6 +111,16 @@ module.exports = function (lvl) {
           lvl.get(`latest!${publicKey.toString("hex")}!info!name`, (err, hash) => {
             if (err) { return cb(err, null) }
             return cb(null, hash)
+          })
+        })
+      },
+      del: function (hash, cb) {
+        debug("api.del")
+        if (typeof cb === "undefined") { cb = noop }
+        ready(function () {
+          lvl.del(hash, function (err) {
+            if (err) { return cb(err) }
+            return cb(null)
           })
         })
       },

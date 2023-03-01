@@ -1,12 +1,13 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const debug = require("debug")("core/channel-state")
+const viewName = "channel-state"
+const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 
 function noop () {}
 
 // takes a (sub)level instance
-module.exports = function (lvl) {
+module.exports = function (lvl, reverseIndex) {
   const events = new EventEmitter()
 
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
@@ -64,7 +65,7 @@ module.exports = function (lvl) {
             variableKey = `!topic`
             break
           default:
-            throw new Error(`channel-state: unhandled post type (${msg.postType})`)
+            throw new Error(`${viewName}: unhandled post type (${msg.postType})`)
             break
         }
 
@@ -94,6 +95,9 @@ module.exports = function (lvl) {
       if (!pending) done()
 
       function done () {
+        const getHash = (m) => m.value
+        const getKey = (m) => m.key
+        reverseIndex.map(reverseIndex.transformOps(viewName, getHash, getKey, ops))
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
@@ -155,6 +159,16 @@ module.exports = function (lvl) {
           })
           const hashes = await iter.all()
           cb(hashes)
+        })
+      },
+      del: function (hash, cb) {
+        debug("api.del")
+        if (typeof cb === "undefined") { cb = noop }
+        ready(function () {
+          lvl.del(hash, function (err) {
+            if (err) { return cb(err) }
+            return cb(null)
+          })
         })
       },
       events: events

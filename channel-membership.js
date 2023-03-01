@@ -1,6 +1,7 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const debug = require("debug")("core/channel-membership")
+const viewName = "channel-membership"
+const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 
 function noop () {}
@@ -57,7 +58,7 @@ module.exports = function (lvl) {
             value = 0
             break
           default:
-            throw new Error(`channel-membership: unhandled post type (${msg.postType})`)
+            throw new Error(`${viewName}: unhandled post type (${msg.postType})`)
             break
         }
 
