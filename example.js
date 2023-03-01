@@ -14,10 +14,6 @@ function logem (err, key, res) {
   console.log("err", err)
   console.log(key, res)
 }
-// const bufTopic = core.setTopic("introduction", "hello cablers")
-// core.getTopic("introduction", (err, topic) => {
-//   logem(err, "topic", topic)
-// })
 
 // const bufLeave = core.leave("introduction")
 // hash = core.hash(bufLeave)
@@ -97,6 +93,11 @@ setTimeout(() => {
   //   })
   // })
 }, 1000)
+
+const bufTopic = core.setTopic("introduction", "hello cablers")
+core.getTopic("introduction", (err, topic) => {
+  logem(err, "topic", topic)
+})
 
 
 

@@ -25,7 +25,6 @@
     "b4a": "^1.6.1",
     "debug": "^4.3.4",
     "level": "^8.0.0",
-    "memory-level": "^1.0.0",
-    "monotonic-timestamp": "0.0.9"
+    "memory-level": "^1.0.0"
   }
 }

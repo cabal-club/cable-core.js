@@ -1,7 +1,6 @@
 // node core dependencies
 const EventEmitter = require('events').EventEmitter
 // external dependencies
-const ts = require("monotonic-timestamp")
 const b4a = require("b4a")
 const storedebug = require("debug")("core/store")
 const coredebug = require("debug")("core/")
@@ -12,10 +11,12 @@ const { MemoryLevel } = require("memory-level")
 const cable = require("../cable/index.js")
 const crypto = require("../cable/cryptography.js")
 const constants = require("../cable/constants.js")
+const util = require("./util.js")
 // materialized views and indices
 const createDatastore = require("./data-store.js")
 const createChannelStateView = require("./channel-state.js")
 const createChannelMembershipView = require("./channel-membership.js")
+const createTopicView = require("./topics.js")
 const createUserInfoView = require("./user-info.js")
 const createAuthorView = require("./author.js")
 const createMessagesView = require("./messages.js")
@@ -33,6 +34,7 @@ const LEAVE_POST = cable.LEAVE_POST
 class CableStore {
   // TODO (2023-02-23): ensure proper handling of duplicates in views that index hashes
 
+  // TODO (2023-03-01): in all indexes, ensure that we never have any collisions with non-monotonic timestamps 
   constructor(opts) {
     if (!opts) { opts = { temp: true } }
 
@@ -50,6 +52,7 @@ class CableStore {
     this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }), this.reverseMapView)
     this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }), this.reverseMapView)
     this.channelMembershipView = createChannelMembershipView(this._db.sublevel("channel-membership", { valueEncoding: "json" }))
+    this.topicView = createTopicView(this._db.sublevel("topics", { valueEncoding: "json" }))
     this.userInfoView = createUserInfoView(this._db.sublevel("user-info", { valueEncoding: "binary" }), this.reverseMapView)
     this.authorView = createAuthorView(this._db.sublevel("author", { valueEncoding: "binary" }), this.reverseMapView)
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }), this.reverseMapView)
@@ -154,7 +157,7 @@ class CableStore {
     const obj = TOPIC_POST.toJSON(buf)
     
     this.channelStateView.map([{ ...obj, hash}])
-    // TODO (2023-03-01): create accreted view for topic names
+    this.topicView.map([obj])
   }
 
   text(buf) {
@@ -197,6 +200,9 @@ class CableStore {
   // get hashes by channel name + channel time range
   getChannelTimeRange(channel, start, end, limit, cb) {
     this.messagesView.api.getChannelTimeRange(channel, start, end, limit, cb)
+  }
+  getTopic(channel, cb) {
+    this.topicView.api.getTopic(channel, cb)
   }
   // hashes relating to channel state
   // (superfluous if we only ever store latest channel membership?)
@@ -265,7 +271,7 @@ class CableCore extends EventEmitter {
 	// post/text
 	postText(channel, text) {
     const link = this._links()
-    const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts(), text)
+    const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp(), text)
     this.store.text(buf)
     return buf
   }
@@ -273,7 +279,7 @@ class CableCore extends EventEmitter {
 	// post/info key=name
 	setNick(name) {
     const link = this._links()
-    const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, link, ts(), "name", name)
+    const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, link, util.timestamp(), "name", name)
     this.store.info(buf)
     return buf
   }
@@ -281,7 +287,7 @@ class CableCore extends EventEmitter {
 	// post/topic
 	setTopic(channel, topic) {
     const link = this._links()
-    const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts(), topic)
+    const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp(), topic)
     this.store.topic(buf)
     return buf
   }
@@ -295,7 +301,7 @@ class CableCore extends EventEmitter {
 	// post/join
 	join(channel) {
     const link = this._links()
-    const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts())
+    const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp())
     this.store.join(buf)
     return buf
   }
@@ -303,7 +309,7 @@ class CableCore extends EventEmitter {
 	// post/leave
 	leave(channel) {
     const link = this._links()
-    const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, ts())
+    const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp())
     this.store.leave(buf)
     return buf
   }
@@ -316,7 +322,7 @@ class CableCore extends EventEmitter {
   // blocking reasons. otherwise all deletes are permanent and not reversible, seems bad 
 	del(hash) {
     const link = this._links()
-    const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, link, ts(), hash)
+    const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, link, util.timestamp(), hash)
     this.store.del(buf)
     return buf
   }
@@ -346,13 +352,7 @@ class CableCore extends EventEmitter {
 
   // gets the string topic of a particular channel
   getTopic(channel, cb) {
-    this.store.channelStateView.api.getLatestTopicHash(channel, (err, hash) => {
-      this.resolveHashes([hash], (err, results) => {
-        if (err) { return cb(err) }
-        const obj = results[0]
-        cb(null, obj.topic)
-      })
-    })
+    this.store.getTopic(channel, cb)
   }
 
   // returns a list of channel names, sorted lexicographically

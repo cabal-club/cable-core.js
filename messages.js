@@ -3,7 +3,6 @@ const b4a = require("b4a")
 const viewName = "messages"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
-const ts = require("monotonic-timestamp")
 
 function noop () {}
 
@@ -99,7 +98,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(async function () {
           debug("api.getChannelTimeRange")
           if (timeend === 0) {
-            timeend = ts()
+            timeend = util.timestamp()
           }
           debug("ctr opts %O", {
             gt: `${timestart}!!${channel}`,

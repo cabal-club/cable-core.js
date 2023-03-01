@@ -39,7 +39,6 @@ module.exports = function (lvl) {
       debug("view.map")
       let seen = {}
       let ops = []
-      let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
         // TODO: decide format of input; should we operate on a json object or not?
@@ -62,15 +61,13 @@ module.exports = function (lvl) {
             break
         }
 
-        pending++
         ops.push({
           type: 'put',
           key,
           value
         })
-        if (!--pending) done()
       })
-      if (!pending) done()
+      done()
 
       function done () {
         debug("ops %O", ops)

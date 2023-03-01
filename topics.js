@@ -1,6 +1,6 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
-const viewName = "deleted"
+const viewName = "topics"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 
@@ -39,32 +39,30 @@ module.exports = function (lvl) {
       debug("view.map")
       let seen = {}
       let ops = []
-      let pending = 0
       unprocessedBatches++
-      msgs.forEach(function (hash) {
+      debug("msgs %O", msgs.length)
+      msgs.forEach(function (msg) {
         // TODO: decide format of input; should we operate on a json object or not?
-        if (!sanitize(hash)) return
+        if (!sanitize(msg)) return
 
-        /* key scheme
-          deleted!<hash> -> 1
-        */
-        let key = hash
-        const value = 1
+        // key schema
+        // <channel> -> <topic>
+        const key = msg.channel
+        const value = msg.topic
+        switch (msg.postType) {
+          case constants.TOPIC_POST:
+            break
+          default:
+            throw new Error(`${viewName}: unhandled post type (${msg.postType})`)
+        }
 
-        pending++
-        lvl.get(key, function (err) {
-          if (err && err.notFound) {
-            if (!seen[value]) events.emit('add', hash.toString("hex"))
-            ops.push({
-              type: 'put',
-              key,
-              value
-            })
-          }
-          if (!--pending) done()
+        ops.push({
+          type: 'put',
+          key,
+          value
         })
       })
-      if (!pending) done()
+      done()
 
       function done () {
         debug("ops %O", ops)
@@ -76,44 +74,22 @@ module.exports = function (lvl) {
     },
 
     api: {
-      isDeleted: function (hash, cb) {
-        // checks if a hash has been deleted. if true then the hash has been deleted and must not be persisted or
-        // resynced
-        ready(function () {
-          lvl.get(hash, (err, value) => {
-            if (err && err.notFound) { cb(null, false) }
-            if (err) { cb(err) }
-            if (value === 1) { cb(null, true) }
-            cb(null, false)
-          })
+      // returns an object mapping each channel name to the latest topic
+      getAllChannelTopics: function (cb) {
+        ready(async function () {
+          const iter = lvl.entries()
+          const entries = await iter.all()
+          debug("all topics", entries)
+          cb(null, entries)
         })
       },
-      isDeletedMany: function (hashes, cb) {
-        // returns an object mapping the queried hashes to a boolean. if corresponding boolean is true then the hash has
-        // been deleted and must not be persisted or resynced
+      getTopic: function (channel, cb) {
         ready(function () {
-          lvl.getMany(hashes, (err, values) => {
-            if (err) { return cb(err) }
-            const result = {}
-            // the passed in hashes and the corresponding values have the same index in their respective arrays
-            for (let i = 0; i < hashes.length; i++) {
-              if (typeof values[i] === "undefined") {
-                result[hashes[i]] = false
-              } else {
-                result[hashes[i]] = true
-              }
-            }
-            cb(null, result)
-          })
-        })
-      },
-      del: function (hash, cb) {
-        debug("api.del")
-        if (typeof cb === "undefined") { cb = noop }
-        ready(function () {
-          lvl.del(hash, function (err) {
-            if (err) { return cb(err) }
-            return cb(null)
+          debug("get topic", channel)
+          lvl.get(channel, (err, value) => {
+            if (err && err.notFound ) { return cb(null, null) }
+            if (err ) { return cb(err) }
+            cb(null, value)
           })
         })
       },
@@ -137,7 +113,7 @@ module.exports = function (lvl) {
 
 // Returns a well-formed message or null
 function sanitize (msg) {
-  // if (typeof msg !== 'object') return null
+  if (typeof msg !== 'object') return null
   return msg
 }
 
