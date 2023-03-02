@@ -39,6 +39,14 @@ will be persisted and tied to its hash in the data store. The data is indexed in
 kinds of views according to what type of post it is.
 
 <!-- links (not captured by any index yet) -->
+<!--
+reverse hash links
+links[message hash] -> [list of message hashes that link to <message hash>]
+
+* if no entries in list -> we've got a head
+* for each entry in msg.links do:
+    reverse map[msg.links[i]] = msg.hash
+-->
 
 The following sections describe the different indexes and stores planned for `cable-core`. Each
 section explains what the view is used for and what the storage schema looks like.
