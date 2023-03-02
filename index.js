@@ -35,6 +35,8 @@ class CableStore {
   // TODO (2023-02-23): ensure proper handling of duplicates in views that index hashes
 
   // TODO (2023-03-01): in all indexes, ensure that we never have any collisions with non-monotonic timestamps 
+
+  // TODO (2023-03-01): do an error checking pass in all views, in particular the views that have async functions
   constructor(opts) {
     if (!opts) { opts = { temp: true } }
 
@@ -48,7 +50,7 @@ class CableStore {
     // before other views
     this.reverseMapView = createReverseMapView(this._db.sublevel("reverse-hash-map", { valueEncoding: "json" }))
 
-    // stores binary representations of message payloads by their hashes
+    // this.blobs stores binary representations of message payloads by their hashes
     this.blobs = createDatastore(this._db.sublevel("data-store", { valueEncoding: "binary" }), this.reverseMapView)
     this.channelStateView = createChannelStateView(this._db.sublevel("channel-state", { valueEncoding: "binary" }), this.reverseMapView)
     this.channelMembershipView = createChannelMembershipView(this._db.sublevel("channel-membership", { valueEncoding: "json" }))
@@ -59,6 +61,8 @@ class CableStore {
     // TODO (2023-03-01) hook up deleted view to all the appropriate locations in CabalStore
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
 
+    // used primarily when processing an accepted delete request to delete entries in other views with the results from a reverse hash map query.
+    // however all views have been added to this map for sake of completeness
     this._viewsMap = {
       "reverse-hash-map": this.reverseMapView,
       "data-store": this.blobs,
@@ -136,9 +140,10 @@ class CableStore {
       // remove hash from indices that referenced it
       this.reverseMapView.api.getUses(hashToDelete, (err, uses) => {
         storedebug(uses)
-        for (let viewName of Object.keys(uses)) {
+        for (let [viewName, viewKeys] of uses) {
         // go through each index and delete the entry referencing this hash
-          uses[viewName].forEach(key => {
+          storedebug(viewName, viewKeys)
+          viewKeys.forEach(key => {
             this._viewsMap[viewName].api.del(key)
           })
         }

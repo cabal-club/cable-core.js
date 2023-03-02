@@ -90,7 +90,8 @@ module.exports = function (lvl) {
     },
 
     api: {
-      // get uses of this hash e.g. which views have recorded this has being used, and for what keys
+      // returns a Map() which maps view names to a list of keys in that view, where each key has been recorded to reference the queried
+      // hash
       getUses: function (hash, cb) {
         debug("api.getUses for %O", hash.toString("hex"))
         ready(async function () {
@@ -99,15 +100,15 @@ module.exports = function (lvl) {
             lt: `${hash.toString("hex")}!~`
           })
           const values = await iter.all()
-          const usesMap = {}
+          const usesMap = new Map()
           values.forEach(v => {
             const sepIndex = v.indexOf("!")
             const viewName = v.slice(0, sepIndex)
             const viewKey = v.slice(sepIndex+1)
             // maintain a list of uses for the particular view, as one view may have multiple keys that reference a
             // given hash
-            if (!usesMap[viewName]) { usesMap[viewName] = [] }
-            usesMap[viewName].push(viewKey)
+            if (!usesMap.has(viewName)) { usesMap.set(viewName, []) }
+            usesMap.get(viewName).push(viewKey)
           })
           cb(null, usesMap)
         })
