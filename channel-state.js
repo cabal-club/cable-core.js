@@ -3,6 +3,7 @@ const b4a = require("b4a")
 const viewName = "channel-state"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
+const util = require("./util.js")
 
 function noop () {}
 
@@ -51,25 +52,23 @@ module.exports = function (lvl, reverseIndex) {
         // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
-        const fixedKey = `historic!${msg.timestamp}!${msg.channel}`
-        let variableKey = ""
+        let key
         switch (msg.postType) {
           case constants.JOIN_POST:
           case constants.LEAVE_POST:
-            variableKey = `!member!${msg.publicKey.toString("hex")}`
+            key = `member!${msg.channel}!${msg.timestamp}!${msg.publicKey.toString("hex")}`
             break
           case constants.INFO_POST:
-            variableKey = `!name!${msg.publicKey.toString("hex")}`
+            key = `name!${msg.channel}!${msg.timestamp}!${msg.publicKey.toString("hex")}`
             break
           case constants.TOPIC_POST:
-            variableKey = `!topic`
+            key = `topic!${msg.channel}!${msg.timestamp}`
             break
           default:
             throw new Error(`${viewName}: unhandled post type (${msg.postType})`)
             break
         }
 
-        const key = fixedKey + variableKey
         const hash = msg.hash
 
         pending++
@@ -82,13 +81,6 @@ module.exports = function (lvl, reverseIndex) {
               value: hash
             })
           }
-          // keeps track of the latest hash made by any user, let's us easily range over the latest channel state.
-          // overwrites old ones
-          ops.push({
-            type: 'put',
-            key: `latest!${msg.channel}${variableKey}`,
-            value: hash
-          })
           if (!--pending) done()
         })
       })
@@ -111,54 +103,107 @@ module.exports = function (lvl, reverseIndex) {
         // return the latest topic set on channel + latest name and membership change for each known pubkey in channel
         ready(async function () {
           debug("api.getLatestState")
-          const iter = lvl.values({
-            reverse: true,
-            gt: `latest!${channel}!`,
-            lt: `latest!${channel}~`
+          const opts = { reverse: true, limit: 1}
+          const ts = `${util.timestamp()}`
+          const member = lvl.values({
+            ...opts,
+            lt: `member!${channel}!${ts}`,
+            gt: `member!${channel}!!`
           })
-          const hashes = await iter.all()
+          debug({
+            lt: `member!${channel}!${ts}`,
+            gt: `member!${channel}!!`
+          })
+          // only iterate over keys within <name> namespace
+          const name = lvl.values({
+            ...opts,
+            lt: `name!${channel}!${ts}`,
+            gt: `name!${channel}!!`
+          })
+          const topic = lvl.values({
+            ...opts,
+            lt: `topic!${channel}!${ts}`,
+            gt: `topic!${channel}!!`
+          })
+          const hashes = [
+            await name.all(), 
+            await topic.all(), 
+            await member.all()
+          ].flatMap(entry => entry)
+          debug("hashes", hashes)
           cb(null, hashes) // only return one hash
         })
       },
       getLatestNameHash: function (channel, publicKey, cb) {
         // return latest post/info hash for pubkey
-        ready(function () {
+        ready(async function () {
           debug("api.getLatestNameHash")
-          lvl.get(`latest!${channel}!name!${publicKey.toString("hex")}`, (err, hash) => {
-            if (err) { return cb(err, null) }
-            return cb(null, hash)
+          const iter = lvl.values({
+            lt: `name!${channel}!${util.timestamp()}!${publicKey.toString("hex")}`,
+            gt: "name!!",
+            reverse: true,
+            limit: 1
           })
+          const hashes = await iter.all()
+          if (!hashes || hashes.length === 0) {
+             return cb(new Error("channel state's latest name returned no hashes"), null)
+          }
+          cb(null, hashes[0])
         })
       },
       getLatestMembershipHash: function (channel, publicKey, cb) {
         // return latest post/join or post/leave hash authored by publicKey in channel
-        ready(function () {
+        ready(async function () {
           debug("api.getLatestMembership")
-          lvl.get(`latest!${channel}!member!${publicKey.toString("hex")}`, (err, hash) => {
-            if (err) { return cb(err, null) }
-            return cb(null, hash)
+          debug("%O", {
+            lt: `member!${channel}!${util.timestamp()}!${publicKey.toString("hex")}`,
+            reverse: true,
+            limit: 1
           })
+          const iter = lvl.values({
+            lt: `member!${channel}!${util.timestamp()}!${publicKey.toString("hex")}`,
+            // gt:
+            reverse: true,
+            limit: 1
+          })
+          const hashes = await iter.all()
+          if (!hashes || hashes.length === 0) {
+             return cb(new Error("channel state's latest membership returned no hashes"), null)
+          }
+          debug("hashes", hashes)
+          cb(null, hashes[0])
         })
       },
       getLatestTopicHash: function (channel, cb) {
         // return latest post/topic hash
-        ready(function () {
-          debug("api.getLatestNameHash")
-          lvl.get(`latest!${channel}!topic`, (err, hash) => {
-            if (err) { return cb(err, null) }
-            return cb(null, hash)
+        ready(async function () {
+          debug("api.getLatestTopicHash")
+          debug("%O", {
+            lt: `topic!${channel}!${util.timestamp()}`,
+            reverse: true,
+            limit: 1
           })
+          const iter = lvl.values({
+            lt: `topic!${channel}!${util.timestamp()}`,
+            gt: "name!",
+            reverse: true,
+            limit: 1
+          })
+          const hashes = await iter.all()
+          if (!hashes || hashes.length === 0) {
+             return cb(new Error("channel state's latest topic returned no hashes"), null)
+          }
+          cb(null, hashes[0])
         })
       },
       getHistoricState: function (channel, cb) {
+        if (!cb) cb = noop
         ready(async function () {
           debug("api.getHistoricState")
-          const iter = lvl.values({
-            gt: `historic!!${channel}!!`,
-            lt: `historic!~${channel}!~`
-          })
+          const iter = lvl.iterator()
           const hashes = await iter.all()
-          cb(hashes)
+          debug("historic", hashes)
+          cb(null, hashes)
         })
       },
       del: function (hash, cb) {

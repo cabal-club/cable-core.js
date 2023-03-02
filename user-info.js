@@ -1,7 +1,7 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "user-info"
-const debug = require("debug")(`$core/${viewName}`)
+const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 
 function noop () {}
@@ -111,6 +111,21 @@ module.exports = function (lvl, reverseIndex) {
           lvl.get(`latest!${publicKey.toString("hex")}!info!name`, (err, hash) => {
             if (err) { return cb(err, null) }
             return cb(null, hash)
+          })
+        })
+      },
+      getLatestNameHashMany: function (pubkeys, cb) {
+        // return latest post/info hash for pubkey
+        ready(function () {
+          debug("api.getLatestNameHashMany")
+          const keys = pubkeys.map(publicKey => {
+            return `latest!${publicKey.toString("hex")}!info!name`
+          })
+          debug(keys)
+          lvl.getMany(keys, (err, hashes) => {
+            debug("many name keys (err %O) %O", err, hashes) 
+            if (err) { return cb(err, null) }
+            return cb(null, hashes)
           })
         })
       },

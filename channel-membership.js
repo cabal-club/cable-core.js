@@ -110,17 +110,42 @@ module.exports = function (lvl) {
           })
         })
       },
+      getHistoricUsers: function (channel, cb) {
+        // return set of channel names that pubkey is in according to our local knowledge
+        // also includes channels that have been joined previously but are marked as left
+        ready(async function () {
+          debug("api.getHistoricUsers")
+          const iter = lvl.iterator({
+            reverse: true,
+            gt: `!!${channel}`,
+            lt: `~!${channel}`
+          })
+          const entries = await iter.all()
+          const pubkeys = new Map()
+          debug("entries", entries)
+          const joined = entries.map(e => {
+            const pubkey = e[0].slice(0, e[0].indexOf("!"))
+            pubkeys.set(pubkey, b4a.from(pubkey, "hex"))
+          })
+          cb(null, Array.from(pubkeys.values()))
+        })
+      },
       getHistoricMembership: function (publicKey, cb) {
         // return set of channel names that pubkey is in according to our local knowledge
         // also includes channels that have been joined previously but are marked as left
         ready(async function () {
-          debug("api.getJoinedChannels")
+          debug("api.getHistoricMembership")
+          debug({
+            gt: `${publicKey.toString("hex")}!!`,
+            lt: `${publicKey.toString("hex")}!~`
+          })
           const iter = lvl.iterator({
             reverse: true,
             gt: `${publicKey.toString("hex")}!!`,
             lt: `${publicKey.toString("hex")}!~`
           })
           const entries = await iter.all()
+          debug("entries", entries)
           const joined = entries.map(e => {
             return e[0].slice(e[0].indexOf("!")+1)
           })

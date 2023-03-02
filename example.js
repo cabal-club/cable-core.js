@@ -52,10 +52,6 @@ function logem (err, key, res) {
 // }, 100)
 // core.join("introductions")
 
-core.join("testing")
-core.leave("testing")
-core.join("introduction")
-const buf = core.join("help-channel")
 core.setNick("boop")
 // core.getJoinedChannels((err, channels) => {
 //   console.log("err", err)
@@ -75,6 +71,10 @@ core.setNick("boop")
 // })
 // }, 100)
 //
+core.join("testing")
+core.leave("testing")
+core.join("introduction")
+const buf = core.join("help-channel")
 // core.getJoinedChannels((err, data) => {
 //   console.log("error?", err)
 //   console.log("data?", data) 
@@ -100,20 +100,28 @@ core.setNick("boop")
 // })
 
 core.setTopic("introduction", "first topic test")
-core.getTopic("introduction", (err, topic) => {
-  logem(err, "0 topic", topic)
-  setTimeout(() => {
-    const bufTopic = core.setTopic("introduction", "hello cablers")
-    core.getTopic("introduction", (err, topic) => {
-      logem(err, "1 topic", topic)
+// setTimeout(() => {
+//   core.setTopic("introduction", "second topic test")
+//
+//   core.getTopic("introduction", (err, topic) => {
+//     logem(err, "0 topic", topic)
+//     setTimeout(() => {
+//       const bufTopic = core.setTopic("introduction", "third topic")
+//       core.getTopic("introduction", (err, topic) => {
+//         logem(err, "1 topic", topic)
+//
+//         const topicHash = core.hash(bufTopic)
+//         core.del(topicHash)
+//         setTimeout(() => {
+//           core.getTopic("introduction", (err, topic) => {
+//             logem(err, "2 topic", topic)
+//           })
+//         }, 100)
+//       })
+//     }, 100)
+//   })
+// }, 50)
 
-      const topicHash = core.hash(bufTopic)
-      core.del(topicHash)
-      setTimeout(() => {
-        core.getTopic("introduction", (err, topic) => {
-          logem(err, "2 topic", topic)
-        })
-      }, 100)
-    })
-  }, 100)
+core.getChannelState("introduction", (err, state) => {
+  logem(err, "latest state", state)
 })

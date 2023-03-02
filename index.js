@@ -148,22 +148,8 @@ class CableStore {
         }
         // finally, remove the related entries in the reverse hash map
         this.reverseMapView.api.del(hashToDelete)
-        // TODO (2023-03-01): reindex accreted views if they were likely to be impacted (e.g. reindex channel topic view if channel topic was deleted)
-        // create utility methods to reindex accreted views by querying the appropriate hash views to get latest hash +
-        // value and just putting the result in the corresponding accreted view, regardless if the value is the same or not 
-
-
-        // TODO (2023-03-01): first part of reindexing is resetting the "latest state" in channel state view using a
-        // historic call
-        //
-        // TODO (2023-03-01): overhaul channel state view's latest calls to not have a "latest!" key but rather to
-        // operate on the latest timestamp() with a range and a limit of 1
-        //
-        // something like:
-        // lvl.values({
-        //   lt: timestamp()<rest of key>
-        //   limit: 1
-        // })
+        // reindex accreted views if they were likely to be impacted 
+        // e.g. reindex channel topic view if channel topic was deleted
 
         switch (post.postType) {
           case constants.JOIN_POST:
@@ -171,6 +157,7 @@ class CableStore {
             this._reindexChannelMembership(channel, affectedPublicKey)
             break
           case constants.INFO_POST:
+            this._reindexInfoName(affectedPublicKey)
             throw new Error("handle reindexing of INFO_POST")
             break
           case constants.TOPIC_POST:
@@ -181,31 +168,40 @@ class CableStore {
     })
   }
 
+  // TODO (2023-03-02): reindex userInfo:latest
+  _reindexInfoName (publicKey) {
+  }
+
   _reindexTopic (channel) {
     this.channelStateView.api.getLatestTopicHash(channel, (err, hash) => {
+      storedebug("latest topic err", err)
       storedebug("latest topic hash", hash)
       if (err && err.notFound) {
         this.topicView.api.clearTopic(channel)
         return
       }
       this.blobs.api.get(hash, (err, buf) => {
+        storedebug("topic blobs: err %O buf %O", err, buf)
         const obj = cable.parsePost(buf)
-        this.topicView.map([...obj])
+
+        this.topicView.map([obj])
       })
     })
   }
 
   _reindexChannelMembership (channel, publicKey) {
-    this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
-      // the only membership record for the given channel was deleted: clear membership information regarding channel
-      if (err && err.notFound) {
-        this.channelMembershipView.api.clearMembership(channel, publicKey)
-        return
-      }
-      // we had prior membership information for channel, get the post and update the index
-      this.blobs.api.get(hash, (err, buf) => {
-        const obj = cable.parsePost(buf)
-        this.channelMembership.map([...obj])
+    this.channelStateView.api.getHistoricState(channel, (err, hashes) => {
+      this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
+        // the only membership record for the given channel was deleted: clear membership information regarding channel
+        if (!hash || (err && err.notFound)) {
+          this.channelMembershipView.api.clearMembership(channel, publicKey)
+          return
+        }
+        // we had prior membership information for channel, get the post and update the index
+        this.blobs.api.get(hash, (err, buf) => {
+          const obj = cable.parsePost(buf)
+          this.channelMembershipView.map([obj])
+        })
       })
     })
   }
@@ -227,6 +223,22 @@ class CableStore {
     this.messagesView.map([{ ...obj, hash}])
   }
 
+
+  // TODO (2023-03-02):
+  //
+  // following scenario needs to be handled:
+  //
+  // * user sets a nickname (hasn't joined any channels)
+  // * time passes
+  // * user joins channels
+  //
+  // when we get historic state, we need to also make sure that we get nickname information in this kind of scenario
+  //
+  // (for channel-state)
+  // e.g. we should not set the nickname based on currently joined channels
+  //
+  //
+  // -- how we solve this for historic state request i'm not entirely certain
   info(buf) {
     const hash = crypto.hash(buf)
     this._storeNewPost(buf, hash)
@@ -241,6 +253,7 @@ class CableStore {
       this.channelMembershipView.api.getHistoricMembership(obj.publicKey, (err, channels) => {
         const channelStateMessages = []
         channels.forEach(channel => {
+          debug("info: each channel %s", channel)
           channelStateMessages.push({...obj, hash, channel})
         })
         storedebug(channelStateMessages)
@@ -449,10 +462,33 @@ class CableCore extends EventEmitter {
     })
   }
 
+  // when getting channel state: get the latest nickname for each user that has / had membership in a channel, at the time of querying for latest state
   getChannelState(channel, cb) {
-    this.store.channelStateView.api.getLatestState(channel, (err, hashes) => {
-      if (err) { return cb(err) }
-      this.resolveHashes(hashes, cb)
+    // get historic membership of channel
+    this.store.channelMembershipView.api.getHistoricUsers(channel, (err, pubkeys) => {
+      // get the latest nickname for each user that has been a member of channel
+      const namePromise = new Promise((res, reject) => {
+        this.store.userInfoView.api.getLatestNameHashMany(pubkeys, (err, nameHashes) => {
+          if (err) return reject(err)
+          res(nameHashes)
+        })
+      })
+      // get the latest state hashes of the channel
+      const statePromise = new Promise((res, reject) => {
+        this.store.channelStateView.api.getLatestState(channel, (err, hashes) => {
+          if (err) return reject(err)
+          res(hashes)
+        })
+      })
+
+      // resolve promises to get at the hashes
+      Promise.all([namePromise, statePromise]).then(results => {
+        // collapse results into a single array, deduplicate via set and get the list of hashes
+        const hashes = Array.from(new Set(results.flatMap(item => item)))
+        coredebug("all hashes %O", hashes)
+        // resolve the hashes into cable posts and return them
+        this.resolveHashes(hashes, cb)
+      })
     })
     // 1) either:
    
