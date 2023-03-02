@@ -23,10 +23,6 @@ function logem (err, key, res) {
 //   console.log("data?", data)
 // })
 //
-// core.getJoinedChannels("introduction", (err, data) => {
-//   console.log("error?", err)
-//   console.log("data?", data) /*cable.LEAVE_POST.toJSON(data))*/
-// })
 //
 // core.getChannelState("introduction", (err, data) => {
 //   console.log("latest channel state")
@@ -55,10 +51,11 @@ function logem (err, key, res) {
 // })
 // }, 100)
 // core.join("introductions")
-const buf = core.join("help-channel")
 
 core.join("testing")
 core.leave("testing")
+core.join("introduction")
+const buf = core.join("help-channel")
 core.setNick("boop")
 // core.getJoinedChannels((err, channels) => {
 //   console.log("err", err)
@@ -78,27 +75,45 @@ core.setNick("boop")
 // })
 // }, 100)
 //
-const hash2 = core.hash(buf)
-setTimeout(() => {
-  core.del(hash2)
-  // core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
-  //   console.log("the queried hash (post/join) was", hash2.toString("hex"))
-  //   logem(err, "reverse map uses", uses)
-  //   core.store.reverseMapView.api.del(hash2, () => {
-  //     setTimeout(() => {
-  //       core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
-  //         logem(err, "post del reverse map uses", uses)
-  //       })
-  //     }, 1000)
-  //   })
-  // })
-}, 1000)
+// core.getJoinedChannels((err, data) => {
+//   console.log("error?", err)
+//   console.log("data?", data) 
+//   const hash2 = core.hash(buf)
+//   core.del(hash2)
+//   setTimeout(() => {
+//     core.getJoinedChannels((err, data) => {
+//       console.log("2 error?", err)
+//       console.log("2 data?", data) 
+//       // core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
+//       //   console.log("the queried hash (post/join) was", hash2.toString("hex"))
+//       //   logem(err, "reverse map uses", uses)
+//       //   core.store.reverseMapView.api.del(hash2, () => {
+//       //     setTimeout(() => {
+//       //       core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
+//       //         logem(err, "post del reverse map uses", uses)
+//       //       })
+//       //     }, 1000)
+//       //   })
+//       // })
+//     })
+//   }, 100)
+// })
 
-const bufTopic = core.setTopic("introduction", "hello cablers")
+core.setTopic("introduction", "first topic test")
 core.getTopic("introduction", (err, topic) => {
-  logem(err, "topic", topic)
+  logem(err, "0 topic", topic)
+  setTimeout(() => {
+    const bufTopic = core.setTopic("introduction", "hello cablers")
+    core.getTopic("introduction", (err, topic) => {
+      logem(err, "1 topic", topic)
+
+      const topicHash = core.hash(bufTopic)
+      core.del(topicHash)
+      setTimeout(() => {
+        core.getTopic("introduction", (err, topic) => {
+          logem(err, "2 topic", topic)
+        })
+      }, 100)
+    })
+  }, 100)
 })
-
-
-
-

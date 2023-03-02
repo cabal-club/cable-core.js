@@ -131,6 +131,7 @@ class CableStore {
       const post = cable.parsePost(cablegram)
       storedebug("post to delete %O", post)
       const channel = post.channel
+      const affectedPublicKey = post.publicKey
       // record the post/delete in the messages view
       this.messagesView.map([{ ...obj, channel, hash}])
       // delete the targeted post in the data store using obj.hash
@@ -139,10 +140,8 @@ class CableStore {
       this.deletedView.map([hashToDelete])
       // remove hash from indices that referenced it
       this.reverseMapView.api.getUses(hashToDelete, (err, uses) => {
-        storedebug(uses)
-        for (let [viewName, viewKeys] of uses) {
         // go through each index and delete the entry referencing this hash
-          storedebug(viewName, viewKeys)
+        for (let [viewName, viewKeys] of uses) {
           viewKeys.forEach(key => {
             this._viewsMap[viewName].api.del(key)
           })
@@ -152,6 +151,61 @@ class CableStore {
         // TODO (2023-03-01): reindex accreted views if they were likely to be impacted (e.g. reindex channel topic view if channel topic was deleted)
         // create utility methods to reindex accreted views by querying the appropriate hash views to get latest hash +
         // value and just putting the result in the corresponding accreted view, regardless if the value is the same or not 
+
+
+        // TODO (2023-03-01): first part of reindexing is resetting the "latest state" in channel state view using a
+        // historic call
+        //
+        // TODO (2023-03-01): overhaul channel state view's latest calls to not have a "latest!" key but rather to
+        // operate on the latest timestamp() with a range and a limit of 1
+        //
+        // something like:
+        // lvl.values({
+        //   lt: timestamp()<rest of key>
+        //   limit: 1
+        // })
+
+        switch (post.postType) {
+          case constants.JOIN_POST:
+          case constants.LEAVE_POST:
+            this._reindexChannelMembership(channel, affectedPublicKey)
+            break
+          case constants.INFO_POST:
+            throw new Error("handle reindexing of INFO_POST")
+            break
+          case constants.TOPIC_POST:
+            this._reindexTopic(channel)
+            break
+        }
+      })
+    })
+  }
+
+  _reindexTopic (channel) {
+    this.channelStateView.api.getLatestTopicHash(channel, (err, hash) => {
+      storedebug("latest topic hash", hash)
+      if (err && err.notFound) {
+        this.topicView.api.clearTopic(channel)
+        return
+      }
+      this.blobs.api.get(hash, (err, buf) => {
+        const obj = cable.parsePost(buf)
+        this.topicView.map([...obj])
+      })
+    })
+  }
+
+  _reindexChannelMembership (channel, publicKey) {
+    this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
+      // the only membership record for the given channel was deleted: clear membership information regarding channel
+      if (err && err.notFound) {
+        this.channelMembershipView.api.clearMembership(channel, publicKey)
+        return
+      }
+      // we had prior membership information for channel, get the post and update the index
+      this.blobs.api.get(hash, (err, buf) => {
+        const obj = cable.parsePost(buf)
+        this.channelMembership.map([...obj])
       })
     })
   }

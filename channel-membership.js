@@ -91,6 +91,16 @@ module.exports = function (lvl) {
           cb(null, names.slice(offset, limit))
         })
       },
+      clearMembership: function (channel, publicKey, cb) {
+        if (!cb) { cb = noop }
+        ready(function () {
+          lvl.del(`${publicKey.toString("hex")}!${channel}`, (err) => {
+            if (err && err.notFound ) { return cb(null) }
+            if (err ) { return cb(err) }
+            cb(null)
+          })
+        })
+      },
       isInChannel: function (channel, publicKey, cb) {
         ready(function () {
           lvl.get(`${publicKey.toString("hex")}!${channel}`, (err, value) => {

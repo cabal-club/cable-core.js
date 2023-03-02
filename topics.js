@@ -83,6 +83,15 @@ module.exports = function (lvl) {
           cb(null, entries)
         })
       },
+      clearTopic: function (channel, cb) {
+        if (!cb) cb = noop
+        ready(function () {
+          lvl.del(channel, (err) => {
+            if (err) { return cb(err) }
+            cb(null)
+          })
+        })
+      },
       getTopic: function (channel, cb) {
         ready(function () {
           debug("get topic", channel)
