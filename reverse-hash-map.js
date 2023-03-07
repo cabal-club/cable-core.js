@@ -33,8 +33,6 @@ module.exports = function (lvl) {
   }
 
   return {
-    maxBatch: 100,
-
     transformOps(name, getHash, getKey, msgs) {
       return msgs.map(m => {
         const key = getKey(m)
@@ -135,20 +133,7 @@ module.exports = function (lvl) {
         })
       },
       events: events
-    },
-
-    storeState: function (state, cb) {
-      state = state.toString('base64')
-      lvl.put('state', state, cb)
-    },
-
-    fetchState: function (cb) {
-      lvl.get('state', function (err, state) {
-        if (err && err.notFound) cb()
-        else if (err) cb(err)
-        else cb(null, b4a.from(state, 'base64'))
-      })
-    },
+    }
   }
 }
 

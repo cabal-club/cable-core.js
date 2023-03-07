@@ -71,62 +71,66 @@ core.join("testing")
 core.leave("testing")
 core.join("introduction")
 const buf = core.join("testing")
-core.getJoinedChannels((err, data) => {
-  console.log("error?", err)
-  console.log("data?", data) 
-  const hash2 = core.hash(buf)
-  core.del(hash2)
-  setTimeout(() => {
-    core.getJoinedChannels((err, data) => {
-      console.log("2 error?", err)
-      console.log("2 data?", data) 
-      // core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
-      //   console.log("the queried hash (post/join) was", hash2.toString("hex"))
-      //   logem(err, "reverse map uses", uses)
-      //   core.store.reverseMapView.api.del(hash2, () => {
-      //     setTimeout(() => {
-      //       core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
-      //         logem(err, "post del reverse map uses", uses)
-      //       })
-      //     }, 1000)
-      //   })
-      // })
-    })
-  }, 100)
-})
+setTimeout(() => {
+  core.getJoinedChannels((err, data) => {
+    console.log("error?", err)
+    console.log("data?", data) 
+    const hash2 = core.hash(buf)
+    core.del(hash2)
+    setTimeout(() => {
+      core.getJoinedChannels((err, data) => {
+        console.log("2 error?", err)
+        console.log("2 data?", data) 
+        // core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
+        //   console.log("the queried hash (post/join) was", hash2.toString("hex"))
+        //   logem(err, "reverse map uses", uses)
+        //   core.store.reverseMapView.api.del(hash2, () => {
+        //     setTimeout(() => {
+        //       core.store.reverseMapView.api.getUses(hash2, (err, uses) => {
+        //         logem(err, "post del reverse map uses", uses)
+        //       })
+        //     }, 1000)
+        //   })
+        // })
+      })
+    }, 100)
+  })
+}, 200)
 // core.getJoinedChannels((err, channels) => {
 //   logem(err, "joined channels", channels)
 // })
 //
-core.setTopic("introduction", "first topic test")
-setTimeout(() => {
-  core.setTopic("introduction", "second topic test")
-
-  core.getTopic("introduction", (err, topic) => {
-    logem(err, "0 topic", topic)
-    setTimeout(() => {
-      const bufTopic = core.setTopic("introduction", "third topic")
-      core.getTopic("introduction", (err, topic) => {
-        logem(err, "1 topic", topic)
-
-        const topicHash = core.hash(bufTopic)
-        core.del(topicHash)
-        setTimeout(() => {
-          core.getTopic("introduction", (err, topic) => {
-            logem(err, "2 topic", topic)
-          })
-        }, 100)
-      })
-    }, 100)
-  })
-}, 50)
-
+// core.setTopic("introduction", "first topic test")
+// setTimeout(() => {
+//   core.setTopic("introduction", "second topic test")
+//
+//   core.getTopic("introduction", (err, topic) => {
+//     logem(err, "0 topic", topic)
+//     setTimeout(() => {
+//       const bufTopic = core.setTopic("introduction", "third topic")
+//       core.getTopic("introduction", (err, topic) => {
+//         logem(err, "1 topic", topic)
+//
+//         const topicHash = core.hash(bufTopic)
+//         core.del(topicHash)
+//         setTimeout(() => {
+//           core.getTopic("introduction", (err, topic) => {
+//             logem(err, "2 topic", topic)
+//           })
+//         }, 100)
+//       })
+//     }, 100)
+//   })
+// }, 50)
+//
 // core.getChannelState("introduction", (err, state) => {
 //   logem(err, "latest state", state)
 // })
-// core.getUsers((err, result) => {
-//   logem(err, "get users", result)
-// })
+setTimeout(() => {
+  core.getUsers((err, result) => {
+    logem(err, "get users", result)
+  })
+}, 500)
 // core.getUsersInChannel("introduction", (err, result) => {
 //   logem(err, "get users in channel", result)
 // })
