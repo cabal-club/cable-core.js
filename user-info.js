@@ -81,6 +81,8 @@ module.exports = function (lvl, reverseIndex) {
           // keeps track of the latest key:value pair made by any user, let's us easily get the latest value
           //
           // note: need to track & remove these keys via the reverse hash map in case of delete
+          // note 2: this operation resides outside the conditionals above since we occasionally want to reindex the
+          // latest value (in case of deletion), and to do so we simply re-put the record, overwriting the old
           ops.push({
             type: 'put',
             key: `latest!info!name!${msg.publicKey.toString("hex")}`,
@@ -134,7 +136,7 @@ module.exports = function (lvl, reverseIndex) {
         })
       },
       getLatestNameHashMany: function (pubkeys, cb) {
-        // return latest post/info hash for pubkey
+        // return latest post/info hash for many pubkeys
         ready(function () {
           debug("api.getLatestNameHashMany")
           const keys = pubkeys.map(publicKey => {
@@ -148,12 +150,13 @@ module.exports = function (lvl, reverseIndex) {
           })
         })
       },
-      del: function (hash, cb) {
-        debug("api.del")
-        if (typeof cb === "undefined") { cb = noop }
+      clearName: function (publicKey, cb) {
+        if (!cb) { cb = noop }
+        // remove the name record for this public key
         ready(function () {
-          lvl.del(hash, function (err) {
-            if (err) { return cb(err) }
+          debug("api.clearNameHash")
+          lvl.del(`latest!${publicKey.toString("hex")}!info!name`, (err) => {
+            if (err) { return cb(er) }
             return cb(null)
           })
         })

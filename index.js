@@ -160,7 +160,6 @@ class CableStore {
             break
           case constants.INFO_POST:
             this._reindexInfoName(affectedPublicKey)
-            throw new Error("handle reindexing of INFO_POST")
             break
           case constants.TOPIC_POST:
             this._reindexTopic(channel)
@@ -170,8 +169,26 @@ class CableStore {
     })
   }
 
-  // TODO (2023-03-02): reindex userInfo:latest
+  // reindex an accreted view by re-putting a cablegram using its hash 
+  _reindexHash (hash, mappingFunction) {
+    storedebug("reindexHash %O", hash)
+    this.blobs.api.get(hash, (err, buf) => {
+      storedebug("reindex with hash - blobs: err %O buf %O", err, buf)
+      const obj = cable.parsePost(buf)
+      mappingFunction([obj])
+    })
+  }
+
   _reindexInfoName (publicKey) {
+    this.channelStateView.api.getLatestNameHash(publicKey, (err, hash) => {
+      storedebug("latest name err", err)
+      storedebug("latest name hash", hash)
+      if (err && err.notFound) {
+        this.userInfoView.api.clearName(publicKey)
+        return
+      }
+      this._reindexHash(hash, this.userInfoView.map)
+    })
   }
 
   _reindexTopic (channel) {
@@ -182,27 +199,21 @@ class CableStore {
         this.topicView.api.clearTopic(channel)
         return
       }
-      this.blobs.api.get(hash, (err, buf) => {
-        storedebug("topic blobs: err %O buf %O", err, buf)
-        const obj = cable.parsePost(buf)
-
-        this.topicView.map([obj])
-      })
+      this._reindexHash(hash, this.topicView.map)
     })
   }
 
   _reindexChannelMembership (channel, publicKey) {
+    storedebug("reindex channel membership in %s for %s", channel, publicKey.toString("hex"))
     this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
+      storedebug("membership hash %O err %O", hash, err)
       // the only membership record for the given channel was deleted: clear membership information regarding channel
       if (!hash || (err && err.notFound)) {
         this.channelMembershipView.api.clearMembership(channel, publicKey)
         return
       }
       // we had prior membership information for channel, get the post and update the index
-      this.blobs.api.get(hash, (err, buf) => {
-        const obj = cable.parsePost(buf)
-        this.channelMembershipView.map([obj])
-      })
+      this._reindexHash(hash, this.channelMembershipView.map)
     })
   }
 
