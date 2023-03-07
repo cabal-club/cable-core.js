@@ -6,6 +6,13 @@ const constants = require("../cable/constants.js")
 
 function noop () {}
 
+function getChannelFromKey (e) {
+  return e.slice(0, e.indexOf("!"))
+}
+function getPublicKeyFromKey (e) {
+  return e.slice(e.indexOf("!") + 1)
+}
+
 // takes a (sub)level instance
 module.exports = function (lvl) {
   const events = new EventEmitter()
@@ -46,7 +53,7 @@ module.exports = function (lvl) {
 
         // key schema
         // <publicKey>!<channel! -> 1 or 0
-        const key = `${msg.publicKey.toString("hex")}!${msg.channel}`
+        const key = `${msg.channel}!${msg.publicKey.toString("hex")}`
         let value
         let variableKey = ""
         switch (msg.postType) {
@@ -94,7 +101,7 @@ module.exports = function (lvl) {
       clearMembership: function (channel, publicKey, cb) {
         if (!cb) { cb = noop }
         ready(function () {
-          lvl.del(`${publicKey.toString("hex")}!${channel}`, (err) => {
+          lvl.del(`${channel}!${publicKey.toString("hex")}`, (err) => {
             if (err && err.notFound ) { return cb(null) }
             if (err ) { return cb(err) }
             cb(null)
@@ -103,7 +110,7 @@ module.exports = function (lvl) {
       },
       isInChannel: function (channel, publicKey, cb) {
         ready(function () {
-          lvl.get(`${publicKey.toString("hex")}!${channel}`, (err, value) => {
+          lvl.get(`${channel}!${publicKey.toString("hex")}`, (err, value) => {
             if (err && err.notFound ) { return cb(null, false) }
             if (err ) { return cb(err) }
             cb(null, parseInt(value) === 1)
@@ -117,14 +124,15 @@ module.exports = function (lvl) {
           debug("api.getHistoricUsers")
           const iter = lvl.iterator({
             reverse: true,
-            gt: `!!${channel}`,
-            lt: `~!${channel}`
+            gt: `${channel}!!`,
+            lt: `${channel}!~`
           })
           const entries = await iter.all()
           const pubkeys = new Map()
           debug("entries", entries)
           const joined = entries.map(e => {
-            const pubkey = e[0].slice(0, e[0].indexOf("!"))
+            const pubkey = getPublicKeyFromKey(e[0])
+            debug("pubkey %s", pubkey)
             pubkeys.set(pubkey, b4a.from(pubkey, "hex"))
           })
           cb(null, Array.from(pubkeys.values()))
@@ -136,21 +144,41 @@ module.exports = function (lvl) {
         ready(async function () {
           debug("api.getHistoricMembership")
           debug({
-            gt: `${publicKey.toString("hex")}!!`,
-            lt: `${publicKey.toString("hex")}!~`
+            gt: `!!${publicKey.toString("hex")}`,
+            lt: `~!${publicKey.toString("hex")}`
           })
           const iter = lvl.iterator({
             reverse: true,
-            gt: `${publicKey.toString("hex")}!!`,
-            lt: `${publicKey.toString("hex")}!~`
+            gt: `!!${publicKey.toString("hex")}`,
+            lt: `~!${publicKey.toString("hex")}`
           })
           const entries = await iter.all()
           debug("entries", entries)
           const joined = entries.map(e => {
-            return e[0].slice(e[0].indexOf("!")+1)
+            return getChannelFromKey(e[0])
           })
           joined.sort()
           cb(null, joined)
+        })
+      },
+      getUsersInChannel: function (channel, cb) {
+        if (!cb) { cb = noop }
+        ready(async function () {
+          debug("api.getUsersInChannel")
+          const iter = lvl.iterator({
+            gt: `${channel}!!`,
+            lt: `${channel}!~`
+          })
+          const entries = await iter.all()
+          const pubkeys = []
+          entries.forEach(e => {
+            // channel joined
+            if (e[1] === 1) { 
+              pubkeys.push(getPublicKeyFromKey(e[0]))
+            }
+          })
+          debug("public keys", pubkeys)
+          cb(null, Array.from(new Set(pubkeys)))
         })
       },
       getJoinedChannels: function (publicKey, cb) {
@@ -159,15 +187,15 @@ module.exports = function (lvl) {
           debug("api.getJoinedChannels")
           const iter = lvl.iterator({
             reverse: true,
-            gt: `${publicKey.toString("hex")}!!`,
-            lt: `${publicKey.toString("hex")}!~`
+            gt: `!!${publicKey.toString("hex")}`,
+            lt: `~!${publicKey.toString("hex")}`
           })
           const entries = await iter.all()
           const joined = []
           entries.forEach(e => {
             // channel joined
             if (e[1] === 1) { 
-              const channel = e[0].slice(e[0].indexOf("!")+1)
+              const channel = getChannelFromKey(e[0])
               joined.push(channel) 
             }
           })

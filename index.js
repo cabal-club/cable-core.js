@@ -37,6 +37,8 @@ class CableStore {
   // TODO (2023-03-01): in all indexes, ensure that we never have any collisions with non-monotonic timestamps 
 
   // TODO (2023-03-01): do an error checking pass in all views, in particular the views that have async functions
+  
+  // TODO (2023-03-02): look over lexicographic sort with regard to keyspace layout in each view
   constructor(opts) {
     if (!opts) { opts = { temp: true } }
 
@@ -190,18 +192,16 @@ class CableStore {
   }
 
   _reindexChannelMembership (channel, publicKey) {
-    this.channelStateView.api.getHistoricState(channel, (err, hashes) => {
-      this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
-        // the only membership record for the given channel was deleted: clear membership information regarding channel
-        if (!hash || (err && err.notFound)) {
-          this.channelMembershipView.api.clearMembership(channel, publicKey)
-          return
-        }
-        // we had prior membership information for channel, get the post and update the index
-        this.blobs.api.get(hash, (err, buf) => {
-          const obj = cable.parsePost(buf)
-          this.channelMembershipView.map([obj])
-        })
+    this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
+      // the only membership record for the given channel was deleted: clear membership information regarding channel
+      if (!hash || (err && err.notFound)) {
+        this.channelMembershipView.api.clearMembership(channel, publicKey)
+        return
+      }
+      // we had prior membership information for channel, get the post and update the index
+      this.blobs.api.get(hash, (err, buf) => {
+        const obj = cable.parsePost(buf)
+        this.channelMembershipView.map([obj])
       })
     })
   }
@@ -275,19 +275,6 @@ class CableStore {
   }
   getTopic(channel, cb) {
     this.topicView.api.getTopic(channel, cb)
-  }
-  // hashes relating to channel state
-  // (superfluous if we only ever store latest channel membership?)
-  getChannelState(channel, historic, cb) {
-    if (historic) {
-      this.channelStateView.api.getHistoricState(channel, cb)
-    } else {
-      this.channelStateView.api.getLatestState(channel, cb)
-    }
-  } 
-  // get all channel names
-  getChannelNames(offset, limit, cb) {
-    this.channelMembershipView.api.getChannelNames(offset, limit, cb)
   }
 
   // rebuild the specified index. could be required if a delete happened for a post type which has an accreted
@@ -404,6 +391,7 @@ class CableCore extends EventEmitter {
 
   getChat(channel, start, end, limit, cb) {
     coredebug(channel, start, end, limit, cb)
+    // TODO (2023-03-07): future work here to augment with links-based retrieval & causal sort
     this.store.getChannelTimeRange(channel, start, end, limit, (err, hashes) => {
       if (err) { return cb(err) }
       this.resolveHashes(hashes, cb)
@@ -441,8 +429,40 @@ class CableCore extends EventEmitter {
     })
   }
 
-  // get users in channel? map pubkey -> user object
-  getUsers(channel, cb) {}
+  // returns a map mapping user public key to their current nickname
+  // TODO (2023-03-07): get users in a channel
+  getUsers(cb) {
+    if (!cb) { return }
+    this.store.userInfoView.api.getUsers((err, latestNameHashes) => {
+      if (err) return cb(err)
+      coredebug(latestNameHashes)
+      this.resolveHashes(latestNameHashes, (err, posts) => {
+        const users = new Map()
+        posts.forEach(post => {
+          if (post.postType !== constants.INFO_POST) { return }
+          if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
+            users.set(post.publicKey.toString("hex"), post.value)
+        })
+        cb(null, users)
+      })
+    })
+  }
+  getUsersInChannel(channel, cb) {
+    if (!cb) { return }
+    this.store.channelMembershipView.api.getUsersInChannel(channel, (err, pubkeys) => {
+      if (err) return cb(err)
+      coredebug(pubkeys)
+    //   this.resolveHashes(latestNameHashes, (err, posts) => {
+    //     const users = new Map()
+    //     posts.forEach(post => {
+    //       if (post.postType !== constants.INFO_POST) { return }
+    //       if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
+    //         users.set(post.publicKey.toString("hex"), post.value)
+    //     })
+    //     cb(null, users)
+    //   })
+    })
+  }
 
   // resolves hashes into post objects
   resolveHashes(hashes, cb) {

@@ -53,10 +53,6 @@ function logem (err, key, res) {
 // core.join("introductions")
 
 core.setNick("boop")
-// core.getJoinedChannels((err, channels) => {
-//   console.log("err", err)
-//   console.log(channels)
-// })
 // core.getChannels((err, channels) => {
 //   console.log("channel names")
 //   console.log("err", err)
@@ -98,6 +94,9 @@ const buf = core.join("help-channel")
 //     })
 //   }, 100)
 // })
+core.getJoinedChannels((err, channels) => {
+  logem(err, "joined channels", channels)
+})
 
 core.setTopic("introduction", "first topic test")
 // setTimeout(() => {
@@ -122,6 +121,12 @@ core.setTopic("introduction", "first topic test")
 //   })
 // }, 50)
 
-core.getChannelState("introduction", (err, state) => {
-  logem(err, "latest state", state)
+// core.getChannelState("introduction", (err, state) => {
+//   logem(err, "latest state", state)
+// })
+// core.getUsers((err, result) => {
+//   logem(err, "get users", result)
+// })
+core.getUsersInChannel("introduction", (err, result) => {
+  logem(err, "get users in channel", result)
 })

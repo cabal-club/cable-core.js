@@ -83,7 +83,7 @@ module.exports = function (lvl, reverseIndex) {
           // note: need to track & remove these keys via the reverse hash map in case of delete
           ops.push({
             type: 'put',
-            key: `latest!${msg.publicKey.toString("hex")}!info!${msg.key}`,
+            key: `latest!info!name!${msg.publicKey.toString("hex")}`,
             value: hash
           })
           if (!--pending) done()
@@ -104,6 +104,25 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
+      getUsers: function (cb) {
+        // return latest post/info hash for pubkey
+        ready(async function () {
+          debug("api.getUsers")
+          const iter = lvl.values({
+            gt: `latest!info!name!!`,
+            lt: `latest!info!name!~`
+          })
+          const hashes = await iter.all()
+          debug(hashes)
+          cb(null, hashes)
+          // const users = new Map()
+          // entries.forEach(entry => {
+            // const pubkeystr = entry[0].split("!")[3]
+            // users.set(pubkeystr, entry[1]) // entry[1] contains name hash
+          // })
+          // cb(null, users)
+        })
+      },
       getLatestNameHash: function (publicKey, cb) {
         // return latest post/info hash for pubkey
         ready(function () {
