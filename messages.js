@@ -52,10 +52,10 @@ module.exports = function (lvl, reverseIndex) {
         let key 
         switch (msg.postType) {
           case constants.TEXT_POST:
-            key = `${msg.timestamp}!text!${msg.channel}`
+            key = `${msg.channel}!${msg.timestamp}!text`
             break
           case constants.DELETE_POST:
-            key = `${msg.timestamp}!delete!${msg.channel}`
+            key = `${msg.channel}!${msg.timestamp}!delete`
             break
           default:
             throw new Error(`${viewName}: unhandled post type (${msg.postType})`)
@@ -94,21 +94,21 @@ module.exports = function (lvl, reverseIndex) {
     api: {
       getChannelTimeRange: function (channel, timestart, timeend, limit, cb) {
         // get the hashes recorded in the specified time range
-        // TODO (2023-02-23): handle special case live streaming behavuour for timeend == 0
+        // TODO (2023-02-23): handle special case live streaming behaviour for timeend == 0
         ready(async function () {
           debug("api.getChannelTimeRange")
           if (timeend === 0) {
             timeend = util.timestamp()
           }
           debug("ctr opts %O", {
-            gt: `${timestart}!!${channel}`,
-            lt: `${timeend}!~${channel}`
+            gt: `${channel}!${timestart}`,
+            lt: `${channel}!${timeend}`
           })
           const iter = lvl.values({
             reverse: true,
             limit,
-            gt: `${timestart}!!${channel}`,
-            lt: `${timeend}!~${channel}`
+            gt: `${channel}!${timestart}`,
+            lt: `${channel}!${timeend}`
           })
           const hashes = await iter.all()
           debug("ctr hashes %O", hashes)

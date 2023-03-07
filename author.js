@@ -46,7 +46,7 @@ module.exports = function (lvl, reverseIndex) {
         if (!sanitize(msg)) return
 
         // <mono-ts>!<pubkey>!<post_type-id> -> <hash>
-        const key = `${msg.timestamp}!${msg.publicKey.toString("hex")}!${msg.postType}`
+        const key = `${msg.publicKey.toString("hex")}!${msg.postType}!${msg.timestamp}`
         const hash = msg.hash
 
         // make sure we find unhandled cases, because they are likely to be either bugs or new functionality that needs
@@ -99,11 +99,11 @@ module.exports = function (lvl, reverseIndex) {
           debug("api.getAllHashesByAuthor")
           const iter = lvl.values({
             reverse: true,
-            gt: `!!${publicKey.toString("hex")}!!`,
-            lt: `~!${publicKey.toString("hex")}!~`
+            gt: `${publicKey.toString("hex")}!!`,
+            lt: `${publicKey.toString("hex")}!~`
           })
           const hashes = await iter.all()
-          cb(null, hashes) // only return one hash
+          cb(null, hashes) 
         })
       },
       getAllHashesByAuthorAndType: function (publicKey, postType, cb) {
@@ -112,8 +112,8 @@ module.exports = function (lvl, reverseIndex) {
           debug("api.getAllHashesByAuthorAndType")
           const iter = lvl.values({
             reverse: true,
-            gt: `!!${publicKey.toString("hex")}!${postType}`,
-            lt: `~!${publicKey.toString("hex")}!${postType}`
+            gt: `${publicKey.toString("hex")}!${postType}!!`,
+            lt: `${publicKey.toString("hex")}!${postType}!~`
           })
           const hashes = await iter.all()
           cb(null, hashes) // only return one hash

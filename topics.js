@@ -37,12 +37,14 @@ module.exports = function (lvl) {
 
     map: function (msgs, next) {
       debug("view.map")
-      let seen = {}
       let ops = []
       unprocessedBatches++
       debug("msgs %O", msgs.length)
-      msgs.forEach(function (msg) {
-        // TODO: decide format of input; should we operate on a json object or not?
+      // make sure messages are sorted, as we'll be overwriting older topics set on the same channel
+      const sorted = msgs.sort((a, b) => {
+        return parseInt(a.timestamp) - parseInt(b.timestamp)
+      })
+      sorted.forEach(function (msg) {
         if (!sanitize(msg)) return
 
         // key schema

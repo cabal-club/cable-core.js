@@ -116,7 +116,6 @@ module.exports = function (lvl) {
       // remove all traces of this hash being indexed in the reverse map
       del: function (hash, cb) {
         debug("api.del")
-        // TODO (2023-03-01)
         if (typeof cb === "undefined") { cb = noop }
         ready(async function () {
           const iter = lvl.keys({

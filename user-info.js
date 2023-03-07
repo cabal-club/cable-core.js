@@ -42,23 +42,15 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
-        /*
-        !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
-        !user!<mono-ts>!<pubkey>!info!<property> in general
-
-        The corresponding user information schema looked like the following for cabal-core:
-
-        user!<mono-ts>!about!<pubkey>
-        */
-        // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
-        // TODO (2023-02-28): should we only store the latest value instead? 
-        const key = `${msg.timestamp}!${msg.publicKey.toString("hex")}!info!${msg.key}`
+        // TODO (2023-03-07): values stored under this scheme are currently unused. but could be used in preference to
+        // the latest scheme and reduce need for reindexing this when deletes happen
+        const key = `info!${msg.key}!${msg.publicKey.toString("hex")}!${msg.timestamp}`
         const hash = msg.hash
 
-        // make sure we find unhandled cases, because they are likely to be either bugs or new functionality that needs
-        // to be handled in other parts of the codebase
+        // this switch case makes sure we find unhandled cases, because they are likely to be either bugs or new
+        // functionality that needs to be handled in other parts of the codebase
         switch (msg.key) {
           case "name": 
             // pass
@@ -85,7 +77,7 @@ module.exports = function (lvl, reverseIndex) {
           // latest value (in case of deletion), and to do so we simply re-put the record, overwriting the old
           ops.push({
             type: 'put',
-            key: `latest!info!name!${msg.publicKey.toString("hex")}`,
+            key: `latest!info!${msg.key}!${msg.publicKey.toString("hex")}`,
             value: hash
           })
           if (!--pending) done()
@@ -106,8 +98,8 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
+      // return latest post/info name-setting hash for all recorded pubkeys
       getUsers: function (cb) {
-        // return latest post/info hash for pubkey
         ready(async function () {
           debug("api.getUsers")
           const iter = lvl.values({
@@ -117,17 +109,12 @@ module.exports = function (lvl, reverseIndex) {
           const hashes = await iter.all()
           debug(hashes)
           cb(null, hashes)
-          // const users = new Map()
-          // entries.forEach(entry => {
-            // const pubkeystr = entry[0].split("!")[3]
-            // users.set(pubkeystr, entry[1]) // entry[1] contains name hash
-          // })
-          // cb(null, users)
         })
       },
+      // return latest post/info name-setting hash for specified publicKey
       getLatestNameHash: function (publicKey, cb) {
-        // return latest post/info hash for pubkey
         ready(function () {
+          // TODO (2023-03-07): consider converting to using a range query with limit: 1 instead
           debug("api.getLatestNameHash")
           lvl.get(`latest!${publicKey.toString("hex")}!info!name`, (err, hash) => {
             if (err) { return cb(err, null) }
@@ -135,6 +122,7 @@ module.exports = function (lvl, reverseIndex) {
           })
         })
       },
+      // this function is needed to fulfilling channel state requests, in terms of getting the latest name hashes
       getLatestNameHashMany: function (pubkeys, cb) {
         // return latest post/info hash for many pubkeys
         ready(function () {

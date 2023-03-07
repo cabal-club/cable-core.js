@@ -46,7 +46,7 @@ module.exports = function (lvl) {
         if (!sanitize(hash)) return
 
         /* key scheme
-          deleted!<hash> -> 1
+          <deleted hash> -> 1
         */
         let key = hash
         const value = 1

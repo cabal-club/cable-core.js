@@ -43,13 +43,6 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
-        /* channel state can have different types of messages. should they all be handled in the same view? or should we
-         * have one view for each type of channel state?
-        !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
-        !state!<mono-ts>!<channel>!name!<pubkey> -> <hash>
-        !state!<mono-ts>!<channel>!topic -> <hash>
-        */ 
-        // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
         let key

@@ -47,12 +47,16 @@ module.exports = function (lvl) {
       let seen = {}
       let ops = []
       unprocessedBatches++
-      msgs.forEach(function (msg) {
+      const sorted = msgs.sort((a, b) => {
+        return parseInt(a.timestamp) - parseInt(b.timestamp)
+      })
+      sorted.forEach(function (msg) {
         // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
         // key schema
-        // <publicKey>!<channel! -> 1 or 0
+        // <channel>!<publicKey> -> 1 or 0
+        // 1 = joined, 0 = left. no record for a key means no recorded interaction between channel & publicKey
         const key = `${msg.channel}!${msg.publicKey.toString("hex")}`
         let value
         let variableKey = ""
@@ -141,6 +145,9 @@ module.exports = function (lvl) {
       getHistoricMembership: function (publicKey, cb) {
         // return set of channel names that pubkey is in according to our local knowledge
         // also includes channels that have been joined previously but are marked as left
+        // 
+        // TODO (2023-03-07): write test to confirm this yields expected result for multiple channels with multiple
+        // users
         ready(async function () {
           debug("api.getHistoricMembership")
           debug({
@@ -183,6 +190,8 @@ module.exports = function (lvl) {
       },
       getJoinedChannels: function (publicKey, cb) {
         // return set of channel names that pubkey is in according to our local knowledge
+        // TODO (2023-03-07): write test to confirm this yields expected result for multiple channels with multiple
+        // users
         ready(async function () {
           debug("api.getJoinedChannels")
           const iter = lvl.iterator({

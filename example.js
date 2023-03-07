@@ -98,28 +98,28 @@ core.getJoinedChannels((err, data) => {
 //   logem(err, "joined channels", channels)
 // })
 //
-// core.setTopic("introduction", "first topic test")
-// setTimeout(() => {
-//   core.setTopic("introduction", "second topic test")
-//
-//   core.getTopic("introduction", (err, topic) => {
-//     logem(err, "0 topic", topic)
-//     setTimeout(() => {
-//       const bufTopic = core.setTopic("introduction", "third topic")
-//       core.getTopic("introduction", (err, topic) => {
-//         logem(err, "1 topic", topic)
-//
-//         const topicHash = core.hash(bufTopic)
-//         core.del(topicHash)
-//         setTimeout(() => {
-//           core.getTopic("introduction", (err, topic) => {
-//             logem(err, "2 topic", topic)
-//           })
-//         }, 100)
-//       })
-//     }, 100)
-//   })
-// }, 50)
+core.setTopic("introduction", "first topic test")
+setTimeout(() => {
+  core.setTopic("introduction", "second topic test")
+
+  core.getTopic("introduction", (err, topic) => {
+    logem(err, "0 topic", topic)
+    setTimeout(() => {
+      const bufTopic = core.setTopic("introduction", "third topic")
+      core.getTopic("introduction", (err, topic) => {
+        logem(err, "1 topic", topic)
+
+        const topicHash = core.hash(bufTopic)
+        core.del(topicHash)
+        setTimeout(() => {
+          core.getTopic("introduction", (err, topic) => {
+            logem(err, "2 topic", topic)
+          })
+        }, 100)
+      })
+    }, 100)
+  })
+}, 50)
 
 // core.getChannelState("introduction", (err, state) => {
 //   logem(err, "latest state", state)
