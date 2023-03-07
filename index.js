@@ -447,20 +447,23 @@ class CableCore extends EventEmitter {
       })
     })
   }
+
   getUsersInChannel(channel, cb) {
     if (!cb) { return }
+    // first get the pubkeys currently in channel
     this.store.channelMembershipView.api.getUsersInChannel(channel, (err, pubkeys) => {
       if (err) return cb(err)
       coredebug(pubkeys)
-    //   this.resolveHashes(latestNameHashes, (err, posts) => {
-    //     const users = new Map()
-    //     posts.forEach(post => {
-    //       if (post.postType !== constants.INFO_POST) { return }
-    //       if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
-    //         users.set(post.publicKey.toString("hex"), post.value)
-    //     })
-    //     cb(null, users)
-    //   })
+      const channelUsers = new Map()
+      // filter all known users down to only users in the queried channel
+      this.getUsers((err, users) => {
+        users.forEach((value, key) => {
+          if (pubkeys.includes(key)) {
+            channelUsers.set(key, value)
+          }
+        })
+        cb(null, channelUsers)
+      })
     })
   }
 
