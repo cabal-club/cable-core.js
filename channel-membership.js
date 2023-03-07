@@ -200,16 +200,16 @@ module.exports = function (lvl) {
             lt: `~!${publicKey.toString("hex")}`
           })
           const entries = await iter.all()
-          const joined = []
+          const joined = new Set()
           entries.forEach(e => {
             // channel joined
             if (e[1] === 1) { 
               const channel = getChannelFromKey(e[0])
-              joined.push(channel) 
+              joined.add(channel) 
             }
           })
-          joined.sort()
-          cb(null, joined)
+          const uniqueChannels = Array.from(joined).sort()
+          cb(null, uniqueChannels)
         })
       },
       events: events
