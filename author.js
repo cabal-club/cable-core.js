@@ -91,6 +91,24 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
+      // returns a list of all known public keys
+      getUniquePublicKeys: function (cb) {
+        if (!cb) return
+        ready(async function () {
+          debug("api.getUniquePublicKeys")
+          const iter = lvl.keys()
+            // gt: `${publicKey.toString("hex")}!!`,
+            // lt: `${publicKey.toString("hex")}!~`
+          const viewkeys = await iter.all()
+          const keys = viewkeys.map(key => {
+            const index = key.indexOf("!")
+            return key.slice(0, index)
+          })
+          const set = new Set(keys)
+          debug("unique set %O", set)
+          cb(null, Array.from(set).map(hex => b4a.from(hex, "hex")))
+        })
+      },
       getAllHashesByAuthor: function (publicKey, cb) {
         // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
         ready(async function () {

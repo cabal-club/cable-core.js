@@ -440,20 +440,30 @@ class CableCore extends EventEmitter {
   }
 
   // returns a map mapping user public key to their current nickname
-  // TODO (2023-03-07): get users in a channel
   getUsers(cb) {
     if (!cb) { return }
-    this.store.userInfoView.api.getUsers((err, latestNameHashes) => {
-      if (err) return cb(err)
-      coredebug(latestNameHashes)
-      this.resolveHashes(latestNameHashes, (err, posts) => {
-        const users = new Map()
-        posts.forEach(post => {
-          if (post.postType !== constants.INFO_POST) { return }
-          if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
+    coredebug("get users")
+    this.store.authorView.api.getUniquePublicKeys((err, publicKeys) => {
+      coredebug("err %O", err)
+      coredebug("public keys %O", publicKeys)
+      const users = new Map()
+      // set name equivalent to be hex of public key initially
+      publicKeys.forEach(publicKey => {
+        const hex = publicKey.toString("hex") 
+        users.set(hex, hex)
+      })
+      this.store.userInfoView.api.getAllNameHashes((err, latestNameHashes) => {
+        if (err) return cb(err)
+        coredebug(latestNameHashes)
+        this.resolveHashes(latestNameHashes, (err, posts) => {
+          posts.forEach(post => {
+            if (post.postType !== constants.INFO_POST) { return }
+            if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
+            // public key had a post/info:name -> use it
             users.set(post.publicKey.toString("hex"), post.value)
+          })
+          cb(null, users)
         })
-        cb(null, users)
       })
     })
   }

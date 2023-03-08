@@ -97,7 +97,7 @@ module.exports = function (lvl, reverseIndex) {
 
     api: {
       // return latest post/info name-setting hash for all recorded pubkeys
-      getUsers: function (cb) {
+      getAllNameHashes: function (cb) {
         ready(async function () {
           debug("api.getUsers")
           const iter = lvl.values({
