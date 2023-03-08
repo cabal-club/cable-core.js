@@ -397,7 +397,6 @@ class CableCore extends EventEmitter {
     return buf
   }
 
-
   /* methods to get data we already have locally */
 
   getChat(channel, start, end, limit, cb) {

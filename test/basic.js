@@ -67,7 +67,7 @@ function assertPostType(t, obj, postType) {
   t.equal(obj.postType, postType,  `post type should be ${descriptiveType}`)
 }
 
-function testPostType (t, core, buf, postType) {
+function testPostType (t, core, buf, postType, next) {
   t.ok(buf, "message buffer should be not null")
 
   const hash = core.hash(buf)
@@ -90,7 +90,7 @@ function testPostType (t, core, buf, postType) {
     t.ok(retrievedObj, "returned post should be parsed correctly")
     assertPostType(t, retrievedObj, postType)
     t.deepEqual(retrievedObj, initialObj, "parsed bufs should be identical")
-    t.end()
+    next()
   })
 }
 
@@ -105,7 +105,7 @@ test("writing to channel should persist post in store", t => {
   t.equal(obj.channel, channel, `channel should be ${channel}`)
   t.equal(obj.text, text, `text in object should be identical to input`)
 
-  testPostType(t, core, buf, constants.TEXT_POST)
+  testPostType(t, core, buf, constants.TEXT_POST, t.end)
 })
 
 test("write to a channel and then get message as chat", t => {
@@ -194,7 +194,28 @@ test("setting channel topic should persist post in store", t => {
   t.equal(obj.channel, channel, `channel should be ${channel}`)
   t.equal(obj.topic, topic, `topic in object should be identical to input`)
 
-  testPostType(t, core, buf, constants.TOPIC_POST)
+  testPostType(t, core, buf, constants.TOPIC_POST, t.end)
+})
+
+test("setting a nick should persist post in store", t => {
+  const core = new CableCore()
+  const value = "cabler"
+  const buf = core.setNick(value)
+
+  const obj = cable.parsePost(buf)
+  const key = "name"
+  t.ok(obj.key, "key property should exist")
+  t.ok(obj.value, "value property should exist")
+  t.equal(obj.key, key, `info property 'key' should be '${value}`)
+  t.equal(obj.value, value, `info property 'value' should be '${value}`)
+
+  testPostType(t, core, buf, constants.INFO_POST, () => {
+    core.getNick((err, nick) => {
+      t.error(err, "getNick should work")
+      t.equal(nick, value, `the set nickname should be ${value}`)
+      t.end()
+    })
+  })
 })
 
 test("leaving channel should persist post in store", t => {
@@ -206,7 +227,7 @@ test("leaving channel should persist post in store", t => {
   t.ok(obj.channel, "channel property should exist")
   t.equal(obj.channel, channel, `channel should be ${channel}`)
 
-  testPostType(t, core, buf, constants.LEAVE_POST)
+  testPostType(t, core, buf, constants.LEAVE_POST, t.end)
 })
 
 test("joining channel should persist post in store", t => {
@@ -218,6 +239,6 @@ test("joining channel should persist post in store", t => {
   t.ok(obj.channel, "channel property should exist")
   t.equal(obj.channel, channel, `channel should be ${channel}`)
 
-  testPostType(t, core, buf, constants.JOIN_POST)
+  testPostType(t, core, buf, constants.JOIN_POST, t.end)
 })
 
