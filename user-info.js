@@ -114,7 +114,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           // TODO (2023-03-07): consider converting to using a range query with limit: 1 instead
           debug("api.getLatestNameHash")
-          lvl.get(`latest!${publicKey.toString("hex")}!info!name`, (err, hash) => {
+          lvl.get(`latest!info!name!${publicKey.toString("hex")}`, (err, hash) => {
             if (err) { return cb(err, null) }
             return cb(null, hash)
           })
@@ -126,7 +126,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           debug("api.getLatestNameHashMany")
           const keys = pubkeys.map(publicKey => {
-            return `latest!${publicKey.toString("hex")}!info!name`
+            return `latest!info!name!${publicKey.toString("hex")}`
           })
           debug(keys)
           lvl.getMany(keys, (err, hashes) => {
@@ -141,7 +141,7 @@ module.exports = function (lvl, reverseIndex) {
         // remove the name record for this public key
         ready(function () {
           debug("api.clearNameHash")
-          lvl.del(`latest!${publicKey.toString("hex")}!info!name`, (err) => {
+          lvl.del(`latest!info!name!${publicKey.toString("hex")}`, (err) => {
             if (err) { return cb(er) }
             return cb(null)
           })
