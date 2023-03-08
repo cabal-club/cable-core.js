@@ -33,6 +33,9 @@ module.exports = function (lvl) {
   }
 
   return {
+    // TODO (2023-03-08): either change the key layout or, before calling map, get a map of <channel> -> timestamp of
+    // the latest topic message and pass to this index, so that we can make sure we only ever set the newest topic
+    // message as the latest topic
     map: function (msgs, next) {
       debug("view.map")
       let ops = []

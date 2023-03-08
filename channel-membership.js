@@ -40,6 +40,9 @@ module.exports = function (lvl) {
   }
 
   return {
+    // TODO (2023-03-08): either change the key layout or, before calling map, get a map of <pubkey:channel> ->
+    // timestamp of the latest post|leave message for channel and pass to this index, so that we can make sure we only
+    // ever set latest membership correctly
     map: function (msgs, next) {
       debug("view.map")
       let ops = []
