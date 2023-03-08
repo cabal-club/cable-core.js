@@ -92,10 +92,15 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           lvl.get(hash, function (err, buf) {
             if (err) { return cb(err, null) }
+            if (typeof buf === "undefined") {
+              return cb(null, null)
+            }
             return cb(null, buf)
           })
         })
       },
+      // tries to get a list of hashes. if a a hash, with index `i`, is not found, then the corresponding index `i` in the
+      // returned results will be set to null
       getMany: function (hashes, cb) {
         debug("api.getMany")
         const ops = []
@@ -103,7 +108,12 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           lvl.getMany(hashes, function (err, buflist) {
             if (err) { return cb(err, null) }
-            return cb(null, buflist)
+            return cb(null, buflist.map(b => {
+              if (typeof b === "undefined") {
+                return null
+              }
+              return b
+            }))
           })
         })
       },
