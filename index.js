@@ -452,7 +452,7 @@ class CableCore extends EventEmitter {
         const hex = publicKey.toString("hex") 
         users.set(hex, hex)
       })
-      this.store.userInfoView.api.getAllNameHashes((err, latestNameHashes) => {
+      this.store.userInfoView.api.getLatestNameHashesAllUsers((err, latestNameHashes) => {
         if (err) return cb(err)
         coredebug(latestNameHashes)
         this.resolveHashes(latestNameHashes, (err, posts) => {
