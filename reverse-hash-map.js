@@ -3,6 +3,7 @@ const b4a = require("b4a")
 const viewName = "reverse-hash-map"
 const debug = require("debug")(`core/${viewName}`)
 const util = require("./util.js")
+const monotonicTimestamp = util.monotonicTimestamp()
 
 function noop () {}
 
@@ -60,7 +61,7 @@ module.exports = function (lvl) {
         // <hash>!<mono-ts> => "<viewname><separator><viewkey>"
         // TODO (2023-03-01): check other views for order of `!||~` wrt ranging over timestamp! if at the end less
         // issues than at the beginning
-        const key = `${msg.hash}!${util.monotonicTimestamp()}`
+        const key = `${msg.hash}!${monotonicTimestamp()}`
         const value = `${msg.view}!${msg.viewkey}`
 
         pending++
