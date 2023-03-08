@@ -14,7 +14,11 @@ function monotonicTimestamp () {
     const str = `${n}`
     return `${'0'.repeat(3-str.length)}${str}`
   }
+
   return (ts) => {
+    if (typeof ts === "undefined") {
+      ts = timestamp()
+    }
     const key = `${ts}`
     let ret = key
     if (this.seen[key]) {
