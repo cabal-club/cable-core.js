@@ -1,4 +1,4 @@
-const CableCore = require("./index.js").CableCore
+const CableCore = require("../index.js").CableCore
 
 const core = new CableCore()
 // let hash = core.hash(bufJoin)
