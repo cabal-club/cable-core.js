@@ -242,6 +242,30 @@ test("join and leave channels", t => {
   })
 })
 
+test("get users functionality", t => {
+  const core = new CableCore()
+  const channels = ["introduction", "another-channel"]
+  // join and leave one channel
+  core.join(channels[0])
+  core.leave(channels[0])
+  // stay in the other channel
+  core.join(channels[1])
+  core.getUsers((err, users) => {
+    t.error(err, "get users should work")
+    t.ok(users)
+    t.equal(users.size, 1, "users map should be size 1")
+    core.getUsersInChannel(channels[0], (err, users) => {
+      t.error(err, "get users in channel should work")
+      t.equal(users.size, 0, `channel ${channels[0]} should have no users`)
+      core.getUsersInChannel(channels[1], (err, users) => {
+        t.error(err, "get users in channel should work")
+        t.equal(users.size, 1, `channel ${channels[1]} should have users`)
+        t.end()
+      })
+    })
+  })
+})
+
 test("set multiple topics and delete", t => {
   const core = new CableCore()
   const topics = ["first topic", "second topic", "third topic"]
