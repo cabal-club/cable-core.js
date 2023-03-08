@@ -8,52 +8,7 @@ function logem (err, key, res) {
   console.log(key, res)
 }
 
-// core.getChannelState("introduction", (err, data) => {
-//   console.log("latest channel state")
-//   console.log("error?", err)
-//   console.log("data?", data)
-// })
-//
-// const bufText = core.postText("introduction", "hi my name is cable-san")
-// core.getChat("introduction", 0, 0, -1, (err, chat) => {
-//   console.log("chat messages")
-//   console.log("error?", err)
-//   console.log("chat?", chat)
-// })
-// core.del(core.hash(bufText))
-//
-// setTimeout(() => {
-//   core.getChat("introduction", 0, 0, -1, (err, chat) => {
-//     console.log("2 chat messages")
-//     console.log("2 error?", err)
-//     console.log("2 chat?", chat)
-//   })
-// }, 100)
-// setTimeout(() => {
-// core.getNick((err, nick) => {
-//   console.log(nick)
-// })
-// }, 100)
-// core.join("introductions")
-
 core.setNick("boop")
-// core.getChannels((err, channels) => {
-//   console.log("channel names")
-//   console.log("err", err)
-//   console.log(channels)
-// })
-// core.store.authorView.api.getAllHashesByAuthor(core.kp.publicKey, (err, hashes) => {
-//   logem(err, "author hashes", hashes)
-// })
-// setTimeout(() => {
-// core.getChannelState("introduction", (err, data) => {
-//   logem(err, "channel state", data)
-// })
-// }, 100)
-//
-core.join("testing")
-core.leave("testing")
-core.join("introduction")
 const buf = core.join("testing")
 setTimeout(() => {
   core.getJoinedChannels((err, data) => {
@@ -84,32 +39,6 @@ setTimeout(() => {
 //   logem(err, "joined channels", channels)
 // })
 //
-// core.setTopic("introduction", "first topic test")
-// setTimeout(() => {
-//   core.setTopic("introduction", "second topic test")
-//
-//   core.getTopic("introduction", (err, topic) => {
-//     logem(err, "0 topic", topic)
-//     setTimeout(() => {
-//       const bufTopic = core.setTopic("introduction", "third topic")
-//       core.getTopic("introduction", (err, topic) => {
-//         logem(err, "1 topic", topic)
-//
-//         const topicHash = core.hash(bufTopic)
-//         core.del(topicHash)
-//         setTimeout(() => {
-//           core.getTopic("introduction", (err, topic) => {
-//             logem(err, "2 topic", topic)
-//           })
-//         }, 100)
-//       })
-//     }, 100)
-//   })
-// }, 50)
-//
-// core.getChannelState("introduction", (err, state) => {
-//   logem(err, "latest state", state)
-// })
 setTimeout(() => {
   core.getUsers((err, result) => {
     logem(err, "get users", result)

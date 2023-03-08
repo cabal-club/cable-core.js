@@ -15,21 +15,6 @@ test("core should be initializable", t => {
   t.end()
 })
 
-/* TODO (2023-03-08): beware of flake - means we need to review the async structures inside the views :) */
-test("join and leave channels", t => {
-  const core = new CableCore()
-  const names = ["introduction", "another-channel"]
-  core.join(names[0])
-  core.leave(names[0])
-  core.join(names[1])
-  core.getJoinedChannels((err, channels) => {
-    t.error(err, "should be able to get one joined channel")
-    t.equal(channels.length, 1, "should only be joined to one channel")
-    t.equal(channels[0], names[1], `joined channel should be '${names[1]}'`)
-    t.end()
-  })
-})
-
 test("hashing message buffer works as expected", t => {
   const core = new CableCore()
   const bufLeave = core.leave("introduction")
@@ -242,3 +227,57 @@ test("joining channel should persist post in store", t => {
   testPostType(t, core, buf, constants.JOIN_POST, t.end)
 })
 
+/* TODO (2023-03-08): beware of flake - means we need to review the async structures inside the views :) */
+test("join and leave channels", t => {
+  const core = new CableCore()
+  const names = ["introduction", "another-channel"]
+  core.join(names[0])
+  core.leave(names[0])
+  core.join(names[1])
+  core.getJoinedChannels((err, channels) => {
+    t.error(err, "should be able to get one joined channel")
+    t.equal(channels.length, 1, "should only be joined to one channel")
+    t.equal(channels[0], names[1], `joined channel should be '${names[1]}'`)
+    t.end()
+  })
+})
+
+test("set multiple topics and delete", t => {
+  const core = new CableCore()
+  const topics = ["first topic", "second topic", "third topic"]
+  const channel = "introduction"
+  const unrelated = ["unrelated-channel", "unrelated topic"]
+
+  // set first topic
+  core.setTopic(channel, topics[0])
+  setTimeout(() => {
+    // set second topic, and then get it
+    core.setTopic(channel, topics[1])
+    // set an unrelated topic (should not be set for main line of inquiry)
+    core.setTopic(unrelated[0], unrelated[1])
+    core.getTopic(channel, (err, topic) => {
+      t.error(err, "get topic should work")
+      t.equal(topic, topics[1], `actively set topic should be second topic (${topics[1]}`)
+      setTimeout(() => {
+        // a buf representing post/topic cable post for the third topic we set
+        // set and get third topic
+        const thirdTopic = core.setTopic(channel, topics[2])
+        core.getTopic(channel, (err, topic) => {
+          t.error(err, "get topic should work")
+          t.equal(topic, topics[2], `active topic should be third topic (${topics[2]}`)
+          // delete the third topic
+          const thirdHash = core.hash(thirdTopic)
+          core.del(thirdHash)
+          setTimeout(() => {
+            // get topic one final time (should be second topic now)
+            core.getTopic(channel, (err, topic) => {
+              t.error(err, "get topic should work after a delete")
+              t.equal(topic, topics[1], `active topic should now be second topic (${topics[1]}) not first (${topics[0]}) or third (${topics[2]})`)
+              t.end()
+            })
+            }, 100)
+          })
+        }, 100)
+      })
+    }, 50)
+})
