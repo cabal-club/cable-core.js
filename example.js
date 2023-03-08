@@ -1,29 +1,13 @@
 const CableCore = require("../index.js").CableCore
 
 const core = new CableCore()
-// let hash = core.hash(bufJoin)
-// console.log("join hash", hash)
 // // TODO (2023-02-23): enable synchronization point (allIndexes.ready(cb)) or sync usage of apis
-// core.store.getData([hash], (err, data) => {
-//   console.log("error?", err)
-//   console.log("data?", data)
-// })
-//
 
 function logem (err, key, res) {
   console.log("err", err)
   console.log(key, res)
 }
 
-// const bufLeave = core.leave("introduction")
-// hash = core.hash(bufLeave)
-// console.log("leave hash", hash)
-// core.store.getData([hash], (err, data) => {
-//   console.log("error?", err)
-//   console.log("data?", data)
-// })
-//
-//
 // core.getChannelState("introduction", (err, data) => {
 //   console.log("latest channel state")
 //   console.log("error?", err)

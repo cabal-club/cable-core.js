@@ -108,6 +108,81 @@ test("writing to channel should persist post in store", t => {
   testPostType(t, core, buf, constants.TEXT_POST)
 })
 
+test("write to a channel and then get message as chat", t => {
+  const core = new CableCore()
+  const channel = "introduction"
+  const text = "hello cablers! i am cable-person"
+  const buf = core.postText(channel, text)
+
+  core.getChat("introduction", 0, 0, -1, (err, chat) => {
+    t.error(err)
+    t.equal(chat.length, 1, "chat should have 1 message")
+    t.equal(chat[0].channel, channel)
+    t.equal(chat[0].text, text)
+    t.end()
+  })
+})
+
+test("write to a channel and then delete", t => {
+  const core = new CableCore()
+  const channel = "introduction"
+  const text = "hello cablers! i am cable-person"
+  const buf = core.postText(channel, text)
+  const textHash = core.hash(buf)
+
+  core.getChat("introduction", 0, 0, -1, (err, chat) => {
+    t.error(err)
+    t.equal(chat.length, 1, "chat should have 1 message")
+    t.equal(chat[0].channel, channel)
+    t.equal(chat[0].text, text)
+    t.equal(chat[0].postType, constants.TEXT_POST)
+
+    const delBuf = core.del(textHash)
+    t.ok(delBuf, "delete buf should be not null")
+
+    setTimeout(() => {
+      core.getChat("introduction", 0, 0, -1, (err, chat) => {
+        t.error(err)
+        t.equal(chat.length, 1, "chat should have 1 message (this time it's only the delete message")
+        t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
+        t.equal(chat[0].postType, constants.DELETE_POST)
+        t.end()
+      })
+    }, 100)
+  })
+})
+
+test("post/text delete functionality", t => {
+  const core = new CableCore()
+  const channel = "introduction"
+  const text = "hello cablers! i am cable-person"
+  const buf = core.postText(channel, text)
+  const textHash = core.hash(buf)
+
+  core.getChat("introduction", 0, 0, -1, (err, chat) => {
+    t.error(err)
+    t.equal(chat.length, 1, "chat should have 1 message")
+
+    const delBuf = core.del(textHash)
+    t.ok(delBuf, "delete buf should be not null")
+
+    setTimeout(() => {
+      core.getChat("introduction", 0, 0, -1, (err, chat) => {
+        t.error(err)
+        t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
+        t.equal(chat[0].postType, constants.DELETE_POST)
+
+        core.store.getData([textHash], (err, data) => {
+          t.error(err)
+          t.equal(data.length, 1, "we queried for 1 hash so result list should be same size")
+          t.notOk(data[0], "returned data should be null because we should not be able to retrieve the deleted post/text")
+          t.end()
+        })
+      })
+    }, 100)
+  })
+})
+
 test("setting channel topic should persist post in store", t => {
   const core = new CableCore()
   const channel = "introduction"
