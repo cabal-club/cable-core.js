@@ -102,7 +102,6 @@ module.exports = function (lvl, reverseIndex) {
 
         ready(function () {
           lvl.getMany(hashes, function (err, buflist) {
-            console.log(err, buflist)
             if (err) { return cb(err, null) }
             return cb(null, buflist)
           })
