@@ -3,6 +3,7 @@ const b4a = require("b4a")
 const viewName = "messages"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
+const util = require("./util.js")
 
 function noop () {}
 
