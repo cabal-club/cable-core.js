@@ -43,5 +43,6 @@ function monotonicTimestamp () {
 
 module.exports = {
   timestamp,
-  monotonicTimestamp
+  monotonicTimestamp, 
+  noop: function() {}
 }

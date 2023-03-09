@@ -77,69 +77,138 @@ class CableStore {
     }
   }
 
-  _storeNewPost(buf, hash) {
+  _storeNewPost(buf, hash, done) {
+    let promises = []
+    let p
     // store each new post by associating its hash to the binary post payload
-    this.blobs.map([{hash, buf}], (err) => {
-      if (err !== null) {
-        storedebug("blobs (error: %o)", err) 
-      } else {
-        storedebug("blobs", err) 
-      }
+    p = new Promise((res, rej) => {
+      this.blobs.map([{hash, buf}], (err) => {
+        if (err !== null) {
+          storedebug("blobs (error: %o)", err) 
+        } else {
+          storedebug("blobs", err) 
+        }
+        res()
+      })
     })
+    promises.push(p)
     const obj = cable.parsePost(buf)
     // index posts made by author's public key and type of post
-    this.authorView.map([{...obj, hash}], (err) => {
-      if (err !== null) {
-        storedebug("author (error: %o)", err) 
-      } else {
-        storedebug("author", err) 
-      }
+
+    p = new Promise((res, rej) => {
+      this.authorView.map([{...obj, hash}], (err) => {
+        if (err !== null) {
+          storedebug("author (error: %o)", err) 
+        } else {
+          storedebug("author", err) 
+        }
+        res()
+      })
     })
+    promises.push(p)
+    Promise.all(promises).then(done)
   }
 
   // storage methods
-  join(buf) {
+  // TODO (2023-03-09): implement some kind of synching mechanism for each storage method, such that a collection of
+  // promises can be assembled, with a Promise.all(done) firing when all map invocations have finished
+  join(buf, done) {
+    if (!done) { done = util.noop }
+    let promises = []
+    let p
+
     const hash = crypto.hash(buf)
-    this._storeNewPost(buf, hash)
     const obj = JOIN_POST.toJSON(buf)
 
-    this.channelStateView.map([{ ...obj, hash}])
-    this.channelMembershipView.map([obj])
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.channelStateView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.channelMembershipView.map([obj], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(done)
   }
 
-  leave(buf) {
+  leave(buf, done) {
+    if (!done) { done = util.noop }
+    let promises = []
+    let p
+
     const hash = crypto.hash(buf)
-    this._storeNewPost(buf, hash)
     const obj = LEAVE_POST.toJSON(buf)
     
-    this.channelStateView.map([{ ...obj, hash}])
-    this.channelMembershipView.map([obj])
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.channelStateView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.channelMembershipView.map([obj], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(done)
   }
 
-  del(buf) {
+  del(buf, done) {
+    storedebug("done fn %O", done)
+    if (!done) { done = util.noop }
+    const promises = []
+    let p
+
     // the hash of the post/delete message
     const hash = crypto.hash(buf)
-    // persist cablegram of the post/delete message
-    this._storeNewPost(buf, hash)
     // note: obj.hash is hash of the deleted post (not of the post/delete!)
     const obj = DELETE_POST.toJSON(buf)
     const hashToDelete = obj.hash
+    
+    // persist cablegram of the post/delete message
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
 
     this.blobs.api.get(hashToDelete, (err, cablegram) => {
       if (err) {
         storedebug("delete err'd", err)
-        return
+        return done()
       }
       const post = cable.parsePost(cablegram)
       storedebug("post to delete %O", post)
       const channel = post.channel
       const affectedPublicKey = post.publicKey
       // record the post/delete in the messages view
-      this.messagesView.map([{ ...obj, channel, hash}])
+      p = new Promise((res, rej) => {
+        this.messagesView.map([{ ...obj, channel, hash}], res)
+      })
+      promises.push(p)
+
       // delete the targeted post in the data store using obj.hash
-      this.blobs.api.del(hashToDelete)
+      p = new Promise((res, rej) => {
+        this.blobs.api.del(hashToDelete, res)
+      })
+      promises.push(p)
+
       // record hash of deleted post in upcoming deletedView
-      this.deletedView.map([hashToDelete])
+      p = new Promise((res, rej) => {
+        this.deletedView.map([hashToDelete], res)
+      })
+      promises.push(p)
+
       // remove hash from indices that referenced it
       this.reverseMapView.api.getUses(hashToDelete, (err, uses) => {
         // go through each index and delete the entry referencing this hash
@@ -153,85 +222,119 @@ class CableStore {
         // reindex accreted views if they were likely to be impacted 
         // e.g. reindex channel topic view if channel topic was deleted
 
-        switch (post.postType) {
-          case constants.JOIN_POST:
-          case constants.LEAVE_POST:
-            this._reindexChannelMembership(channel, affectedPublicKey)
-            break
-          case constants.INFO_POST:
-            this._reindexInfoName(affectedPublicKey)
-            break
-          case constants.TOPIC_POST:
-            this._reindexTopic(channel)
-            break
-        }
+        p = new Promise((res, rej) => {
+          switch (post.postType) {
+            case constants.JOIN_POST:
+            case constants.LEAVE_POST:
+              this._reindexChannelMembership(channel, affectedPublicKey, res)
+              break
+            case constants.INFO_POST:
+              this._reindexInfoName(affectedPublicKey, res)
+              break
+            case constants.TOPIC_POST:
+              this._reindexTopic(channel, res)
+              break
+          }
+        })
+        promises.push(p)
+        Promise.all(promises).then(done)
       })
     })
   }
 
   // reindex an accreted view by re-putting a cablegram using its hash 
-  _reindexHash (hash, mappingFunction) {
+  _reindexHash (hash, mappingFunction, done) {
     storedebug("reindexHash %O", hash)
     this.blobs.api.get(hash, (err, buf) => {
       storedebug("reindex with hash - blobs: err %O buf %O", err, buf)
       const obj = cable.parsePost(buf)
-      mappingFunction([obj])
+      mappingFunction([obj], done)
     })
   }
 
-  _reindexInfoName (publicKey) {
+  _reindexInfoName (publicKey, done) {
     this.channelStateView.api.getLatestNameHash(publicKey, (err, hash) => {
       storedebug("latest name err", err)
       storedebug("latest name hash", hash)
       if (err && err.notFound) {
         this.userInfoView.api.clearName(publicKey)
-        return
+        return done()
       }
-      this._reindexHash(hash, this.userInfoView.map)
+      this._reindexHash(hash, this.userInfoView.map, done)
     })
   }
 
-  _reindexTopic (channel) {
+  _reindexTopic (channel, done) {
     this.channelStateView.api.getLatestTopicHash(channel, (err, hash) => {
       storedebug("latest topic err", err)
       storedebug("latest topic hash", hash)
       if (err && err.notFound) {
         this.topicView.api.clearTopic(channel)
-        return
+        return done()
       }
-      this._reindexHash(hash, this.topicView.map)
+      this._reindexHash(hash, this.topicView.map, done)
     })
   }
 
-  _reindexChannelMembership (channel, publicKey) {
+  _reindexChannelMembership (channel, publicKey, done) {
     storedebug("reindex channel membership in %s for %s", channel, publicKey.toString("hex"))
     this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
       storedebug("membership hash %O err %O", hash, err)
       // the only membership record for the given channel was deleted: clear membership information regarding channel
       if (!hash || (err && err.notFound)) {
         this.channelMembershipView.api.clearMembership(channel, publicKey)
-        return
+        return done()
       }
       // we had prior membership information for channel, get the post and update the index
-      this._reindexHash(hash, this.channelMembershipView.map)
+      this._reindexHash(hash, this.channelMembershipView.map, done)
     })
   }
 
-  topic(buf) {
+  topic(buf, done) {
+    if (!done) { done = util.noop }
+    const promises = []
+    let p
+
     const hash = crypto.hash(buf)
-    this._storeNewPost(buf, hash)
     const obj = TOPIC_POST.toJSON(buf)
+
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
     
-    this.channelStateView.map([{ ...obj, hash}])
-    this.topicView.map([obj])
+    p = new Promise((res, rej) => {
+      this.channelStateView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.topicView.map([obj], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(done)
   }
 
-  text(buf) {
+  text(buf, done) {
+    if (!done) { done = util.noop }
+    const promises = []
+    let p
+
     const hash = crypto.hash(buf)
-    this._storeNewPost(buf, hash)
     const obj = TEXT_POST.toJSON(buf)
     
-    this.messagesView.map([{ ...obj, hash}])
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
+    
+    p = new Promise((res, rej) => {
+      this.messagesView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(done)
   }
 
 
@@ -250,12 +353,23 @@ class CableStore {
   //
   //
   // -- how we solve this for historic state request i'm not entirely certain
-  info(buf) {
+  info(buf, done) {
+    if (!done) { done = util.noop }
+    const promises = []
+    let p
+
     const hash = crypto.hash(buf)
-    this._storeNewPost(buf, hash)
     const obj = INFO_POST.toJSON(buf)
+
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
     
-    this.userInfoView.map([{ ...obj, hash}])
+    p = new Promise((res, rej) => {
+      this.userInfoView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
     // channel state view keeps track of info posts that set the name
     if (obj.key === "name") {
       // if we're setting a post/info:name via core.setNick() we are not passed a channel. so to do
@@ -268,7 +382,12 @@ class CableStore {
           channelStateMessages.push({...obj, hash, channel})
         })
         storedebug(channelStateMessages)
-        this.channelStateView.map(channelStateMessages)
+        p = new Promise((res, rej) => {
+          this.channelStateView.map(channelStateMessages, res)
+        })
+        promises.push(p)
+      
+        Promise.all(promises).then(done)
       })
     }
   }
@@ -287,10 +406,6 @@ class CableStore {
   getTopic(channel, cb) {
     this.topicView.api.getTopic(channel, cb)
   }
-
-  // rebuild the specified index. could be required if a delete happened for a post type which has an accreted
-  // (application state-only) index, such as deleting a post/join or a post/topic
-  _rebuildIndex(name) {}
 }
 
 class CableCore extends EventEmitter {
@@ -339,26 +454,26 @@ class CableCore extends EventEmitter {
   /* methods that produce cablegrams, and which we store in our database */
 
 	// post/text
-	postText(channel, text) {
+	postText(channel, text, done) {
     const link = this._links()
     const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp(), text)
-    this.store.text(buf)
+    this.store.text(buf, done)
     return buf
   }
 
 	// post/info key=name
-	setNick(name) {
+	setNick(name, done) {
     const link = this._links()
     const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, link, util.timestamp(), "name", name)
-    this.store.info(buf)
+    this.store.info(buf, done)
     return buf
   }
 
 	// post/topic
-	setTopic(channel, topic) {
+	setTopic(channel, topic, done) {
     const link = this._links()
     const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp(), topic)
-    this.store.topic(buf)
+    this.store.topic(buf, done)
     return buf
   }
 
@@ -369,18 +484,18 @@ class CableCore extends EventEmitter {
   }
 
 	// post/join
-	join(channel) {
+	join(channel, done) {
     const link = this._links()
     const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp())
-    this.store.join(buf)
+    this.store.join(buf, done)
     return buf
   }
 
 	// post/leave
-	leave(channel) {
+	leave(channel, done) {
     const link = this._links()
     const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp())
-    this.store.leave(buf)
+    this.store.leave(buf, done)
     return buf
   }
 
@@ -390,10 +505,10 @@ class CableCore extends EventEmitter {
   // 
   // q: should we have a flag that is like `persistDelete: true`? enables for deleting for storage reasons, but not
   // blocking reasons. otherwise all deletes are permanent and not reversible, seems bad 
-	del(hash) {
+	del(hash, done) {
     const link = this._links()
     const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, link, util.timestamp(), hash)
-    this.store.del(buf)
+    this.store.del(buf, done)
     return buf
   }
 

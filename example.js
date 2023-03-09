@@ -8,12 +8,11 @@ core.getJoinedChannels((err, channels) => {
   console.log(channels)
   const hash = core.hash(buf)
   // remove join post
-  core.del(hash)
-  // TODO (2023-03-09): introduce callbacks to all actions which will fire when done
-  setTimeout(() => {
+  core.del(hash, () => {
+    // after del has finished indexing, call get joined channels
     core.getJoinedChannels((err, channels) => {
       // should print an empty list
       console.log(channels)
     })
-  }, 100)
+  })
 })
