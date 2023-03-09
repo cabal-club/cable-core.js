@@ -305,3 +305,55 @@ test("set multiple topics and delete", t => {
       })
     }, 50)
 })
+
+test("persisted posts should be indexed by reverse hash map view", t => {
+  const core = new CableCore()
+  const channel = "introduction"
+  const buf = core.join(channel)
+  const hash = core.hash(buf)
+  setTimeout(() => {
+    core.getJoinedChannels((err, data) => {
+      t.error(err, "get joined channels should work")
+      t.ok(data, "returned data should be good")
+      t.equal(data.length, 1, "should return only 1 channel")
+      t.equal(data[0], channel, `should have joined channel ${channel}`)
+      core.store.reverseMapView.api.getUses(hash, (err, uses) => {
+        t.comment("get a map of views where the hash of the post/join is referenced")
+
+        t.error(err, "reverse map view's get uses should work")
+        t.ok(uses, "returned data should be good")
+        const viewsIndexingJoinPostHash = ["data-store", "channel-state", "author"]
+        for (let key of uses.keys()) {
+          t.true(viewsIndexingJoinPostHash.includes(key), `view ${key} should index the hash of a join post}`)
+        }
+        const delBuf = core.del(hash)
+        const delHash = core.hash(delBuf)
+        // after we delete the post/join, all the views that referenced it should no longer have an entry (the views
+        // have been reindexed & wiped wrt the deleted post)
+        setTimeout(() => {
+          core.store.reverseMapView.api.getUses(hash, (err, uses) => {
+            t.comment("post/join message should no longer be referenced anywhere, let's see if that's true")
+
+            t.error(err, "reverse map view's get uses should work")
+            t.ok(uses, "returned data should be good")
+            const viewsIndexingJoinPostHash = ["data-store", "channel-state", "author"]
+            for (let key of uses.keys()) {
+              t.false(viewsIndexingJoinPostHash.includes(key), `view ${key} should no longer index the hash of a join post}`)
+            }
+            core.store.reverseMapView.api.getUses(delHash, (err, uses) => {
+              t.comment("the hash of the delete message should now be referenced in the appropriate views")
+
+              t.error(err, "reverse map view's get uses should work")
+              t.ok(uses, "returned data should be good")
+              const viewsIndexingDeletePostHash = ["data-store", "messages", "author"]
+              for (let key of uses.keys()) {
+                t.true(viewsIndexingDeletePostHash.includes(key), `view ${key} should index the hash of a delete post}`)
+              }
+              t.end()
+            })
+          })
+        }, 100)
+      })
+    })
+  }, 200)
+})
