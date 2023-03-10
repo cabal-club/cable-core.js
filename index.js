@@ -110,8 +110,10 @@ class CableStore {
   }
 
   // storage methods
-  // TODO (2023-03-09): implement some kind of synching mechanism for each storage method, such that a collection of
-  // promises can be assembled, with a Promise.all(done) firing when all map invocations have finished
+  // function `done` implements a kind of synching mechanism for each storage method, such that a collection of
+  // promises can be assembled, with a Promise.all(done) firing when all <view>.map invocations have finished processing
+  // indexing operations
+
   join(buf, done) {
     if (!done) { done = util.noop }
     let promises = []
