@@ -110,15 +110,16 @@ test("write to a channel and then get message as chat", t => {
   const core = new CableCore()
   const channel = "introduction"
   const text = "hello cablers! i am cable-person"
-  const buf = core.postText(channel, text)
-  assertBufType(t, buf, constants.TEXT_POST)
+  const buf = core.postText(channel, text, () => {
+    assertBufType(t, buf, constants.TEXT_POST)
 
-  core.getChat("introduction", 0, 0, -1, (err, chat) => {
-    t.error(err)
-    t.equal(chat.length, 1, "chat should have 1 message")
-    t.equal(chat[0].channel, channel)
-    t.equal(chat[0].text, text)
-    t.end()
+    core.getChat("introduction", 0, 0, -1, (err, chat) => {
+      t.error(err)
+      t.equal(chat.length, 1, "chat should have 1 message")
+      t.equal(chat[0].channel, channel)
+      t.equal(chat[0].text, text)
+      t.end()
+    })
   })
 })
 
@@ -126,30 +127,29 @@ test("write to a channel and then delete", t => {
   const core = new CableCore()
   const channel = "introduction"
   const text = "hello cablers! i am cable-person"
-  const buf = core.postText(channel, text)
-  assertBufType(t, buf, constants.TEXT_POST)
-  const textHash = core.hash(buf)
+  const buf = core.postText(channel, text, () => {
+    assertBufType(t, buf, constants.TEXT_POST)
+    const textHash = core.hash(buf)
 
-  core.getChat("introduction", 0, 0, -1, (err, chat) => {
-    t.error(err)
-    t.equal(chat.length, 1, "chat should have 1 message")
-    t.equal(chat[0].channel, channel)
-    t.equal(chat[0].text, text)
-    t.equal(chat[0].postType, constants.TEXT_POST)
+    core.getChat("introduction", 0, 0, -1, (err, chat) => {
+      t.error(err)
+      t.equal(chat.length, 1, "chat should have 1 message")
+      t.equal(chat[0].channel, channel)
+      t.equal(chat[0].text, text)
+      t.equal(chat[0].postType, constants.TEXT_POST)
 
-    const delBuf = core.del(textHash)
-    t.ok(delBuf, "delete buf should be not null")
-    assertBufType(t, delBuf, constants.DELETE_POST)
-
-    setTimeout(() => {
-      core.getChat("introduction", 0, 0, -1, (err, chat) => {
-        t.error(err)
-        t.equal(chat.length, 1, "chat should have 1 message (this time it's only the delete message")
-        t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
-        t.equal(chat[0].postType, constants.DELETE_POST)
-        t.end()
+      const delBuf = core.del(textHash, () => {
+        t.ok(delBuf, "delete buf should be not null")
+        assertBufType(t, delBuf, constants.DELETE_POST)
+        core.getChat("introduction", 0, 0, -1, (err, chat) => {
+          t.error(err)
+          t.equal(chat.length, 1, "chat should have 1 message (this time it's only the delete message")
+          t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
+          t.equal(chat[0].postType, constants.DELETE_POST)
+          t.end()
+        })
       })
-    }, 100)
+    })
   })
 })
 
@@ -165,11 +165,9 @@ test("post/text delete functionality", t => {
     t.error(err)
     t.equal(chat.length, 1, "chat should have 1 message")
 
-    const delBuf = core.del(textHash)
+    const delBuf = core.del(textHash, () => {
     t.ok(delBuf, "delete buf should be not null")
     assertBufType(t, delBuf, constants.DELETE_POST)
-
-    setTimeout(() => {
       core.getChat("introduction", 0, 0, -1, (err, chat) => {
         t.error(err)
         t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
@@ -182,7 +180,7 @@ test("post/text delete functionality", t => {
           t.end()
         })
       })
-    }, 100)
+    })
   })
 })
 
@@ -295,8 +293,7 @@ test("set multiple topics and delete", t => {
   const unrelated = ["unrelated-channel", "unrelated topic"]
 
   // set first topic
-  core.setTopic(channel, topics[0])
-  setTimeout(() => {
+  core.setTopic(channel, topics[0], () => {
     // set second topic, and then get it
     core.setTopic(channel, topics[1])
     // set an unrelated topic (should not be set for main line of inquiry)
@@ -304,37 +301,34 @@ test("set multiple topics and delete", t => {
     core.getTopic(channel, (err, topic) => {
       t.error(err, "get topic should work")
       t.equal(topic, topics[1], `actively set topic should be second topic (${topics[1]}`)
-      setTimeout(() => {
-        // a buf representing post/topic cable post for the third topic we set
-        // set and get third topic
-        const thirdTopic = core.setTopic(channel, topics[2])
+      // a buf representing post/topic cable post for the third topic we set
+      // set and get third topic
+      const thirdTopic = core.setTopic(channel, topics[2], () => {
         core.getTopic(channel, (err, topic) => {
           t.error(err, "get topic should work")
           t.equal(topic, topics[2], `active topic should be third topic (${topics[2]}`)
           // delete the third topic
           const thirdHash = core.hash(thirdTopic)
-          core.del(thirdHash)
-          setTimeout(() => {
+          core.del(thirdHash, () => {
             // get topic one final time (should be second topic now)
             core.getTopic(channel, (err, topic) => {
               t.error(err, "get topic should work after a delete")
               t.equal(topic, topics[1], `active topic should now be second topic (${topics[1]}) not first (${topics[0]}) or third (${topics[2]})`)
               t.end()
             })
-            }, 100)
           })
-        }, 100)
+        })
       })
-    }, 50)
+    })
+  })
 })
 
 test("persisted posts should be indexed by reverse hash map view", t => {
   const core = new CableCore()
   const channel = "introduction"
-  const buf = core.join(channel)
+  const buf = core.join(channel, () => {
   assertBufType(t, buf, constants.JOIN_POST)
   const hash = core.hash(buf)
-  setTimeout(() => {
     core.getJoinedChannels((err, data) => {
       t.error(err, "get joined channels should work")
       t.ok(data, "returned data should be good")
@@ -349,12 +343,11 @@ test("persisted posts should be indexed by reverse hash map view", t => {
         for (let key of uses.keys()) {
           t.true(viewsIndexingJoinPostHash.includes(key), `view ${key} should index the hash of a join post}`)
         }
-        const delBuf = core.del(hash)
-        assertBufType(t, delBuf, constants.DELETE_POST)
-        const delHash = core.hash(delBuf)
-        // after we delete the post/join, all the views that referenced it should no longer have an entry (the views
-        // have been reindexed & wiped wrt the deleted post)
-        setTimeout(() => {
+        const delBuf = core.del(hash, () => {
+          // after we delete the post/join, all the views that referenced it should no longer have an entry (the views
+          // have been reindexed & wiped wrt the deleted post)
+          assertBufType(t, delBuf, constants.DELETE_POST)
+          const delHash = core.hash(delBuf)
           core.store.reverseMapView.api.getUses(hash, (err, uses) => {
             t.comment("post/join message should no longer be referenced anywhere, let's see if that's true")
 
@@ -376,8 +369,8 @@ test("persisted posts should be indexed by reverse hash map view", t => {
               t.end()
             })
           })
-        }, 100)
+        })
       })
     })
-  }, 200)
+  })
 })
