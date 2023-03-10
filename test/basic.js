@@ -3,6 +3,9 @@ const CableCore = require("../index.js").CableCore
 const constants = require("../../cable/constants")
 const cable = require("../../cable/index.js")
 
+/* this test suite contains a bunch of tests exercising the basic functionality of cable-core.js with one user writing
+ * posts and trying to get their indexed results */
+
 test("test passes", t => {
   t.plan(1)
   t.pass("this test always passes")
@@ -26,7 +29,12 @@ test("hashing message buffer works as expected", t => {
 })
 
 function assertPostType(t, obj, postType) {
-  let descriptiveType = ""
+  let descriptiveType = getDescriptiveType(t, postType)
+  t.equal(obj.postType, postType,  `post type should be ${descriptiveType}`)
+}
+
+function getDescriptiveType(t, postType) {
+  let descripitiveType = ""
   switch (postType) {
     case constants.TEXT_POST:
       descriptiveType = "post/text"
@@ -49,7 +57,12 @@ function assertPostType(t, obj, postType) {
     default:
       t.fail(`unknown post type (${postType})`)
   }
-  t.equal(obj.postType, postType,  `post type should be ${descriptiveType}`)
+  return descriptiveType
+}
+
+function assertBufType (t, buf, postType) {
+  const desc = getDescriptiveType(t, postType)
+  t.equal(cable.peekPost(buf), postType, `expected ${desc}`)
 }
 
 function testPostType (t, core, buf, postType, next) {
@@ -98,6 +111,7 @@ test("write to a channel and then get message as chat", t => {
   const channel = "introduction"
   const text = "hello cablers! i am cable-person"
   const buf = core.postText(channel, text)
+  assertBufType(t, buf, constants.TEXT_POST)
 
   core.getChat("introduction", 0, 0, -1, (err, chat) => {
     t.error(err)
@@ -113,6 +127,7 @@ test("write to a channel and then delete", t => {
   const channel = "introduction"
   const text = "hello cablers! i am cable-person"
   const buf = core.postText(channel, text)
+  assertBufType(t, buf, constants.TEXT_POST)
   const textHash = core.hash(buf)
 
   core.getChat("introduction", 0, 0, -1, (err, chat) => {
@@ -124,6 +139,7 @@ test("write to a channel and then delete", t => {
 
     const delBuf = core.del(textHash)
     t.ok(delBuf, "delete buf should be not null")
+    assertBufType(t, delBuf, constants.DELETE_POST)
 
     setTimeout(() => {
       core.getChat("introduction", 0, 0, -1, (err, chat) => {
@@ -143,6 +159,7 @@ test("post/text delete functionality", t => {
   const text = "hello cablers! i am cable-person"
   const buf = core.postText(channel, text)
   const textHash = core.hash(buf)
+  assertBufType(t, buf, constants.TEXT_POST)
 
   core.getChat("introduction", 0, 0, -1, (err, chat) => {
     t.error(err)
@@ -150,6 +167,7 @@ test("post/text delete functionality", t => {
 
     const delBuf = core.del(textHash)
     t.ok(delBuf, "delete buf should be not null")
+    assertBufType(t, delBuf, constants.DELETE_POST)
 
     setTimeout(() => {
       core.getChat("introduction", 0, 0, -1, (err, chat) => {
@@ -173,6 +191,7 @@ test("setting channel topic should persist post in store", t => {
   const channel = "introduction"
   const topic = "introduce yourself to fellow cablers"
   const buf = core.setTopic(channel, topic)
+  assertBufType(t, buf, constants.TOPIC_POST)
 
   const obj = cable.parsePost(buf)
   t.ok(obj.channel, "channel property should exist")
@@ -186,6 +205,7 @@ test("setting a nick should persist post in store", t => {
   const core = new CableCore()
   const value = "cabler"
   const buf = core.setNick(value)
+  assertBufType(t, buf, constants.INFO_POST)
 
   const obj = cable.parsePost(buf)
   const key = "name"
@@ -207,6 +227,7 @@ test("leaving channel should persist post in store", t => {
   const core = new CableCore()
   const channel = "introduction"
   const buf = core.leave(channel)
+  assertBufType(t, buf, constants.LEAVE_POST)
 
   const obj = cable.parsePost(buf)
   t.ok(obj.channel, "channel property should exist")
@@ -219,6 +240,7 @@ test("joining channel should persist post in store", t => {
   const core = new CableCore()
   const channel = "introduction"
   const buf = core.join(channel)
+  assertBufType(t, buf, constants.JOIN_POST)
 
   const obj = cable.parsePost(buf)
   t.ok(obj.channel, "channel property should exist")
@@ -310,6 +332,7 @@ test("persisted posts should be indexed by reverse hash map view", t => {
   const core = new CableCore()
   const channel = "introduction"
   const buf = core.join(channel)
+  assertBufType(t, buf, constants.JOIN_POST)
   const hash = core.hash(buf)
   setTimeout(() => {
     core.getJoinedChannels((err, data) => {
@@ -327,6 +350,7 @@ test("persisted posts should be indexed by reverse hash map view", t => {
           t.true(viewsIndexingJoinPostHash.includes(key), `view ${key} should index the hash of a join post}`)
         }
         const delBuf = core.del(hash)
+        assertBufType(t, delBuf, constants.DELETE_POST)
         const delHash = core.hash(delBuf)
         // after we delete the post/join, all the views that referenced it should no longer have an entry (the views
         // have been reindexed & wiped wrt the deleted post)
