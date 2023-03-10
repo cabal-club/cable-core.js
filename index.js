@@ -236,6 +236,8 @@ class CableStore {
             case constants.TOPIC_POST:
               this._reindexTopic(channel, res)
               break
+            default:
+              res()
           }
         })
         promises.push(p)
