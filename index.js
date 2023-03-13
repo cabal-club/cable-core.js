@@ -707,6 +707,32 @@ class CableCore extends EventEmitter {
     // TODO (2023-02-06): decrease ttl
   }
 
+  _storeExternalBuf(buf, done) {
+    if (!done) { done = util.noop }
+    const postType = cable.peekPost(buf)
+    switch (postType) {
+      case constants.TEXT_POST:
+        this.store.text(buf, done)
+        break
+      case constants.DELETE_POST:
+        this.store.del(buf, done)
+      case constants.INFO_POST:
+        this.store.info(buf, done)
+        break
+      case constants.TOPIC_POST:
+        this.store.topic(buf, done)
+        break
+      case constants.JOIN_POST:
+        this.store.join(buf, done)
+        break
+      case constants.LEAVE_POST:
+        this.store.leave(buf, done)
+        break
+      default:
+        throw new Error(`handle external buf: unknown post type ${postType}`)
+    }
+  }
+
   /* methods that handle responses */
   // TODO (2023-02-06):
   // * ignore hashes that have not been requested
