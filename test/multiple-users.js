@@ -4,8 +4,9 @@ const constants = require("../../cable/constants")
 const cable = require("../../cable/index.js")
 const { testPostType, getDescriptiveType, assertPostType, assertBufType }  = require("../testutils.js")
 
-/* this test suite contains a bunch of tests exercising the basic functionality of cable-core.js with one user writing
- * posts and trying to get their indexed results */
+/* this test suite contains a bunch of tests exercising functionality across more than one user. typically one user
+ * writes a post, and then we add that post to the other user, finally making sure that the post contents are indexed as
+ * expected across both users */
 
 test("test passes", t => {
   t.plan(1)

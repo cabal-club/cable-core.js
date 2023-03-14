@@ -29,8 +29,6 @@ test("hashing message buffer works as expected", t => {
   t.end()
 })
 
-
-
 test("writing to channel should persist post in store", t => {
   const core = new CableCore()
   const channel = "introduction"
