@@ -29,6 +29,65 @@ test("multiple cores should be initializable", t => {
   t.end()
 })
 
+test("users joining multiple channels should end up with same view on channel set", t => {
+  const cores = [new CableCore(), new CableCore()]
+  const channels = ["introduction", "another-channel"]
+
+  let promises = []
+  let p 
+  // user 0 joins first channel (user 1 indexes their join)
+  p = new Promise((res, rej) => {
+    let buf = cores[0].join(channels[0], () => {
+      cores[1]._storeExternalBuf(buf, res)
+    })
+  })
+  promises.push(p)
+
+  // user 1 joins first channel (user 0 indexes their join)
+  p = new Promise((res, rej) => {
+    let buf = cores[1].join(channels[0], () => {
+      cores[0]._storeExternalBuf(buf, res)
+    })
+  })
+  promises.push(p)
+
+  // user 0 joins second channel (user 1 indexes their join)
+  p = new Promise((res, rej) => {
+    let buf = cores[0].join(channels[1], () => {
+      cores[1]._storeExternalBuf(buf, res)
+    })
+  })
+  promises.push(p)
+
+  Promise.all(promises).then(() => {
+    promises = []
+    cores.forEach((core, index) => {
+      p = new Promise((res, rej) => {
+        // database should have two users
+        core.getUsers((err, users) => {
+          t.error(err, `core ${index}: get users should work`)
+          t.ok(users)
+          t.equal(users.size, 2, `core ${index}: users map should be size 2`)
+          // should have 2 users in first channel
+          core.getUsersInChannel(channels[0], (err, users) => {
+            t.error(err, `core ${index}: get users in channel should work`)
+            t.equal(users.size, 2, `core ${index}: channel ${channels[0]} should have two users`)
+            // should only have 1 user in second channel
+            core.getUsersInChannel(channels[1], (err, users) => {
+              t.error(err, `core ${index}: get users in channel should work`)
+              t.equal(users.size, 1, `core ${index}: channel ${channels[1]} should have 1 user`)
+              res()
+            })
+          })
+        })
+      })
+      promises.push(p)
+    })
+    Promise.all(promises).then(() => { t.end() })
+  })
+})
+
+
 test("indexing external cable post should work as expected", t => {
   const cores = [new CableCore(), new CableCore()]
   const channel = "introduction"
