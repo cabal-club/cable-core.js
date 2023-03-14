@@ -2,6 +2,7 @@ const test = require("tape")
 const CableCore = require("../index.js").CableCore
 const constants = require("../../cable/constants")
 const cable = require("../../cable/index.js")
+const { testPostType, getDescriptiveType, assertPostType, assertBufType }  = require("../testutils.js")
 
 /* this test suite contains a bunch of tests exercising the basic functionality of cable-core.js with one user writing
  * posts and trying to get their indexed results */
@@ -28,69 +29,7 @@ test("hashing message buffer works as expected", t => {
   t.end()
 })
 
-function assertPostType(t, obj, postType) {
-  let descriptiveType = getDescriptiveType(t, postType)
-  t.equal(obj.postType, postType,  `post type should be ${descriptiveType}`)
-}
 
-function getDescriptiveType(t, postType) {
-  let descripitiveType = ""
-  switch (postType) {
-    case constants.TEXT_POST:
-      descriptiveType = "post/text"
-      break
-    case constants.DELETE_POST:
-      descriptiveType = "post/delete"
-      break
-    case constants.INFO_POST:
-      descriptiveType = "post/info"
-      break
-    case constants.TOPIC_POST:
-      descriptiveType = "post/topic"
-      break
-    case constants.JOIN_POST:
-      descriptiveType = "post/join"
-      break
-    case constants.LEAVE_POST:
-      descriptiveType = "post/leave"
-      break
-    default:
-      t.fail(`unknown post type (${postType})`)
-  }
-  return descriptiveType
-}
-
-function assertBufType (t, buf, postType) {
-  const desc = getDescriptiveType(t, postType)
-  t.equal(cable.peekPost(buf), postType, `expected ${desc}`)
-}
-
-function testPostType (t, core, buf, postType, next) {
-  t.ok(buf, "message buffer should be not null")
-
-  const hash = core.hash(buf)
-  t.ok(hash, "hash should be not null")
-
-  const initialObj = cable.parsePost(buf)
-  assertPostType(t, initialObj, postType)
-
-  // TODO (2023-03-08): big switch that checks all properties that should exist do exist
-
-  core.store.getData([hash], (err, data) => {
-    t.error(err, "getting data for persisted hash should work")
-    t.ok(data, "data should be not null")
-    t.equal(data.length, 1, "should only return one result when querying one hash")
-    const cablegram = data[0]
-    const hashedData = core.hash(cablegram)
-    t.deepEqual(hashedData, hash, "data put into store and retrieved from store should have identical hashes")
-
-    const retrievedObj = cable.parsePost(cablegram)
-    t.ok(retrievedObj, "returned post should be parsed correctly")
-    assertPostType(t, retrievedObj, postType)
-    t.deepEqual(retrievedObj, initialObj, "parsed bufs should be identical")
-    next()
-  })
-}
 
 test("writing to channel should persist post in store", t => {
   const core = new CableCore()
