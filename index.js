@@ -216,6 +216,7 @@ class CableStore {
         // go through each index and delete the entry referencing this hash
         for (let [viewName, viewKeys] of uses) {
           viewKeys.forEach(key => {
+            storedebug("delete %s in %s", key, viewName)
             this._viewsMap[viewName].api.del(key)
           })
         }
@@ -716,6 +717,7 @@ class CableCore extends EventEmitter {
         break
       case constants.DELETE_POST:
         this.store.del(buf, done)
+        break
       case constants.INFO_POST:
         this.store.info(buf, done)
         break
