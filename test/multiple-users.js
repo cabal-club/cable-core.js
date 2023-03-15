@@ -90,6 +90,63 @@ test("multiple users setting a nicknames should work", t => {
   .then(() => t.end())
 })
 
+test("multi-user topics should work", t => {
+  const cores = [new CableCore(), new CableCore()]
+  const topics = ["first topic", "second topic", "third topic"]
+  const channel = "introduction"
+  const unrelated = ["unrelated-channel", "unrelated topic"]
+
+  let p
+  let promises = []
+
+  let buf 
+
+  // user 0: set first topic
+  buf = cores[0].setTopic(channel, topics[0], () => {
+    // user 1: ingest topic post made by user 0
+    cores[1]._storeExternalBuf(buf, () => {
+      // make sure topic is set to expected topic for both users
+      cores.forEach((core, index) => {
+        p = new Promise((res, rej) => {
+          core.getTopic(channel, (err, topic) => {
+            t.equal(topic, topics[0], `${index}: topic should be set to ${topics[0]}`)
+            res()
+          })
+        })
+        promises.push(p)
+      })
+
+      // we have now checked the initially set topic, time to change it
+      Promise.all(promises).then(() => {
+        return new Promise((res, rej) => {
+          promises = []
+          // user 1 now sets a topic for the same channel, changing the topic
+          buf = cores[1].setTopic(channel, topics[1], () => {
+            // user 0 ingests the new topic post
+            cores[0]._storeExternalBuf(buf, () => {
+              res()
+            })
+          })
+        })
+      })
+      .then(() => {
+        // make sure the new topic is set for both users
+        cores.forEach((core, index) => {
+          p = new Promise((res, rej) => {
+            core.getTopic(channel, (err, topic) => {
+              t.equal(topic, topics[1], `${index}: topic should now be set to ${topics[1]}`)
+              res()
+            })
+          })
+          promises.push(p)
+        })
+        return Promise.all(promises)
+      })
+      .then(() => t.end())
+    })
+  })
+})
+
 test("users joining multiple channels should end up with same view on channel set", t => {
   const cores = [new CableCore(), new CableCore()]
   const channels = ["introduction", "another-channel"]
