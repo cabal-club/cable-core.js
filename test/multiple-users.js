@@ -29,6 +29,67 @@ test("multiple cores should be initializable", t => {
   t.end()
 })
 
+test("multiple users setting a nicknames should work", t => {
+  const cores = [new CableCore(), new CableCore()]
+  const values = ["cabler0", "cabler1"]
+
+  let promises = []
+  let p
+  const bufs = []
+  let buf
+
+  cores.forEach((core, index) => {
+    p = new Promise((res, rej) => {
+      buf = core.setNick(values[index], res)
+      bufs.push(buf)
+    })
+    promises.push(p)
+  })
+
+  // verify that the buffers are correct
+  Promise.all(promises).then(() => {
+    promises = []
+    // make sure bufs are of correct type
+    bufs.forEach((buf, index) => {
+      assertBufType(t, buf, constants.INFO_POST)
+      const obj = cable.parsePost(buf)
+      const key = "name"
+      t.ok(obj.key, `${index}: key property should exist`)
+      t.ok(obj.value, `${index}: value property should exist`)
+      t.equal(obj.key, key, `${index}: info property 'key' should be '${key}`)
+      t.equal(obj.value, values[index], `${index}: info property 'value' should be '${values[index]}`)
+    })
+
+    // each core indexes the other's message
+    cores.forEach((core, index) => {
+      p = new Promise((res, rej) => {
+        const oppositeIndex = (index === 0) ? 1 : 0
+        core._storeExternalBuf(bufs[oppositeIndex], res)
+      })
+      promises.push(p)
+    })
+    return Promise.all(promises)
+  })
+  .then(() => {
+    promises = []
+
+    cores.forEach((core, index) => {
+      p = new Promise((res, rej) => {
+        core.getUsers((err, users) => {
+          t.error(err, `${index}: get users should work`)
+          t.ok(users, `${index}: ret value should be ok`)
+          t.equal(users.get(cores[0].kp.publicKey.toString("hex")), values[0], `${index}: user name of user #0 should be correct`)
+          t.equal(users.get(cores[1].kp.publicKey.toString("hex")), values[1], `${index}: user name of user #1 should be correct`)
+          res()
+        })
+      })
+      promises.push(p)
+    })
+    return Promise.all(promises)
+  })
+  .then(() => t.end())
+})
+
 test("users joining multiple channels should end up with same view on channel set", t => {
   const cores = [new CableCore(), new CableCore()]
   const channels = ["introduction", "another-channel"]
@@ -83,8 +144,9 @@ test("users joining multiple channels should end up with same view on channel se
       })
       promises.push(p)
     })
-    Promise.all(promises).then(() => { t.end() })
+    return Promise.all(promises)
   })
+  .then(() => { t.end() })
 })
 
 
