@@ -146,7 +146,7 @@ test("setting a nick should persist post in store", t => {
   const key = "name"
   t.ok(obj.key, "key property should exist")
   t.ok(obj.value, "value property should exist")
-  t.equal(obj.key, key, `info property 'key' should be '${value}`)
+  t.equal(obj.key, key, `info property 'key' should be '${key}`)
   t.equal(obj.value, value, `info property 'value' should be '${value}`)
 
   testPostType(t, core, buf, constants.INFO_POST, () => {
