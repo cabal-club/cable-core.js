@@ -3,6 +3,7 @@
 * `<thing>` signifies a placeholder value, where the text in brackets is a concrete value
   of the type described by the text and only known at runtime. e.g. `<hash>` is a
   base16-encoded hash appearing something like `7e13a3f34f6494e539ffd32c1bb35f18`
+* `<ts>` is short for timestamp, a string representation of a point in time in Unix Time (number of seconds since the Unix Epoch aka since midnight 1970 jan 1)
 * `<mono-ts>` is short for monotonic timestamp, i.e. timestamps that only ever
   increase in size and which are guaranteed to not overlap with any other
   monotonic timestamp. This can be used to yield unique database view keys that can also be
@@ -15,7 +16,9 @@
   1676993016406.002    < concurrent example 2
   1676993016406.003    < concurrent example 3 
   ```
-* `<hash>` is the base16-encoded 32-byte blake2b hashes that cable operates on
+* `<hash>` is the binary-represented 32-byte blake2b hashes that cable operates on
+* `<hash.16>` is the base16-encoded 32-byte blake2b hashes that cable operates on
+* `<pubkey>` is the binary-represented public portion of a ed25519 keypair
 * `<pubkey>` is the base16-encoded public portion of a ed25519 keypair
 * `<channel>` is the utf-8 encoded string that represents a cable channel (think: chat channel, because that is what it is).
 
@@ -28,6 +31,24 @@
   properly queryable using lexicographic sort, but makes it easier to see which
   strings in this documents are views; it's a convention used in this document,
   if you will
+
+## Key sort order
+
+When you are using a key-value database like leveldb, there's a particular quirk you have to
+work around when it comes to structuring data in a table-like manner. That quirk is dealing
+with lexicographic sort order. This is a fancy way of saying that keys will be compared in a
+left-to-right, character-by-character manner. The key `B` is "higher" than the key `A`.
+
+If you are developing on linux, the command `ascii` is very helpful for seeing the different
+ascii values of different characters. 
+
+For instance, `!` is the smallest printable character,
+with a decimal value of 33. Whereas `~` is the largest printable character in the ascii table,
+with a decimal value of 126. These two are commonly used to delineate queries, using greater
+than `!` and a less than `~` operations.
+
+This all means that you have to be somewhat mindful and careful when laying out the key space,
+which names and pieces of data in a particular key, of your tables.
 
 ## Materialized views
 These materialized views comprise the database portion of cable-core, and will be serviced by
@@ -58,6 +79,8 @@ responses, or which the local user creates by making posts themselves.
 
     <hash> -> <blob>
 
+This view is implemented in [`data-store.js`](./data-store.js).
+
 ### Reverse hash lookup
 A reverse lookup table, mapping hashes to which views and under what keys in those views the
 hashes have been referenced. This is how we update other views when a post has been deleted. 
@@ -66,24 +89,27 @@ This matters because if a post is deleted, then the hash pointing to it is now
 irrelevant to index, because we no longer have that data (and never will
 again).
 
-    !<hash>!<mono-ts> => "<viewname><separator><viewkey>"
+    !<hash.16>!<mono-ts> => "<viewname><separator><viewkey>"
 
-    (old scheme: !<hash>!<viewname>!<viewkey>! = 1 )
+
+This view is implemented in [`reverse-hash-map.js`](./reverse-hash-map.js).
 
 ### Posts
-The posts view tracks two different kinds of data. One part of the view keeps track of hashes
-of `post/text` and `post/delete. The other keeps track of which deletes have happened in order
+The posts view tracks two different kinds of data. One part of the view, the messages view, keeps track of hashes
+of `post/text` and `post/delete. The other, the deleted view, keeps track of which deletes have happened in order
 to never ask for or persist those posts. The key schema, as denoted below, is different for the
 two subviews.
 
-#### `post/text` and `post/delete`
+#### Messages: `post/text` and `post/delete`
 The posts view maps channel name+time to a hash, where the hash should resolve to either a
 `post/text` or a `post/delete` when queried for in the data store.
 
     !chat!<mono-ts>!post!<channel> -> <hash>
 
+This view is implemented in [`messages.js`](./messages.js).
+
 **Note:** mono-ts here should be related to the indexed post's claimed timestamp; do some kind
-of pass / logic that lets us index uniquely but with claimed timestamp instead of current time
+of pass / logic that to index uniquely using the claimed timestamp
 
 **Note:** Do secondary topological sort after retrieving posts?
 
@@ -99,13 +125,13 @@ it has more data than just the text.
 -->
 
 #### Handling deletions
-<!-- deleted should be its own view -->
-
 Deletions. This view allows us to persist deletions and can be used to prevent resyncing deleted posts. 
 
     !chat!deleted!<hash> -> 1
 
-**Note**: This only tracks the *hash of the deleted post* i.e. NOT the hash of the `post/delete` itself. 
+This view is implemented in [`deleted.js`](./deleted.js).
+
+**Note**: This tracks the *hash of the deleted post* i.e. NOT the hash of the `post/delete` itself. 
 
 ### Channel state
 Channel state maps channel name of a post, alongside extra details part of the key, to a
@@ -113,83 +139,86 @@ channel state-related hash. This view keeps track of:
 
 * *all* `post/join` or `post/leave` made by `<pubkey>`
 ```
-!state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
+!state!member!<channel>!<mono-ts>!<pubkey> -> <hash>
 ``` 
 * *all* `post/info` for nick published by `<pubkey>`
 ```
-!state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
+!state!nick!<channel>!<mono-ts>!<pubkey> -> <hash>
 ```
 * *all* `post/topic` for channel, published by anyone
 ```
-!state!<mono-ts>!<channel>!topic -> <hash>
+!state!topic!<channel>!<mono-ts> -> <hash>
 ``` 
 
-**q:** Should we include convenience methods that returns cablegram pointed to by
-hash, in addition to methods that only return a list of hashes? 
+Querying this view should suffice to answer any incoming `Channel State Request`.
+
+This view is implemented in [`channel-state.js`](./channel-state.js).
 
 **Note:** this view *does* handle the case of answering a historic (give all history you
 have) channel state request.
 
-### Channel membership (accreted)
-The channel membership view keeps track of which channels have which users currently joined to
-it.
-
-    !channel!<channel>!member!<pubkey> -> 1 or 0
-
-**Note:** Each accreted view needs to be potentially flushed & re-indexed if a deleted message had the same type as the view.
-
-**q:** might be subsumed by channel state view? doesn't give us joined or left without parsing though
-
-**q:** i guess the stable sorted set of <channel> names, derive from keys of
-this view, are what we would respond with to answer a channel list request?
-
-### Channel topic (accreted)
-The channel topic view keeps track of the topic of each channel the local user knows about.
-
-    !channel!<channel>!topic -> <topic>
-
-**Note:** Each accreted view needs to be potentially re-indexed if a deleted message had the same type as the view.
-
-**q:** now subsumed by channel state view? doesn't give us topic name without parsing though
-
 ### Author
-The author view indexes all posts by the public key that authored a given post. The view key
+The author view indexes all posts by the public key that authored them. The view key
 also includes what type of post it was; e.g. a `post/text` or a `post/join`. Which type of post
 it was is encoded by using the corresponding post type ID as defined in the cable spec. Entries
 are indexed by mapping the public key and the post type to the corresponding post hash. 
 
 You can query for any given `post_type` authored by any given public key.
 
-    !author!<mono-ts>!<pubkey>!<post_type-id> -> <hash>
+    !author!<pubkey>!<post_type-id>!<mono-ts> -> <hash>
 
 The existence of this view facilitates deleting all posts authored by pubkey, which would be
 useful if a pubkey has been blocked and you no longer want to host the content they authored.
+
+This view is implemented in [`author.js`](./author.js).
+
+### Channel membership (accreted)
+The channel membership view keeps track of which channels have which users currently joined to
+it.
+
+    !channel!member!<channel>!<pubkey> -> 1 or 0
+
+* Set value to 1 for `post/join` issued by `<pubkey>` to `<channel>`.
+* Set value to 0 for `post/leave` issued by `<pubkey>` to `<channel>`.
+
+This view is implemented in [`channel-membership.js`](./channel-membership.js).
+
+**Note:** Each accreted view needs to be potentially re-indexed if a deleted message had the same type as the view. This can be done by querying the author view to see if there was any post of a related type prior to the deleted post.
+
+**Note:** The stable sorted set of <channel> names, derived from the keys recorded in this view, are what we would respond with to answer a channel list request.
+
+### Channel topic (accreted)
+The channel topic view keeps track of the topic of each channel the local user knows about.
+
+    !channel!topic!<channel> -> <topic>
+
+This view is implemented in [`topics.js`](./topics.js).
+
+**Note:** Each accreted view needs to be potentially re-indexed if a deleted message had the same type as the view. This can be done by querying the author view to see if there was any post of a related type prior to the deleted post.
 
 ### User information
 This view specifically deals with mapping out the different types of
 `post/info` contents that may have been authored by users. 
 
-As of writing (2023-02-15) the cable spec only has one specified `post/info` key: `name. Other
+As of writing (2023-03-16) the cable spec only has one specified `post/info` key: `name. Other
 types of user-related information may be added in the future: a user description, a user image,
 a user's post expiry preference, etc.
 
-    !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property
-    !user!<mono-ts>!<pubkey>!info!<property> in general
-    !user!latest!<pubkey>!info!<property> in general
+    !user!info!name!<pubkey>!<mono-ts> => latest post/info setting nickname property
+    !user!info!<property>!<pubkey>!<mono-ts> in general
+    !user!latest!info!<property>!<pubkey> in general
 
-The corresponding user information schema looked like the following for cabal-core:
-
-    user!<mono-ts>!about!<pubkey>
+This view is implemented in [`user-info.js`](./user-info.js).
 
 ## Tracking a request -> response life cycle
-Some notes now follow on how we could better keep track of whether respones we get back for
-requests made are sensible or not. These notes of this section are more exploratory than
-explicative. Jump to section **Verifying index sufficiency** if this is not your jam.
+Some notes now follow on how we could keep track of whether respones we get back for
+requests made are sensible or not. The notes of this section are more exploratory than
+explicative. Jump to section **Verifying index sufficiency**, below, if this is not your jam.
 
-Tracking the path of a request and its cousin, the response, is done with request ids
+Tracking the path of a request and its sibling, the response, is done with request ids
 (`req_id`).
 
-A `reqid` always belongs to a request or to the response caused by a request. Thus a `reqid` has
+A `req_id` always belongs to a request or to the response caused by a request. Thus a `req_id` has
 a source (the message type that "spawns" the request) and an expectation of what to get
 back (the message type that correctly answers the request e.g. a `data response` for a `request by
 hash`, a `hash response` for a `channel time range request`, or a `channel list response` for a
@@ -197,7 +226,7 @@ hash`, a `hash response` for a `channel time range request`, or a `channel list 
 by keeping track of an extra id to more efficiently route messages, instead of floodfilling to
 all connected peers.
 
-When we deal with a request, we can associate the generated `reqid` with:
+When we deal with a request, we can associate the generated `req_id` with:
 
 * source (the message type of the request), a varint
 * expects (the expected message type of the response), a varint
@@ -206,6 +235,9 @@ When we deal with a request, we can associate the generated `reqid` with:
 * circuitid (which connected node to send the response to), a varint; might be premature and
   pending on how it is specified
 
+Also worth noting is that a response will have its `req_id` field set to the same value as the
+request its responding to. That is: `response[req_id] = request[req_id]`.
+
 ### Associating request and response pairs
 We could go one step further, and associate the two request-response pairs that will be
 required to fulfill the entire life cycle. That is:
@@ -213,16 +245,20 @@ required to fulfill the entire life cycle. That is:
 Let's say we make a channel time range request. The intent of that is to eventually receive
 cablegrams of types `post/text` and `post/delete`. To achieve this, the channel time range
 request is sent. The reply that comes back is a hash response (list of hashes). To get the
-actual cablegrams, we send out a new request, this time a request by hash. Back comes a data
-response, containing some or all of the requested hashes. So we have two roundtrips:
+actual cablegrams containing posts (and not a list of hashes), we send out a new request, this
+time a request by hash. Back comes a data response, containing some or all of the requested
+hashes. That is, we have two roundtrips:
 
-1. request: channel time range, response: hash response
-2. request: request by hash, response: data response
+| Roundtrip | Outgoing (Request)            | Incoming  (Response)      |
+|:---------:|-------------------------------|---------------------------|
+| 1         | Channel Time Range Request    | Hash Response             |
+| 2         | Request by hash               | Data response             |
 
-In 1, the request and response are to have the same reqid. The request and response in 2 have a
-different reqid than in 1 but which is shared by 2's request and response. i.e. there is
-potentially a a gap missing between associating the actions in 1 and the actions in 2, even
-though 2 happens as a direct result of 1.
+
+In roundtrip 1, the request and response are to have the same `req_id`. However, the request
+and response in 2 have a different `req_id` than in 1 but which is shared within roundtrip 2's
+request and response. i.e. there is potentially a a gap missing between associating the actions
+in 1 and the actions in 2, even though 2 happens as a direct result of 1.
 
 ### Forwarding facilitation 
 To facilitate forwarding, we could have a map to keep track of where a request came from, in
@@ -230,7 +266,7 @@ order to send the response that same way. In case we get the same request from m
 sources, the actual intended destination is uncertain. We should maintain a list of
 destinations.
 
-    originMap: reqid -> [peerid]
+    originMap: req_id -> [peerid]
 
 ### Receiving a response
 When we receive a response we look up the `reqid`:
@@ -340,9 +376,9 @@ of data. Answer with the list of hashes in a hash response.
 
 Query:
 
-        !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
-        !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
-        !state!<mono-ts>!<channel>!topic -> <hash>
+        !state!member!<channel>!<mono-ts>!<pubkey> -> <hash>
+        !state!nick!<channel>!<mono-ts>!<pubkey> -> <hash>
+        !state!topic!<channel>!<mono-ts> -> <hash>
 
 using the request's channel name and a sort that gives us the latest records
 first. In each of the three queries, use leveldb's `limit: 1` option to only
@@ -357,9 +393,9 @@ A historic channel state request is a request that sets `historic = 1`.
 
 Query:
 
-        !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
-        !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
-        !state!<mono-ts>!<channel>!topic -> <hash>
+        !state!member!<channel>!<mono-ts>!<pubkey> -> <hash>
+        !state!nick!<channel>!<mono-ts>!<pubkey> -> <hash>
+        !state!topic!<channel>!<mono-ts> -> <hash>
 
 Using the request's channel name, and a sort that gives us the latest entries.
 What we get back are lists of hashes. Smoosh the lists together.
@@ -370,7 +406,7 @@ Answer with the list of hashes that are retrieved from executing the query.
 
 Query:
 
-    !channel!<channel>!member!<pubkey> -> 1 or 0
+    !channel!member!<channel>!<pubkey> -> 1 or 0
 
 Use the retrieved keys to extract a list of channel names, and convert the list into the set of
 known channel names. Then convert the set back into a list and stable sort it.
@@ -431,14 +467,14 @@ The following tables are updated:
 
     <hash> -> <blob>
     !chat!text!<channel>!<ts> -> <hash>
-    !author!<pubkey>!0!<counter> -> <hash> // post/text
+    !author!<pubkey>!0!<mono-ts> -> <hash> // post/text
 
 To be able to remove these entries later on, for example when a delete request
 comes in, we need to know which keys are mapped to that hash for each indexed
 view.  We save the following entries in the reverse-hash lookup:
 
     !<hash>!<mono-ts> => "chat!text!<separator>chat!text!<channel>!<ts>"
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<mono-ts>"
 
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
@@ -450,12 +486,12 @@ Delete <hash> from:
 Get each view key using `<hash>`:
 
     !<hash>!<mono-ts> => "chat!text!<separator>chat!text!<channel>!<ts>"
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<mono-ts>"
 
 Delete entry in view using retrieved key:
     
     !chat!text!<channel>!<ts> -> <hash>
-    !author!<pubkey>!1!<counter> -> <hash> // post/text
+    !author!<pubkey>!1!<mono-ts> -> <hash> // post/text
 
 If this delete was from a delete request (post/delete), also persist the delete
 by saving the hash of the deleted post:
@@ -474,13 +510,13 @@ The following tables are updated:
 
     <hash> -> <blob>
     !chat!deleted!<hash> -> 1
-    !author!<pubkey>!1!<counter> -> <hash> // post/topic
+    !author!<pubkey>!1!<mono-ts> -> <hash> // post/topic
 
 To be able to remove these entries later on, for example if a delete should be
 reverted, we need to know which keys are mapped to that hash for each indexed
 view.  We save the following entries in the reverse-hash lookup:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<mono-ts>"
 
 Now: time to delete the pointed to content:
 
@@ -512,11 +548,11 @@ payload - tricky!):
 
 Get the view key using <hash>:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!1!<mono-ts>"
 
 Delete entry in view using retrieved key:
     
-    !author!<pubkey>!1!<counter> -> <hash> // post/topic
+    !author!<pubkey>!1!<mono-ts> -> <hash> // post/topic
 
 #### post/info (`post_type=2`)
 ##### Creation
@@ -526,17 +562,17 @@ payload and persisted in the database.
 The following tables are updated:
 
     <hash> -> <blob>
-    !author!<pubkey>!2!<counter> -> <hash> // post/topic
-    !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
-    !user!<mono-ts>!<pubkey>!info!name => latest post/info setting nickname property ??
+    !author!<pubkey>!2!<mono-ts> -> <hash> // post/topic
+    !state!nick!<channel>!<mono-ts>!<pubkey> -> <hash>
+    !user!info!name!<pubkey>!<mono-ts> => latest post/info setting nickname property ??
 
 To be able to remove these entries later on, for example when a new post/info
 is written, we need to know which keys are mapped to that hash for each indexed
 view.  We save the following entries in the reverse-hash lookup:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!2!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!2!<mono-ts>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!nick!<pubkey>"
-    !<hash>!<mono-ts> => "user<separator>user!<mono-ts>!<pubkey>!info!name"
+    !<hash>!<mono-ts> => "user<separator>user!info!name!<pubkey>!<mono-ts>"
 
 ##### Deletion
 When we delete the corresponding hash, the following operations take place:
@@ -547,15 +583,15 @@ Delete `<hash>` from:
 
 Get each view key using <hash>:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!2!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!2!<mono-ts>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!nick!<pubkey>"
-    !<hash>!<mono-ts> => "user<separator>user!<mono-ts>!<pubkey>!info!name"
+    !<hash>!<mono-ts> => "user<separator>user!info!name!<pubkey>!<mono-ts>"
 
 Delete entry in view using retrieved key:
     
-    !author!<pubkey>!2!<counter>
-    !state!<mono-ts>!<channel>!nick!<pubkey> -> <hash>
-    !user!<mono-ts>!<pubkey>!info!name
+    !author!<pubkey>!2!<mono-ts>
+    !state!nick!<channel>!<mono-ts>!<pubkey> -> <hash>
+    !user!info!name!<pubkey>!<mono-ts>
 
 #### post/topic (`post_type=3`)
 ##### Creation
@@ -565,15 +601,15 @@ payload and persisted in the database.
 The following tables are updated:
 
     <hash> -> <blob>
-    !channel!<channel>!topic -> <topic>
+    !channel!topic!<channel> -> <topic>
     !state!<channel>!topic -> <hash>
-    !author!<pubkey>!3!<counter> -> <hash> // post/topic
+    !author!<pubkey>!3!<mono-ts> -> <hash> // post/topic
 
 To be able to remove these entries later on, for example when a new post/info
 is written, we need to know which keys are mapped to that hash for each indexed
 view.  We save the following entries in the reverse-hash lookup:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!3!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!3!<mono-ts>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!topic"
 
 ##### Updating
@@ -581,19 +617,19 @@ When a new post/topic comes in, we'll need to update indexes.
 
 Index the new message:
 
-    !author!<pubkey>!3!<counter> -> <hash> // post/topic
+    !author!<pubkey>!3!<mono-ts> -> <hash> // post/topic
 
 Update the latest channel state to point to the new hash:
 
-    !state!<mono-ts>!<channel>!topic -> <hash>
+    !state!topic!<channel>!<mono-ts> -> <hash>
 
 Update the topic index for the channel, setting the new topic:
 
-    !channel!<channel>!topic -> <topic>
+    !channel!topic!<channel> -> <topic>
 
 Add new reverse-lookup entries:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!3!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!3!<mono-ts>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!topic"
 
 ##### Deletion
@@ -605,13 +641,13 @@ Delete `<hash>` from:
 
 Get each view key using <hash>:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!3!<counter>"
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!3!<mono-ts>"
     !<hash>!<mono-ts> => "state<separator>state!<channel>!topic"
 
 Delete entry in view using retrieved key:
     
-    !state!<mono-ts>!<channel>!topic -> <hash>
-    !author!<pubkey>!3!<counter> -> <hash> // post/topic
+    !state!topic!<channel>!<mono-ts> -> <hash>
+    !author!<pubkey>!3!<mono-ts> -> <hash> // post/topic
 
 #### post/join (`post_type=4`) and post/leave (`post_type=5`) 
 ##### Creation
@@ -621,16 +657,16 @@ payload and persisted in the database.
 The following tables are updated:
 
     <hash> -> <blob>
-    !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
-    !channel!<channel>!member!<pubkey> -> 1
-    !author!<pubkey>!4!<counter> -> <hash> // post/topic
+    !state!member!<channel>!<mono-ts>!<pubkey> -> <hash>
+    !channel!member!<channel>!<pubkey> -> 1
+    !author!<pubkey>!4!<mono-ts> -> <hash> // post/topic
 
 To be able to remove these entries later on, for example when a new post/info
 is written, we need to know which keys are mapped to that hash for each indexed
 view.  We save the following entries in the reverse-hash lookup:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!4!<counter>"
-    for post/leave: !<hash>!<mono-ts> => "author<separator>author!<pubkey>!5!<counter>" 
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!4!<mono-ts>"
+    for post/leave: !<hash>!<mono-ts> => "author<separator>author!<pubkey>!5!<mono-ts>" 
     !<hash>!<mono-ts> => "state<separator>state!<channel>!member!<pubkey>"
 
 ##### Updating
@@ -639,20 +675,20 @@ channel as the previous post/join, we'll need to update indexes.
 
 Index the new message:
 
-    !author!<pubkey>!4!<counter> -> <hash> // post/topic
+    !author!<pubkey>!4!<mono-ts> -> <hash> // post/topic
 
 Update the latest channel state to point to the new hash:
 
-    !state!<mono-ts>!<channel>!member!<pubkey> -> <hash>
+    !state!member!<channel>!<mono-ts>!<pubkey> -> <hash>
 
 Update the membership view:
 
-    !channel!<channel>!member!<pubkey> -> 0
+    !channel!member!<channel>!<pubkey> -> 0
 
 Add new reverse-lookup entries:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!4!<counter>"
-    for post/leave: !<hash>!<mono-ts> => "author<separator>author!<pubkey>!5!<counter>" 
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!4!<mono-ts>"
+    for post/leave: !<hash>!<mono-ts> => "author<separator>author!<pubkey>!5!<mono-ts>" 
     !<hash>!<mono-ts> => "state<separator>state!<channel>!member!<pubkey>"
 
 ##### Deletion
@@ -664,25 +700,25 @@ Delete `<hash>` from:
 
 Get each view key using <hash>:
 
-    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!4!<counter>"
-    for post/leave: !<hash>!<mono-ts> => "author<separator>author!<pubkey>!5!<counter>" 
+    !<hash>!<mono-ts> => "author<separator>author!<pubkey>!4!<mono-ts>"
+    for post/leave: !<hash>!<mono-ts> => "author<separator>author!<pubkey>!5!<mono-ts>" 
     !<hash>!<mono-ts> => "state<separator>state!<channel>!member!<pubkey>"
 
 Using the view key, splice out the channel name.
 
 Delete entry in view using retrieved key:
     
-    !channel!<channel>!member!<pubkey>
-    !author!<pubkey>!4!<counter>
+    !channel!member!<channel>!<pubkey>
+    !author!<pubkey>!4!<mono-ts>
 
 Get all the most recent membership messages for this user:
 
-    !author!<pubkey>!4!<counter> -> <hash> // post/topic
-    !author!<pubkey>!5!<counter> -> <hash> // post/topic
+    !author!<pubkey>!4!<mono-ts> -> <hash> // post/topic
+    !author!<pubkey>!5!<mono-ts> -> <hash> // post/topic
     <hash> -> <blob>
 
 Sort the list of entries and pick the latest {join, leave} for the target
 channel, if there is such a latest message left in the database. If there is,
 update the channel membership for that channel accordingly:
 
-    !channel!<channel>!member!<pubkey> -> 1 or 0
+    !channel!member!<channel>!<pubkey> -> 1 or 0

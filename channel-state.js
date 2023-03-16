@@ -4,6 +4,7 @@ const viewName = "channel-state"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 const util = require("./util.js")
+const monotonicTimestamp = util.monotonicTimestamp()
 
 function noop () {}
 
@@ -44,16 +45,17 @@ module.exports = function (lvl, reverseIndex) {
         if (!sanitize(msg)) return
 
         let key
+        const ts = monotonicTimestamp(msg.timestamp)
         switch (msg.postType) {
           case constants.JOIN_POST:
           case constants.LEAVE_POST:
-            key = `member!${msg.channel}!${msg.timestamp}!${msg.publicKey.toString("hex")}`
+            key = `member!${msg.channel}!${ts}!${msg.publicKey.toString("hex")}`
             break
           case constants.INFO_POST:
-            key = `name!${msg.channel}!${msg.timestamp}!${msg.publicKey.toString("hex")}`
+            key = `name!${msg.channel}!${ts}!${msg.publicKey.toString("hex")}`
             break
           case constants.TOPIC_POST:
-            key = `topic!${msg.channel}!${msg.timestamp}`
+            key = `topic!${msg.channel}!${ts}`
             break
           default:
             throw new Error(`${viewName}: unhandled post type (${msg.postType})`)

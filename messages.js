@@ -4,6 +4,7 @@ const viewName = "messages"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
 const util = require("./util.js")
+const monotonicTimestamp = util.monotonicTimestamp()
 
 function noop () {}
 
@@ -49,12 +50,15 @@ module.exports = function (lvl, reverseIndex) {
           <mono-ts>!delete!<channel> -> <hash>
         */
         let key 
+        // makes sure the timestamp we persist is one we have never seen before
+        // TODO (2023-03-16): take a moment to consider impact on view queries wrt <123123.001> as a timestamp in the database
+        const ts = monotonicTimestamp(msg.timestamp)
         switch (msg.postType) {
           case constants.TEXT_POST:
-            key = `${msg.channel}!${msg.timestamp}!text`
+            key = `${msg.channel}!${ts}!text`
             break
           case constants.DELETE_POST:
-            key = `${msg.channel}!${msg.timestamp}!delete`
+            key = `${msg.channel}!${ts}!delete`
             break
           default:
             throw new Error(`${viewName}: unhandled post type (${msg.postType})`)

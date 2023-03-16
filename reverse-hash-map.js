@@ -45,7 +45,6 @@ module.exports = function (lvl) {
         }
       })
     },
-    // TODO (2023-02-23): rethink usage of `view.map` given that kappa-views are not a necessary part of the dependencies atm
     map: function (msgs, next) {
       debug("view.map")
 

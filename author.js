@@ -3,6 +3,8 @@ const b4a = require("b4a")
 const viewName = "author"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
+const util = require("./util.js")
+const monotonicTimestamp = util.monotonicTimestamp()
 
 function noop () {}
 
@@ -40,11 +42,11 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
-        // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
+        const ts = monotonicTimestamp(msg.timestamp)
         // <mono-ts>!<pubkey>!<post_type-id> -> <hash>
-        const key = `${msg.publicKey.toString("hex")}!${msg.postType}!${msg.timestamp}`
+        const key = `${msg.publicKey.toString("hex")}!${msg.postType}!${ts}`
         const hash = msg.hash
 
         // make sure we find unhandled cases, because they are likely to be either bugs or new functionality that needs
