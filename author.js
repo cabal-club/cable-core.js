@@ -45,7 +45,7 @@ module.exports = function (lvl, reverseIndex) {
         if (!sanitize(msg)) return
 
         const ts = monotonicTimestamp(msg.timestamp)
-        // <mono-ts>!<pubkey>!<post_type-id> -> <hash>
+        // <pubkey>!<post_type-id>!<mono-ts> -> <hash>
         const key = `${msg.publicKey.toString("hex")}!${msg.postType}!${ts}`
         const hash = msg.hash
 

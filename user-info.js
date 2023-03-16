@@ -42,8 +42,8 @@ module.exports = function (lvl, reverseIndex) {
       msgs.forEach(function (msg) {
         if (!sanitize(msg)) return
 
-        // TODO (2023-03-07): values stored under this scheme are currently unused. but could be used in preference to
-        // the latest scheme and reduce need for reindexing this when deletes happen
+        // TODO (2023-03-07): values stored under this scheme (i.e. not the info!latest!<key> scheme) are currently unused. 
+        // but could be used in preference to the latest scheme and reduce need for reindexing this when deletes happen
         const key = `info!${msg.key}!${msg.publicKey.toString("hex")}!${msg.timestamp}`
         const hash = msg.hash
 

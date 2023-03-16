@@ -51,7 +51,6 @@ module.exports = function (lvl) {
         return parseInt(a.timestamp) - parseInt(b.timestamp)
       })
       sorted.forEach(function (msg) {
-        // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
         // key schema

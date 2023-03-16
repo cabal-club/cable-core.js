@@ -310,7 +310,7 @@ that helps to identify gaps ahead of time, before the views have been written.
 -->
 
 ### Request expectations
-The following brief sections outline what each cable request ultimately expects to receive as
+The following brief section outlines what each cable request ultimately expects to receive as
 a result of making the request.
 
 #### Request by hash
