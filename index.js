@@ -67,6 +67,7 @@ class CableStore extends EventEmitter {
     if (opts.temp) {
       this._db = new MemoryLevel("data")
     }
+
     // reverseMapView maps which views have stored a particular hash. using this view we can removes those entries in
     // other views if needed e.g.  when a delete happens, when a peer has been blocked and their contents removed, or we are truncating the local database to save space
     // note: this view is used by many of the other views which only stores a cable post hash, so it must be initialized
