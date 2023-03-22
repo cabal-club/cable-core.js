@@ -428,6 +428,8 @@ class CableCore extends EventEmitter {
      * store.join(buf) 
     */
 
+    this.requestsMap = new Map()
+
     this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
 
     /* event sources */
@@ -626,7 +628,16 @@ class CableCore extends EventEmitter {
   }
 
   // when getting channel state: get the latest nickname for each user that has / had membership in a channel, at the time of querying for latest state
+
   getChannelState(channel, cb) {
+    // resolve the hashes into cable posts and return them
+    this.getChannelStateHashes(channel, (err, hashes) => {
+      if (err) { return cb(err) }
+      this.resolveHashes(hashes, cb)
+    })
+  }
+
+  getChannelStateHashes(channel, cb) {
     // get historic membership of channel
     this.store.channelMembershipView.api.getHistoricUsers(channel, (err, pubkeys) => {
       // get the latest nickname for each user that has been a member of channel
@@ -649,24 +660,9 @@ class CableCore extends EventEmitter {
         // collapse results into a single array, deduplicate via set and get the list of hashes
         const hashes = Array.from(new Set(results.flatMap(item => item)))
         coredebug("all hashes %O", hashes)
-        // resolve the hashes into cable posts and return them
-        this.resolveHashes(hashes, cb)
+        cb(null, hashes)
       })
     })
-    // 1) either:
-   
-    /* return something like {
-     * topic: "",
-     * users: {<pubkey>: { nick: <>, online: <>}, ...}
-     * }
-     */
-
-    // this would be useful for rendering in a client
-
-    // 2) or: 
-    // return list of bufs relevant to channel corresponding to post/info, post/topic, post/join || post/leave
-    //
-    // this would be useful for servicing channel state requests
   }
 
   /* methods that control requests to peers, causing responses to stream in (or stop) */
@@ -680,7 +676,11 @@ class CableCore extends EventEmitter {
   requestDelete(hash) {}
 
   // <-> getPosts
-  requestPosts(channel, start, end, ttl, limit) {}
+  requestPosts(channel, start, end, ttl, limit) {
+    const reqid = crypto.generateReqID()
+    const req = cable.TIME_RANGE_REQUEST.create(reqid, ttl, channel, start, end, limit)
+    return req
+  }
 
   // -> topic, delete, join, leave
   requestState(channel, ttl, limit, updates) {}
@@ -688,24 +688,178 @@ class CableCore extends EventEmitter {
   // request data for the sought hashes
   requestData(hashes) {}
 
+  _reqEntryTemplate (reqType) {
+    const entry = {
+      "reqid": null,
+      "circuitId": b4a.alloc(4).fill(0),
+      "reqType": reqType,
+      "resType": -1,
+      "recipients": [],
+      "origin": false
+    }
+
+    switch (reqType) {
+      case constants.HASH_REQUEST:
+        entry.resType = constants.DATA_RESPONSE
+        break
+      case constants.CANCEL_REQUEST:
+        break
+      case constants.TIME_RANGE_REQUEST:
+        entry.resType = constants.HASH_RESPONSE
+        break
+      case constants.CHANNEL_STATE_REQUEST:
+        entry.resType = constants.HASH_RESPONSE
+        break
+      case constants.CHANNEL_LIST_REQUEST:
+        entry.resType = constants.CHANNEL_LIST_RESPONSE
+        break
+      default:
+        throw new Error(`make request: unknown reqType (${reqType})`)
+    }
+    return entry
+  }
+
+  _registerRequest(entry) {
+    this.requestsMap.set(entry.reqid, entry)
+  }
+
   /* methods that deal with responding to requests */
-  handleRequest(buf, peer) {
-    // 1. log reqid?
-    //
-    // handle depending on type:
-    // * requesting hashes (for posts, for channel state)
-    // * requesting delete
-    // * requesting data (for given hashes)
-    // * requesting channel list (known channels)
+  handleRequest(req, peer) {
+    // TODO (2023-03-20): add convenience method to call on an incoming buffer to determine if
+    // it is a request type or a response type (or garbage) and defer handling of the message to the appropriate method
+    console.log(peer, "->", req)
+    const reqType = cable.peek(req)
+    const reqid = cable.peekReqid(req)
+
+    // check if message is a request or a response
+    if (!this._messageIsRequest(reqType)) {
+      return
+    }
+
+    // deduplicate the request: we already know about it, don't need to process it any further
+    if (this.requestsMap.has(reqid)) {
+      return
+    }
+
+    const obj = cable.parseMessage(req)
+
+    const entry = this._reqEntryTemplate(reqType)
+    entry.reqid = reqid
+    entry.recipients.push(peer)
+    this._registerRequest(entry)
+    if (obj.ttl > 0) { this.forwardRequest(req) }
+
+    // create the appropriate response depending on the request we're handling
+    let promise = new Promise((res, rej) => {
+      let response
+      switch (entry.reqType) {
+        case constants.CANCEL_REQUEST:
+          // there is no corresponding response for a cancel request
+          return res(null)
+        case constants.HASH_REQUEST:
+          // get posts corresponding to the requested hashes
+          this.resolveHashes(obj.hashes, (err, posts) => {
+            if (err) { return rej(err) }
+            // hashes we could not find in our database are represented as null: filter those out
+            const responsePosts = posts.filter(post => post !== null)
+            response = cable.DATA_RESPONSE.create(reqid, responsePosts)
+            return res(response)
+          })
+          break
+        case constants.TIME_RANGE_REQUEST:
+          coredebug("create a response: get time range using params in %O", obj)
+          // get post hashes for a certain channel & time range
+          this.store.getChannelTimeRange(obj.channel, obj.timeStart, obj.timeEnd, obj.limit, (err, hashes) => {
+            if (err) { return rej(err) }
+            response = cable.HASH_RESPONSE.create(reqid, hashes)
+            return res(response)
+          })
+          break
+        case constants.CHANNEL_STATE_REQUEST:
+          // get channel state hashes
+          this.getChannelStateHashes(obj.channel, (err, hashes) => {
+            if (err) { return rej(err) }
+            response = cable.HASH_RESPONSE.create(reqid, hashes)
+            return res(response)
+          })
+          break
+        case constants.CHANNEL_LIST_REQUEST:
+          // TODO (2023-03-22): remove 0 with obj.offset when implemented up the stack
+          this.store.channelMembershipView.api.getChannelNames(0, obj.limit, (err, channels) => {
+            if (err) { return rej(err) }
+            // get a list of channel names
+            response = cable.CHANNEL_LIST_RESPONSE.create(reqid, channels)
+            return res(response)
+          })
+          break
+        default:
+          throw new Error(`handle request: unknown request type ${reqType}`)
+      }
+    })
+
+    promise.then(response => {
+      // cancel request has no response => it returns null to resolve promise
+      if (response !== null) {
+        this.dispatchResponse(response)
+      }
+    })
   }
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
   dispatchResponse(buf) {
+    console.log("dispatch response", buf)
+    console.log(cable.parseMessage(buf))
+  }
+
+  _messageIsRequest (type) {
+    switch (type) {
+      case constants.HASH_REQUEST:
+      case constants.CANCEL_REQUEST:
+      case constants.TIME_RANGE_REQUEST:
+      case constants.CHANNEL_STATE_REQUEST:
+      case constants.CHANNEL_LIST_REQUEST:
+        return true
+        break
+      default:
+        return false
+    }
+  }
+
+  _messageIsResponse (type) {
+    switch (type) {
+      case constants.HASH_RESPONSE:
+      case constants.DATA_RESPONSE:
+      case constants.CHANNEL_LIST_RESPONSE:
+        return true
+        break
+      default:
+        return false
+    }
   }
 
   // send buf onwards to other peers
-  forwardRequest(buf) {
-    // TODO (2023-02-06): decrease ttl
+  forwardRequest(buf, reqType) {
+    let decrementedBuf 
+    switch (reqType) {
+      case constants.HASH_REQUEST:
+        decrementedBuf = cable.HASH_REQUEST.decrementTTL(buf)
+        break
+      case constants.CANCEL_REQUEST:
+        decrementedBuf = cable.CANCEL_REQUEST.decrementTTL(buf)
+        break
+      case constants.TIME_RANGE_REQUEST:
+        decrementedBuf = cable.TIME_RANGE_REQUEST.decrementTTL(buf)
+        break
+      case constants.CHANNEL_STATE_REQUEST:
+        decrementedBuf = cable.CHANNEL_STATE_REQUEST.decrementTTL(buf)
+        break
+      case constants.CHANNEL_LIST_REQUEST:
+        decrementedBuf = cable.CHANNEL_LIST_REQUEST.decrementTTL(buf)
+        break
+      default:
+        throw new Error(`forward request: unknown request type ${reqType}`)
+    }
+    console.log("forward request", decrementedBuf)
   }
 
   _storeExternalBuf(buf, done) {
@@ -731,7 +885,7 @@ class CableCore extends EventEmitter {
         this.store.leave(buf, done)
         break
       default:
-        throw new Error(`handle external buf: unknown post type ${postType}`)
+        throw new Error(`store external buf: unknown post type ${postType}`)
     }
   }
 
