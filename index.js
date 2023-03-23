@@ -429,6 +429,8 @@ class CableCore extends EventEmitter {
     */
 
     this.requestsMap = new Map()
+    this.requestedHashes = new Map()
+    this._defaultTTL = 0
 
     this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
 
@@ -667,32 +669,41 @@ class CableCore extends EventEmitter {
 
   /* methods that control requests to peers, causing responses to stream in (or stop) */
 	// cancel request
-	cancelRequest(reqid) {}
+	cancelRequest(reqid) {
+    const req = cable.CANCEL_REQUEST.create(reqid)
+    this.dispatchRequest(req)
+    return req
+  }
  
   // <-> getChannels
-  requestChannels(ttl, limit) {}
-
-  // <-> delete
-  requestDelete(hash) {}
+  requestChannels(ttl, limit) {
+    const reqid = crypto.generateReqID()
+    const req = cable.CHANNEL_LIST_REQUEST(reqid, ttl, limit)
+    this.dispatchRequest(req)
+    return req
+  }
 
   // <-> getPosts
   requestPosts(channel, start, end, ttl, limit) {
     const reqid = crypto.generateReqID()
     const req = cable.TIME_RANGE_REQUEST.create(reqid, ttl, channel, start, end, limit)
+    this.dispatchRequest(req)
     return req
   }
 
   // -> topic, delete, join, leave
-  requestState(channel, ttl, limit, updates) {}
+  requestState(channel, ttl, limit, updates) {
+    const reqid = crypto.generateReqID()
+    const req = cable.CHANNEL_STATE_REQUEST(reqid, ttl, channel, limit, updates)
+    this.dispatchRequest(req)
+    return req
+  }
 
-  // request data for the sought hashes
-  requestData(hashes) {}
-
-  _reqEntryTemplate (reqType) {
+  _reqEntryTemplate (reqid, reqType) {
     const entry = {
-      "reqid": null,
+      reqid,
       "circuitId": b4a.alloc(4).fill(0),
-      "reqType": reqType,
+      reqType,
       "resType": -1,
       "recipients": [],
       "origin": false
@@ -719,40 +730,55 @@ class CableCore extends EventEmitter {
     return entry
   }
 
-  _registerRequest(entry) {
-    this.requestsMap.set(entry.reqid, entry)
+
+  _registerRequest(id, origin, type) {
+    if (this.requestsMap.has(id)) {
+      throw new Error(`request map already had reqid %O`, reqid)
+    }
+    // TODO (2023-03-23): handle recipients at some point
+    // entry.recipients.push(peer)
+    const entry = this._reqEntryTemplate(id, type)
+    entry.origin = origin
+    this.requestsMap.set(entry.reqid.toString("hex"), entry)
+  }
+
+  // register a request that is originating from the local node, sets origin to true
+  _registerLocalRequest(reqid, reqType) {
+    this._registerRequest(reqid, true, reqType)
+  }
+
+  // register a request that originates from a remote node, sets origin to false
+  _registerRemoteRequest(reqid, reqType) {
+    this._registerRequest(reqid, false, reqType)
   }
 
   /* methods that deal with responding to requests */
-  handleRequest(req, peer) {
-    // TODO (2023-03-20): add convenience method to call on an incoming buffer to determine if
-    // it is a request type or a response type (or garbage) and defer handling of the message to the appropriate method
-    console.log(peer, "->", req)
+  // TODO (2023-03-23): write tests that exercise handleRequest cases
+  handleRequest(req, done) {
+    if (!done) { done = util.noop }
     const reqType = cable.peek(req)
     const reqid = cable.peekReqid(req)
 
     // check if message is a request or a response
     if (!this._messageIsRequest(reqType)) {
+      coredebug("message is not a request (msgType %d)", reqType)
       return
     }
 
-    // deduplicate the request: we already know about it, don't need to process it any further
-    if (this.requestsMap.has(reqid)) {
+    // deduplicate the request: if we already know about it, we don't need to process it any further
+    if (this.requestsMap.has(reqid.toString("hex"))) {
+      coredebug("we already know about reqid %O - returning early", reqid)
       return
     }
 
     const obj = cable.parseMessage(req)
-
-    const entry = this._reqEntryTemplate(reqType)
-    entry.reqid = reqid
-    entry.recipients.push(peer)
-    this._registerRequest(entry)
+    this._registerRemoteRequest(reqid, reqType)
     if (obj.ttl > 0) { this.forwardRequest(req) }
 
     // create the appropriate response depending on the request we're handling
     let promise = new Promise((res, rej) => {
       let response
-      switch (entry.reqType) {
+      switch (reqType) {
         case constants.CANCEL_REQUEST:
           // there is no corresponding response for a cancel request
           return res(null)
@@ -784,7 +810,7 @@ class CableCore extends EventEmitter {
           })
           break
         case constants.CHANNEL_LIST_REQUEST:
-          // TODO (2023-03-22): remove 0 with obj.offset when implemented up the stack
+          // TODO (2023-03-22): use <channelistrequest>.offset when implemented up the stack
           this.store.channelMembershipView.api.getChannelNames(0, obj.limit, (err, channels) => {
             if (err) { return rej(err) }
             // get a list of channel names
@@ -801,14 +827,28 @@ class CableCore extends EventEmitter {
       // cancel request has no response => it returns null to resolve promise
       if (response !== null) {
         this.dispatchResponse(response)
+        done()
       }
     })
+    // TODO (2023-03-28): handle errors that in a .catch(err) clause
   }
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
   dispatchResponse(buf) {
     console.log("dispatch response", buf)
     console.log(cable.parseMessage(buf))
+    this.emit("response", buf)
+  }
+
+  dispatchRequest(buf) {
+    const reqtype = cable.peek(buf)
+    if (!this._messageIsRequest(reqtype)) {
+      return
+    }
+    const reqid = cable.peekReqid(buf)
+    this._registerLocalRequest(reqid, reqtype)
+    console.log("dispatch request", buf)
+    this.emit("request", buf)
   }
 
   _messageIsRequest (type) {
@@ -862,6 +902,10 @@ class CableCore extends EventEmitter {
     console.log("forward request", decrementedBuf)
   }
 
+  forwardResponse(buf) {
+    console.log("forward response", buf)
+  }
+
   _storeExternalBuf(buf, done) {
     if (!done) { done = util.noop }
     const postType = cable.peekPost(buf)
@@ -889,22 +933,114 @@ class CableCore extends EventEmitter {
     }
   }
 
+  // returns an array of posts whose hashes have been verified to have been requested by us
+  _processDataResponse(obj) {
+    const requestedPosts = []
+    obj.data.forEach(post => {
+      const hash = crypto.hash(post)
+      if (this.requestedHashes.has(hash.toString("hex"))) {
+        requestedPosts.push(post)
+      }
+    })
+    return requestedPosts
+  }
+
+
+  _handleRequestedBufs(bufs, done) {
+    // check: does the hash of each entry in the data response correspond to hashes we have requested?
+    // process each post depending on which type of post it is
+    let p
+    const promises = []
+    bufs.forEach(buf => {
+      p = new Promise((res, rej) => {
+        this._storeExternalBuf(buf, () => { res() })
+      })
+      promises.push(p)
+    })
+    Promise.all(promises).then(() => { done() })
+  }
+
   /* methods that handle responses */
-  // TODO (2023-02-06):
-  // * ignore hashes that have not been requested
-  // -> track "outbound hashes"
-  // -> hash buf
-  // * ignore responses that don't map to tracked reqids
-  handleResponse(buf, peer) {
-    // 1. check reqid
-    //  1.1 check that response for reqid logically matches what was requested 
-    //  (if answers our request for channel state by only sending hashes that correlated to post/text, that isn't ok)
-    // 2. produce hash
+  handleResponse(res) {
+    const resType = cable.peek(res)
+    const reqid = cable.peekReqid(res)
+
+    // check if message is a request or a response
+    if (!this._messageIsResponse(resType)) {
+      return
+    }
+
+    // if we don't know about a reqid, then the corresponding response is not something we want to handle
+    if (!this.requestsMap.has(reqid.toString("hex"))) {
+      return
+    }
+
+    const entry = this.requestsMap.get(reqid)
+
+    if (entry.resType === resType) {
+      coredebug("response for id %O is of the type expected when making the request", reqid)
+    } else {
+      coredebug("response for id %O does not have the expected type (was %d, expected %d)", reqid, reqstype, entry.resType)
+    }
+
+    const obj = cable.parseMessage(res)
+
+    // const entry = this._reqEntryTemplate(resType)
+    // entry.reqid = reqid
+    // this._registerRequest(entry)
+    // if (obj.ttl > 0) { this.forwardRequest(res) }
+    
+    // TODO (2023-03-23): handle decommissioning all data relating to a reqid whose request-response lifetime has ended
     //
-    // handle depending on type:
-    // * hash response
-    // * data response
-    // * channel list response
+    // TODO (2023-03-23): handle forwarding responses onward; use entry.origin?
+    if (!entry.origin) {
+      this.forwardResponse(res)
+      // we are not the terminal for this response (we did not request it), so in the base case we should not store its
+      // data.
+      // however: we could inspect the payload of a DATA_RESPONSE to see if it contains any hashes we are waiting for..
+      if (resType === constants.DATA_RESPONSE) {
+        this._handleRequestedBufs(this._processDataResponse(obj), () => {
+          console.log("TODO: wow very great :)")
+        })
+        // TODO (2023-03-23): after the post has been ingested: remove it from requestedHashes
+      }
+      return
+    }
+ 
+    // process the response according to what type it was
+    switch (resType) {
+      case constants.HASH_RESPONSE:
+          // query data store and try to get the data for each of the returned hashes. 
+        this.store.api.getMany(obj.hashes, (err, bufs) => {
+          // collect all the hashes we still don't have data for (represented by null in returned `bufs`) and create a
+          // request by hash
+          let wantedHashes = []
+          bufs.forEach((buf, index) => {
+            if (buf === null) {
+              // we don't have the hash represented by hashes[index]: good! we want to request it.
+              const hash = obj.hashes[index]
+              wantedHashes.push(hash)
+              // remember the requested hashes
+              this.requestedHashes.set(hash.toString("hex"), true)
+            }
+          })
+          // dispatch a `request by hash` for the missing hashes
+          const newReqid = crypto.generateReqID()
+          const req = cable.HASH_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
+          this.dispatchRequest(req)
+        })
+        break
+      case constants.DATA_RESPONSE:
+        // TODO (2023-03-23): handle empty data response as a signal to "this concludes the lifetime of this req-res
+        // chain; decommission the reqid)
+        this._handleRequestedBufs(this._processDataResponse(obj), () => { console.log("TODO: ok now what? :~")}) 
+        break
+      case constants.CHANNEL_LIST_RESPONSE:
+        // TODO (2023-03-23): how to handle channel list response
+        break
+      default:
+        throw new Error(`handle response: unknown response type ${resType}`)
+    }
   }
 
   _handleDataResponse(hash, buf) {}

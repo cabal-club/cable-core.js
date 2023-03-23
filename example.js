@@ -23,10 +23,18 @@ const text = "Hello hello."
 const start = +(new Date("2023-03-01"))
 const end = 0
 const limit = 1500
+core.on("request", reqBuf => {
+  console.log("emitted request", reqBuf)
+})
+core.on("response", resBuf => {
+  console.log("emitted response", resBuf)
+})
 const buf = core.requestPosts(channel, start, end, ttl, limit)
 // console.log(buf)
 // core.handleRequest(buf, "me")
 
 core.postText(channel, text, () => {
-  core.handleRequest(buf, "peername")
+  core.handleRequest(buf, () => {
+    console.log("handle request is done")
+  })
 })
