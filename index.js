@@ -614,16 +614,30 @@ class CableCore extends EventEmitter {
   // resolves hashes into post objects
   resolveHashes(hashes, cb) {
     coredebug("the hashes", hashes)
-    this.store.blobs.api.getMany(hashes, (err, cablegrams) => {
-      if (err) { return cb(err) }
-      coredebug("resolveHashes cablegrams %O", cablegrams)
+    this.getData(hashes, (err, bufs) => {
       const posts = []
-      cablegrams.forEach(gram => {
-        if (typeof gram === "undefined") {
+      bufs.forEach(buf => {
+        if (buf !== null) { 
+          posts.push(cable.parsePost(buf)) 
+        } else {
+          posts.push(null)
+        }
+      })
+      cb(null, posts)
+    })
+  }
+
+  getData(hashes, cb) {
+    this.store.blobs.api.getMany(hashes, (err, bufs) => {
+      if (err) { return cb(err) }
+      coredebug("getData bufs %O", bufs)
+      const posts = []
+      bufs.forEach(buf => {
+        if (typeof buf === "undefined") {
           posts.push(null)
           return
         }
-        posts.push(cable.parsePost(gram))
+        posts.push(buf)
       })
       cb(null, posts)
     })
@@ -762,13 +776,13 @@ class CableCore extends EventEmitter {
     // check if message is a request or a response
     if (!this._messageIsRequest(reqType)) {
       coredebug("message is not a request (msgType %d)", reqType)
-      return
+      return done()
     }
 
     // deduplicate the request: if we already know about it, we don't need to process it any further
     if (this.requestsMap.has(reqid.toString("hex"))) {
       coredebug("we already know about reqid %O - returning early", reqid)
-      return
+      return done()
     }
 
     const obj = cable.parseMessage(req)
@@ -784,7 +798,7 @@ class CableCore extends EventEmitter {
           return res(null)
         case constants.HASH_REQUEST:
           // get posts corresponding to the requested hashes
-          this.resolveHashes(obj.hashes, (err, posts) => {
+          this.getData(obj.hashes, (err, posts) => {
             if (err) { return rej(err) }
             // hashes we could not find in our database are represented as null: filter those out
             const responsePosts = posts.filter(post => post !== null)
@@ -827,16 +841,14 @@ class CableCore extends EventEmitter {
       // cancel request has no response => it returns null to resolve promise
       if (response !== null) {
         this.dispatchResponse(response)
-        done()
       }
+      done()
     })
     // TODO (2023-03-28): handle errors that in a .catch(err) clause
   }
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
   dispatchResponse(buf) {
-    console.log("dispatch response", buf)
-    console.log(cable.parseMessage(buf))
     this.emit("response", buf)
   }
 
@@ -847,7 +859,6 @@ class CableCore extends EventEmitter {
     }
     const reqid = cable.peekReqid(buf)
     this._registerLocalRequest(reqid, reqtype)
-    console.log("dispatch request", buf)
     this.emit("request", buf)
   }
 
@@ -961,7 +972,8 @@ class CableCore extends EventEmitter {
   }
 
   /* methods that handle responses */
-  handleResponse(res) {
+  handleResponse(res, done) {
+    if (!done) { done = util.noop }
     const resType = cable.peek(res)
     const reqid = cable.peekReqid(res)
 
@@ -975,7 +987,7 @@ class CableCore extends EventEmitter {
       return
     }
 
-    const entry = this.requestsMap.get(reqid)
+    const entry = this.requestsMap.get(reqid.toString("hex"))
 
     if (entry.resType === resType) {
       coredebug("response for id %O is of the type expected when making the request", reqid)
@@ -1011,7 +1023,7 @@ class CableCore extends EventEmitter {
     switch (resType) {
       case constants.HASH_RESPONSE:
           // query data store and try to get the data for each of the returned hashes. 
-        this.store.api.getMany(obj.hashes, (err, bufs) => {
+        this.store.blobs.api.getMany(obj.hashes, (err, bufs) => {
           // collect all the hashes we still don't have data for (represented by null in returned `bufs`) and create a
           // request by hash
           let wantedHashes = []
@@ -1028,15 +1040,19 @@ class CableCore extends EventEmitter {
           const newReqid = crypto.generateReqID()
           const req = cable.HASH_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
           this.dispatchRequest(req)
+          done()
         })
         break
       case constants.DATA_RESPONSE:
         // TODO (2023-03-23): handle empty data response as a signal to "this concludes the lifetime of this req-res
         // chain; decommission the reqid)
-        this._handleRequestedBufs(this._processDataResponse(obj), () => { console.log("TODO: ok now what? :~")}) 
+        this._handleRequestedBufs(this._processDataResponse(obj), () => { 
+          done()
+        }) 
         break
       case constants.CHANNEL_LIST_RESPONSE:
         // TODO (2023-03-23): how to handle channel list response
+        done()
         break
       default:
         throw new Error(`handle response: unknown response type ${resType}`)
