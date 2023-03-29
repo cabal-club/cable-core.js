@@ -383,7 +383,7 @@ class CableStore {
       this.channelMembershipView.api.getHistoricMembership(obj.publicKey, (err, channels) => {
         const channelStateMessages = []
         channels.forEach(channel => {
-          debug("info: each channel %s", channel)
+          storedebug("info: each channel %s", channel)
           channelStateMessages.push({...obj, hash, channel})
         })
         storedebug(channelStateMessages)
@@ -710,7 +710,7 @@ class CableCore extends EventEmitter {
   // -> topic, join, leave
   requestState(channel, ttl, limit, updates) {
     const reqid = crypto.generateReqID()
-    const req = cable.CHANNEL_STATE_REQUEST(reqid, ttl, channel, limit, updates)
+    const req = cable.CHANNEL_STATE_REQUEST.create(reqid, ttl, channel, limit, updates)
     this.dispatchRequest(req)
     return req
   }
@@ -846,7 +846,7 @@ class CableCore extends EventEmitter {
       }
       done()
     })
-    // TODO (2023-03-28): handle errors that in a .catch(err) clause
+    // TODO (2023-03-28): handle errors in a .catch(err) clause
   }
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
@@ -1055,7 +1055,6 @@ class CableCore extends EventEmitter {
         }) 
         break
       case constants.CHANNEL_LIST_RESPONSE:
-        // TODO (2023-03-23): how to handle channel list response
         this._indexNewChannels(obj.channels, done)
         break
       default:
@@ -1063,6 +1062,9 @@ class CableCore extends EventEmitter {
     }
   }
 
+  // indexes channel names received as part of a channel list request/response cycle.
+  // as we receive a list of channel names, and not a set of join/leave posts we use a sentinel to keep track of these
+  // inserted channels while maintaining the overall key scheme in channel-membership.js
   _indexNewChannels(channels, done) {
     const arr = channels.map(channel => { return { publicKey: "sentinel", channel }})
     this.store.channelMembershipView.map(arr, done)

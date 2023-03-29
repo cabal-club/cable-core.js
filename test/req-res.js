@@ -237,3 +237,106 @@ test("channel list request should yield a channel list response", t => {
     core[0].requestChannels(0, 10)
   })
 })
+
+test("channel state request should yield a hash response", t => {
+  // core[0] wants data and sends requests and receives responses
+  // core[1] has data and receives requests, sends responses
+  const core = [new CableCore(), new CableCore()]
+  const channel = "introduction"
+  const topic = "everyone says hi and also what kind of ice cream they like (if at all)"
+  // names[0] => name of core[0], names[1] => name of core[1]
+  const name = ["gelato", "isglass"]
+
+  t.ok(core[0], "CableCore instance 0 should be ok")
+  t.ok(core[1], "CableCore instance 1 should be ok")
+
+  let requests = 0
+  core[0].on("request", reqBuf => {
+    requests++
+    const msgType = cable.peek(reqBuf)
+    const obj = cable.parseMessage(reqBuf)
+    switch (msgType) {
+      case constants.CHANNEL_STATE_REQUEST:
+        t.equal(requests, 1, "first request should be a channel state request")
+        break
+      case constants.HASH_REQUEST:
+        t.equal(requests, 2, "second request should be a hash request")
+        t.pass("should be a hash request request")
+        break
+      default:
+        t.fail("should never generate a request other than a channel state request or a hash request")
+    }
+    core[1].handleRequest(reqBuf)
+  })
+
+  let responses = 0
+  core[1].on("response", resBuf => {
+    const msgType = cable.peek(resBuf)
+    const obj = cable.parseMessage(resBuf)
+    responses++
+    switch (msgType) {
+      case constants.HASH_RESPONSE:
+        t.equal(responses, 1, "first should be a channel state response")
+        break
+      case constants.DATA_RESPONSE:
+        t.equal(responses, 2, "second should be a data response")
+        break
+      default:
+        t.fail("should never generate a response other than a hash response or a data response")
+    }
+    core[0].handleResponse(resBuf, () => {
+      // core[0] should have ingested and indexed the full set of channel state data, let's verify that!
+      if (responses === 2) {
+        core[0].getChannelStateHashes(channel, (err, hashes) => {
+          t.error(err, "get channel state hashes should not err")
+          t.equal(hashes.length, 3, `core[0] should have 3 channel state hashes for ${channel} (1 topic, 1 post/info for core[1], 1 post/join for core[1]`)
+          t.end()
+        })
+      }
+    })
+  })
+
+  // populate core[1] with channel state data
+  let promises = []
+  let p
+  // add a post/join
+  p = new Promise((res, rej) => { core[1].join(channel, () => { res() }) })
+  promises.push(p)
+  // set a topic
+  p = new Promise((res, rej) => { core[1].setTopic(channel, topic, () => { res() }) })
+  promises.push(p)
+  // set name of core[0]
+  p = new Promise((res, rej) => { core[0].setNick(name[0], () => { res() }) })
+  promises.push(p)
+  // set name of core[1]
+  p = new Promise((res, rej) => { core[1].setNick(name[1], () => { res() }) })
+  promises.push(p)
+  Promise.all(promises).then(() => {
+    promises = []
+    // check initial state of core[0] (should have 0 channel state hashes)
+    p = new Promise((res, rej) => {
+      core[0].getChannelStateHashes(channel, (err, hashes) => {
+        t.error(err, "get channel state hashes should not err")
+        t.equal(hashes.length, 0, `core[0] should have 3 channel state hashes for ${channel} before request-response cycle`)
+        res()
+      })
+    })
+    promises.push(p)
+
+    // check initial state of core[1] (should have 3 channel state hashes)
+    p = new Promise((res, rej) => {
+      core[1].getChannelStateHashes(channel, (err, hashes) => {
+        t.error(err, "get channel state hashes should not err")
+        t.equal(hashes.length, 3, `core[1] should have 3 channel state hashes for ${channel} (1 topic, 1 post/info for themselves, 1 post/join for themselves`)
+        res()
+      })
+    })
+    promises.push(p)
+    return Promise.all(promises)
+  })
+  .then(() => {
+    // initial state has been verified, time to do initiate the request-response cycle to sync channel state!
+    core[0].requestState(channel, 0, 100, 0)
+  })
+})
+
