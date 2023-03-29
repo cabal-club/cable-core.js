@@ -685,14 +685,16 @@ class CableCore extends EventEmitter {
 	// cancel request
 	cancelRequest(reqid) {
     const req = cable.CANCEL_REQUEST.create(reqid)
+    // forget about the canceled request id
     this.dispatchRequest(req)
+    this.requestsMap.delete(reqid.toString("hex"))
     return req
   }
  
   // <-> getChannels
   requestChannels(ttl, limit) {
     const reqid = crypto.generateReqID()
-    const req = cable.CHANNEL_LIST_REQUEST(reqid, ttl, limit)
+    const req = cable.CHANNEL_LIST_REQUEST.create(reqid, ttl, limit)
     this.dispatchRequest(req)
     return req
   }
@@ -705,7 +707,7 @@ class CableCore extends EventEmitter {
     return req
   }
 
-  // -> topic, delete, join, leave
+  // -> topic, join, leave
   requestState(channel, ttl, limit, updates) {
     const reqid = crypto.generateReqID()
     const req = cable.CHANNEL_STATE_REQUEST(reqid, ttl, channel, limit, updates)
@@ -858,7 +860,9 @@ class CableCore extends EventEmitter {
       return
     }
     const reqid = cable.peekReqid(buf)
-    this._registerLocalRequest(reqid, reqtype)
+    if (reqtype !== constants.CANCEL_REQUEST) {
+      this._registerLocalRequest(reqid, reqtype)
+    }
     this.emit("request", buf)
   }
 
@@ -1052,11 +1056,16 @@ class CableCore extends EventEmitter {
         break
       case constants.CHANNEL_LIST_RESPONSE:
         // TODO (2023-03-23): how to handle channel list response
-        done()
+        this._indexNewChannels(obj.channels, done)
         break
       default:
         throw new Error(`handle response: unknown response type ${resType}`)
     }
+  }
+
+  _indexNewChannels(channels, done) {
+    const arr = channels.map(channel => { return { publicKey: "sentinel", channel }})
+    this.store.channelMembershipView.map(arr, done)
   }
 
   _handleDataResponse(hash, buf) {}

@@ -6,11 +6,15 @@ const constants = require("../cable/constants.js")
 
 function noop () {}
 
+const SENTINEL_USER = "x".repeat(64)
+
 function getChannelFromKey (e) {
   return e.slice(0, e.indexOf("!"))
 }
 function getPublicKeyFromKey (e) {
-  return e.slice(e.indexOf("!") + 1)
+  const key = e.slice(e.indexOf("!") + 1)
+  if (key === SENTINEL_USER) { return "" }
+  return key
 }
 
 // takes a (sub)level instance
@@ -56,6 +60,17 @@ module.exports = function (lvl) {
         // key schema
         // <channel>!<publicKey> -> 1 or 0
         // 1 = joined, 0 = left. no record for a key means no recorded interaction between channel & publicKey
+        //
+        // note: to record channels received as part of a channel list response, we also have a special case of entry we
+        // index, where the key scheme will be: <channel>!<x.repeat(32)>: 0
+        if (msg.publicKey === "sentinel") {
+          ops.push({
+            key: `${msg.channel}!${SENTINEL_USER}`,
+            value: 0,
+            type: "put"
+          })
+          return
+        }
         const key = `${msg.channel}!${msg.publicKey.toString("hex")}`
         let value
         let variableKey = ""
@@ -93,9 +108,7 @@ module.exports = function (lvl) {
         ready(async function () {
           const iter = lvl.keys()
           const keys = await iter.all()
-          const names = keys.map(k => {
-            return k.slice(k.indexOf("!")+1)
-          })
+          const names = keys.map(getChannelFromKey)
           names.sort()
           if (limit === 0) { limit = names.length }
           cb(null, names.slice(offset, limit))
@@ -135,6 +148,8 @@ module.exports = function (lvl) {
           debug("entries", entries)
           const joined = entries.map(e => {
             const pubkey = getPublicKeyFromKey(e[0])
+            // indicates usage of SENTINEL_USER: skip
+            if (pubkey === "") { return }
             debug("pubkey %s", pubkey)
             pubkeys.set(pubkey, b4a.from(pubkey, "hex"))
           })
@@ -180,7 +195,10 @@ module.exports = function (lvl) {
           entries.forEach(e => {
             // channel joined
             if (e[1] === 1) { 
-              pubkeys.push(getPublicKeyFromKey(e[0]))
+              const key = getPublicKeyFromKey(e[0])
+              // indicates usage of SENTINEL_USER: skip
+              if (key === "") { return }
+              pubkeys.push(key)
             }
           })
           debug("public keys", pubkeys)

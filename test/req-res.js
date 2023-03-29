@@ -95,7 +95,7 @@ test("handling a request should emit a correct response message", t => {
   })
 })
 
-test("complete request->response, request->response cycle for requesting posts should work", t => {
+test("requesting chat posts and ultimately receiving a data response should work", t => {
   const core = [new CableCore(), new CableCore()]
   t.notEqual(undefined, core[0], "should not be undefined")
   t.notEqual(null, core[0], "should not be null")
@@ -161,11 +161,79 @@ test("complete request->response, request->response cycle for requesting posts s
     }
   })
 
-  // instance 1 should have a message in their buffer
-  core[1].postText(channel, text, () => {
-    // request post hashes (channel time range request)
-    const buf = core[0].requestPosts(channel, start, end, ttl, limit)
-    const msgType = cable.peek(buf)
-    t.equal(msgType, constants.TIME_RANGE_REQUEST, `returned request should be of type time range request (was ${msgType})`)
+  // set a topic to add an unrelated post to core[1]'s database
+  core[1].setTopic(channel, "channel topic", () => {
+    // instance 1 should have a message in their buffer
+    core[1].postText(channel, text, () => {
+      // request post hashes (channel time range request)
+      const buf = core[0].requestPosts(channel, start, end, ttl, limit)
+      const msgType = cable.peek(buf)
+      t.equal(msgType, constants.TIME_RANGE_REQUEST, `returned request should be of type time range request (was ${msgType})`)
+    })
+  })
+})
+
+test("channel list request should yield a channel list response", t => {
+  // core[0] wants data and sends requests and receives responses
+  // core[1] has data and receives requests, sends responses
+  const core = [new CableCore(), new CableCore()]
+  t.notEqual(undefined, core[0], "should not be undefined")
+  t.notEqual(null, core[0], "should not be null")
+
+  const channels = ["introduction", "great stuff", "development"]
+  channels.sort()
+
+  core[0].on("request", reqBuf => {
+    const msgType = cable.peek(reqBuf)
+    const obj = cable.parseMessage(reqBuf)
+    switch (msgType) {
+      case constants.CHANNEL_LIST_REQUEST:
+        t.pass("should be a channel list request")
+        break
+      default:
+        t.fail("should never generate a request other than a channel list request")
+    }
+    core[1].handleRequest(reqBuf)
+  })
+
+  core[1].on("response", resBuf => {
+    const msgType = cable.peek(resBuf)
+    const obj = cable.parseMessage(resBuf)
+    switch (msgType) {
+      case constants.CHANNEL_LIST_RESPONSE:
+        t.pass("should be a channel list response")
+        break
+      default:
+        t.fail("should never generate a response other than a channel list response")
+    }
+    core[0].handleResponse(resBuf, () => {
+      core[0].getChannels((err, returnedChannels) => {
+        t.error(err, "get channels should work for core[0]")
+        t.equal(returnedChannels.length, channels.length, "core[0]'s returned channels should equal list of channels we joined")
+        t.end()
+      })
+    })
+  })
+
+  // seed core[0] with a list of channels
+  let promises = []
+  channels.forEach(channel => {
+    let p = new Promise((res, rej) => {
+      core[1].join(channel, () => { res() })
+    })
+    promises.push(p)
+  })
+  Promise.all(promises)
+  .then(() => {
+    return new Promise((res, rej) => {
+      core[1].getChannels((err, returnedChannels) => {
+        t.error(err, "get channels should work")
+        t.equal(returnedChannels.length, channels.length, "returned channels should equal list of channels we joined")
+        res()
+      })
+    })
+  })
+  .then(() => {
+    core[0].requestChannels(0, 10)
   })
 })
