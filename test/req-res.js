@@ -2,6 +2,7 @@ const test = require("tape")
 const CableCore = require("../index.js").CableCore
 const constants = require("../../cable/constants")
 const cable = require("../../cable/index.js")
+const b4a = require("b4a")
 const { testPostType, getDescriptiveType, assertPostType, assertBufType }  = require("../testutils.js")
 
 /* this test suite contains a bunch of tests exercising the request response functionality of cable, as mediated by
@@ -287,10 +288,28 @@ test("channel state request should yield a hash response", t => {
     core[0].handleResponse(resBuf, () => {
       // core[0] should have ingested and indexed the full set of channel state data, let's verify that!
       if (responses === 2) {
-        core[0].getChannelStateHashes(channel, (err, hashes) => {
-          t.error(err, "get channel state hashes should not err")
-          t.equal(hashes.length, 3, `core[0] should have 3 channel state hashes for ${channel} (1 topic, 1 post/info for core[1], 1 post/join for core[1]`)
-          t.end()
+        new Promise((res, rej) => {
+          core[0].getChannelStateHashes(channel, (err, hashes) => {
+            t.error(err, "get channel state hashes should not err")
+            t.equal(hashes.length, 3, `core[0] should have 3 channel state hashes for ${channel} (1 topic, 1 post/info for core[1], 1 post/join for core[1]`)
+            hashes.forEach(hash => {
+              t.true(b4a.isBuffer(hash), "hash should be a buffer")
+              t.equal(hash.length, constants.HASH_SIZE, `hash size should be ${constants.HASH_SIZE}`)
+            })
+            res()
+          })
+        }).then(() => {
+          core[0].getTopic(channel, (err, returnedTopic) => {
+            t.equal(returnedTopic, topic, "indexed topic should be equal to the topic that was set")
+          })
+        }).then(() => {
+          core[0].getUsersInChannel(channel, (err, map) => {
+            const core1Pubkey = core[1].kp.publicKey.toString("hex")
+            t.true(map.has(core1Pubkey), "core[1]'s user should be in channel after core[0] state sync")
+            t.equal(map.get(core1Pubkey), name[1], "name of core[1] should be set correctly")
+            t.equal(map.size, 1, "only core[1] should be in channel")
+            t.end()
+          })
         })
       }
     })
@@ -318,6 +337,10 @@ test("channel state request should yield a hash response", t => {
       core[0].getChannelStateHashes(channel, (err, hashes) => {
         t.error(err, "get channel state hashes should not err")
         t.equal(hashes.length, 0, `core[0] should have 3 channel state hashes for ${channel} before request-response cycle`)
+        hashes.forEach(hash => {
+          t.true(b4a.isBuffer(hash), "hash should be a buffer")
+          t.equal(hash.length, constants.HASH_SIZE, `hash size should be ${constants.HASH_SIZE}`)
+        })
         res()
       })
     })
