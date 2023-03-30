@@ -132,6 +132,8 @@ module.exports = function (lvl, reverseIndex) {
           lvl.getMany(keys, (err, hashes) => {
             debug("many name keys (err %O) %O", err, hashes) 
             if (err) { return cb(err, null) }
+            // filter out results where where there is no value for one of our queried keys
+            const returnedHashes = hashes.filter(hash => typeof hash !== "undefined")
             return cb(null, hashes)
           })
         })
