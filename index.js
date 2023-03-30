@@ -509,11 +509,11 @@ class CableCore extends EventEmitter {
   }
 
 	// post/delete
-  // note: store deleted hash to keep track of hashes we don't want to sync.  
-  // also store which channel msg was in, to fulfill state requests
+  // note: we store the deleted hash to keep track of hashes we don't want to sync.  
+  // we also store which channel the post was in, to fulfill channel state requests
   // 
   // q: should we have a flag that is like `persistDelete: true`? enables for deleting for storage reasons, but not
-  // blocking reasons. otherwise all deletes are permanent and not reversible, seems bad 
+  // blocking reasons. otherwise all deletes are permanent and not reversible
 	del(hash, done) {
     const link = this._links()
     const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, link, util.timestamp(), hash)
@@ -522,7 +522,6 @@ class CableCore extends EventEmitter {
   }
 
   /* methods to get data we already have locally */
-
   getChat(channel, start, end, limit, cb) {
     coredebug(channel, start, end, limit, cb)
     // TODO (2023-03-07): future work here to augment with links-based retrieval & causal sort
@@ -563,7 +562,8 @@ class CableCore extends EventEmitter {
     })
   }
 
-  // returns a map mapping user public key to their current nickname
+  // returns a Map mapping user public key (as a hex string) to their current nickname. if they don't have a nickname
+  // set, what is returned is the hex-encoded public key
   getUsers(cb) {
     if (!cb) { return }
     coredebug("get users")
@@ -642,8 +642,6 @@ class CableCore extends EventEmitter {
       cb(null, posts)
     })
   }
-
-  // when getting channel state: get the latest nickname for each user that has / had membership in a channel, at the time of querying for latest state
 
   getChannelState(channel, cb) {
     // resolve the hashes into cable posts and return them
@@ -1048,8 +1046,8 @@ class CableCore extends EventEmitter {
         })
         break
       case constants.DATA_RESPONSE:
-        // TODO (2023-03-23): handle empty data response as a signal to "this concludes the lifetime of this req-res
-        // chain; decommission the reqid)
+        // TODO (2023-03-23): handle empty data response as a signal that "this concludes the lifetime of this req-res chain" 
+        // action: decommission the reqid
         this._handleRequestedBufs(this._processDataResponse(obj), () => { 
           done()
         }) 
@@ -1069,10 +1067,6 @@ class CableCore extends EventEmitter {
     const arr = channels.map(channel => { return { publicKey: "sentinel", channel }})
     this.store.channelMembershipView.map(arr, done)
   }
-
-  _handleDataResponse(hash, buf) {}
-  _handleHashResponse(hash, buf) {}
-  _handleChannelListResponse(buf) {}
 }
 
 module.exports = { CableCore, CableStore }
