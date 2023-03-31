@@ -235,7 +235,7 @@ test("channel list request should yield a channel list response", t => {
     })
   })
   .then(() => {
-    core[0].requestChannels(0, 10)
+    core[0].requestChannels(0, 0, 10)
   })
 })
 

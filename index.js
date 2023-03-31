@@ -690,9 +690,9 @@ class CableCore extends EventEmitter {
   }
  
   // <-> getChannels
-  requestChannels(ttl, limit) {
+  requestChannels(ttl, offset, limit) {
     const reqid = crypto.generateReqID()
-    const req = cable.CHANNEL_LIST_REQUEST.create(reqid, ttl, limit)
+    const req = cable.CHANNEL_LIST_REQUEST.create(reqid, ttl, offset, limit)
     this.dispatchRequest(req)
     return req
   }
@@ -705,7 +705,7 @@ class CableCore extends EventEmitter {
     return req
   }
 
-  // -> topic, join, leave
+  // -> request post/topic, post/join, post/leave, post/info
   requestState(channel, ttl, limit, updates) {
     const reqid = crypto.generateReqID()
     const req = cable.CHANNEL_STATE_REQUEST.create(reqid, ttl, channel, limit, updates)
@@ -824,8 +824,7 @@ class CableCore extends EventEmitter {
           })
           break
         case constants.CHANNEL_LIST_REQUEST:
-          // TODO (2023-03-22): use <channelistrequest>.offset when implemented up the stack
-          this.store.channelMembershipView.api.getChannelNames(0, obj.limit, (err, channels) => {
+          this.store.channelMembershipView.api.getChannelNames(obj.offset, obj.limit, (err, channels) => {
             if (err) { return rej(err) }
             // get a list of channel names
             response = cable.CHANNEL_LIST_RESPONSE.create(reqid, channels)
