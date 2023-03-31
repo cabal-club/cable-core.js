@@ -428,8 +428,12 @@ class CableCore extends EventEmitter {
      * store.join(buf) 
     */
 
+    // tracks still ongoing requests 
     this.requestsMap = new Map()
+    // tracks which hashes we have explicitly requested in a 'request for hash' request
     this.requestedHashes = new Map()
+    // tracks "live" requests: requests that have asked for future posts, as they are produced
+    this.liveQueries = new Map()
     this._defaultTTL = 0
 
     this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
@@ -861,6 +865,47 @@ class CableCore extends EventEmitter {
       this._registerLocalRequest(reqid, reqtype)
     }
     this.emit("request", buf)
+  }
+
+  // a live request is a request that has asked to receive updates as they are produced; i.e. future posts, instead of
+  // only asking for historic posts.
+  //
+  // requests which have a live query component:
+  // * TIME_RANGE_REQUEST (channel time range request)
+  // * CHANNEL_STATE_REQUEST (channel state request)
+  // that's it!
+  //
+  // _addLiveStateRequest maps a channel name to one of potentially many ongoing "live" requests
+  //
+  // Map structure: <channel name> -> [{ updatesRemaining: Number, reqId: Buffer}]
+  _addLiveStateRequest(channel, reqid, updatesRemaining) {
+    // TODO (2023-03-31): use _addLiveRequest when processing an incoming TIME_RANGE_REQUEST + CHANNEL_STATE_REQUEST
+    if (!this.liveQueries.has(channel)) {
+      this.liveQueries.set(channel, [])
+    }
+    const arr = this.liveQueries.get(channel)
+    // track the live request, including how many updates it has left before it has finished being served
+    const req = { reqId: reqid.toString("hex"), updatesRemaining }
+    arr.push(req)
+  }
+
+  _updateLiveStateRequest(channel, reqid, updatesSpent) {
+    const arr = this.liveQueries.get(channel)
+    const index = arr.findIndex(item => item.reqid === reqid.toString("hex"))
+    const entry = arr[index]
+    entry.updatesRemaining = entry.updatesRemaining - updatesSpent
+    if (entry.updatesRemaining <= 0) {
+        // emit an event when a live request has finished service -> enable us to renew the request
+      this.emit("request-ended", entry.reqid)
+      // remove the entry tracking this particular req_id: delete 1 item at index
+      arr.splice(1, index)
+      // no entries being tracked for channel, stop tracking it in this.liveQueries
+      if (arr.length === 0) {
+        this.liveQueries.delete(channel)
+      } else {
+        this.liveQueries.set(channel, arr)
+      }
+    }
   }
 
   _messageIsRequest (type) {
