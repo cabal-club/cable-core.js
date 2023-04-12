@@ -218,13 +218,13 @@ explicative. Jump to section **Verifying index sufficiency**, below, if this is 
 Tracking the path of a request and its sibling, the response, is done with request ids
 (`req_id`).
 
-A `req_id` always belongs to a request or to the response caused by a request. Thus a `req_id` has
-a source (the message type that "spawns" the request) and an expectation of what to get
-back (the message type that correctly answers the request e.g. a `data response` for a `request by
-hash`, a `hash response` for a `channel time range request`, or a `channel list response` for a
-`channel list request`). We can also prepare for the cable specification's _circuits_ behaviour
-by keeping track of an extra id to more efficiently route messages, instead of floodfilling to
-all connected peers.
+A `req_id` always belongs to a request or to the response caused by a request. Thus a `req_id`
+has a source (the message type that "spawns" the request) and an expectation of what to get
+back (the message type that correctly answers the request e.g. a `post response` for a `post
+request`, a `hash response` for a `channel time range request`, or a `channel list response`
+for a `channel list request`). We can also prepare for the cable specification's _circuits_
+behaviour by keeping track of an extra id to more efficiently route messages, instead of
+floodfilling to all connected peers.
 
 When we deal with a request, we can associate the generated `req_id` with:
 
@@ -246,13 +246,13 @@ Let's say we make a channel time range request. The intent of that is to eventua
 cablegrams of types `post/text` and `post/delete`. To achieve this, the channel time range
 request is sent. The reply that comes back is a hash response (list of hashes). To get the
 actual cablegrams containing posts (and not a list of hashes), we send out a new request, this
-time a request by hash. Back comes a data response, containing some or all of the requested
+time a post request. Back comes a post response, containing some or all of the requested
 hashes. That is, we have two roundtrips:
 
 | Roundtrip | Outgoing (Request)            | Incoming  (Response)      |
 |:---------:|-------------------------------|---------------------------|
 | 1         | Channel Time Range Request    | Hash Response             |
-| 2         | Request by hash               | Data response             |
+| 2         | Post Request                  | Post Response             |
 
 
 In roundtrip 1, the request and response are to have the same `req_id`. However, the request
@@ -304,7 +304,7 @@ that helps to identify gaps ahead of time, before the views have been written.
 
     * track requested hashes (and check against hashes of response payloads)
     * track & verify results from life cycle of:
-        <some channel request> -> hash response, which causes -> request by hash -> data response
+        <some channel request> -> hash response, which causes -> post request-> post response
         [                  one reqid                        ]    [         another reqid        ]
 
 -->
@@ -313,14 +313,14 @@ that helps to identify gaps ahead of time, before the views have been written.
 The following brief section outlines what each cable request ultimately expects to receive as
 a result of making the request.
 
-#### Request by hash
+#### Post request
 
-Request by hash expects:
+Post request expects:
 
-* data response `msg_type=1`
+* post response `msg_type=1`
 * data payloads to correspond to the requested hashes
     * verify by tracking the requested hashes and cross-referencing with the hash of each
-      post in the data response payload?
+      post in the post response payload?
 
 #### Channel time range request
 
@@ -336,7 +336,7 @@ Channel time range expects:
 Channel state expects:
 
 * hash response `msg_type=0`
-* data response payloads to be of type:
+* post response payloads to be of type:
     * post/topic
     * post/join
     * post/leave
@@ -353,14 +353,14 @@ Channel list expects:
 This section outlines the index queries and operations needed to answer the different cable
 requests.
 
-#### Answer a request by hash (`msg_type = 2`)
-A request by hash wants the data identified by a list of hashes.
+#### Answer a post request(`msg_type = 2`)
+A post request wants the data identified by a list of hashes.
 
 Query:
 
     <hash> -> <blob>
 
-Use the returned binary payloads, i.e. cablegrams, to fashion the data response. Construct a
+Use the returned binary payloads, i.e. cablegrams, to fashion the post response. Construct a
 list and fill it with the payloads that were found when querying the view.
 
 #### Answer a channel time range request (`msg_type = 4`)

@@ -289,7 +289,7 @@ test("for two different users: write to a channel and then delete", t => {
                 // chat message should now be deleted
                 t.error(err)
                 t.equal(chat.length, 1, "chat should have 1 message (this time it's only the delete message")
-                t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
+                t.deepEqual(chat[0].hashes[0], textHash, "target of delete should be hash of our prior post/text")
                 t.equal(chat[0].postType, constants.DELETE_POST)
                 done()
               })

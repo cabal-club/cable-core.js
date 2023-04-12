@@ -96,7 +96,7 @@ test("handling a request should emit a correct response message", t => {
   })
 })
 
-test("requesting chat posts and ultimately receiving a data response should work", t => {
+test("requesting chat posts and ultimately receiving a post response should work", t => {
   const core = [new CableCore(), new CableCore()]
   t.notEqual(undefined, core[0], "should not be undefined")
   t.notEqual(null, core[0], "should not be null")
@@ -119,8 +119,8 @@ test("requesting chat posts and ultimately receiving a data response should work
       case constants.TIME_RANGE_REQUEST:
         t.equal(requestCounter, 1, "time range request should be first request")
         break
-      case constants.HASH_REQUEST:
-        t.equal(requestCounter, 2, "hash request should be second request")
+      case constants.POST_REQUEST:
+        t.equal(requestCounter, 2, "post request should be second request")
         break
       default:
         t.fail(`unexpected request was emitted (${msgType})`)
@@ -142,8 +142,8 @@ test("requesting chat posts and ultimately receiving a data response should work
         t.equal(obj.hashes.length, 1, "hash response should contain 1 hash")
         core[0].handleResponse(resBuf)
         break
-      case constants.DATA_RESPONSE:
-        t.equal(obj.data.length, 1, "data response should contain 1 post")
+      case constants.POST_RESPONSE:
+        t.equal(obj.data.length, 1, "post response should contain 1 post")
         core[0].handleResponse(resBuf, () => {
           setTimeout(() => {
           core[0].getChat(channel, 0, +(new Date()), limit, (err, posts) => {
@@ -260,12 +260,12 @@ test("channel state request should yield a hash response", t => {
       case constants.CHANNEL_STATE_REQUEST:
         t.equal(requests, 1, "first request should be a channel state request")
         break
-      case constants.HASH_REQUEST:
-        t.equal(requests, 2, "second request should be a hash request")
-        t.pass("should be a hash request request")
+      case constants.POST_REQUEST:
+        t.equal(requests, 2, "second request should be a post request")
+        t.pass("should be a post request")
         break
       default:
-        t.fail("should never generate a request other than a channel state request or a hash request")
+        t.fail("should never generate a request other than a channel state request or a post request")
     }
     core[1].handleRequest(reqBuf)
   })
@@ -279,11 +279,11 @@ test("channel state request should yield a hash response", t => {
       case constants.HASH_RESPONSE:
         t.equal(responses, 1, "first should be a channel state response")
         break
-      case constants.DATA_RESPONSE:
-        t.equal(responses, 2, "second should be a data response")
+      case constants.POST_RESPONSE:
+        t.equal(responses, 2, "second should be a post response")
         break
       default:
-        t.fail("should never generate a response other than a hash response or a data response")
+        t.fail("should never generate a response other than a hash response or a post response")
     }
     core[0].handleResponse(resBuf, () => {
       // core[0] should have ingested and indexed the full set of channel state data, let's verify that!

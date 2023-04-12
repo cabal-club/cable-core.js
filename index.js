@@ -169,82 +169,95 @@ class CableStore {
   del(buf, done) {
     storedebug("done fn %O", done)
     if (!done) { done = util.noop }
-    const promises = []
-    let p
 
     // the hash of the post/delete message
     const hash = crypto.hash(buf)
     // note: obj.hash is hash of the deleted post (not of the post/delete!)
     const obj = DELETE_POST.toJSON(buf)
-    const hashToDelete = obj.hash
     
-    // persist cablegram of the post/delete message
-    p = new Promise((res, rej) => {
+    // persist the post/delete buffer
+    const prom = new Promise((res, rej) => {
       this._storeNewPost(buf, hash, res)
     })
-    promises.push(p)
-
-    this.blobs.api.get(hashToDelete, (err, cablegram) => {
-      if (err) {
-        storedebug("delete err'd", err)
-        return done()
-      }
-      const post = cable.parsePost(cablegram)
-      storedebug("post to delete %O", post)
-      const channel = post.channel
-      const affectedPublicKey = post.publicKey
-      // record the post/delete in the messages view
-      p = new Promise((res, rej) => {
-        this.messagesView.map([{ ...obj, channel, hash}], res)
-      })
-      promises.push(p)
-
-      // delete the targeted post in the data store using obj.hash
-      p = new Promise((res, rej) => {
-        this.blobs.api.del(hashToDelete, res)
-      })
-      promises.push(p)
-
-      // record hash of deleted post in upcoming deletedView
-      p = new Promise((res, rej) => {
-        this.deletedView.map([hashToDelete], res)
-      })
-      promises.push(p)
-
-      // remove hash from indices that referenced it
-      this.reverseMapView.api.getUses(hashToDelete, (err, uses) => {
-        // go through each index and delete the entry referencing this hash
-        for (let [viewName, viewKeys] of uses) {
-          viewKeys.forEach(key => {
-            storedebug("delete %s in %s", key, viewName)
-            this._viewsMap[viewName].api.del(key)
-          })
-        }
-        // finally, remove the related entries in the reverse hash map
-        this.reverseMapView.api.del(hashToDelete)
-        // reindex accreted views if they were likely to be impacted 
-        // e.g. reindex channel topic view if channel topic was deleted
-
-        p = new Promise((res, rej) => {
-          switch (post.postType) {
-            case constants.JOIN_POST:
-            case constants.LEAVE_POST:
-              this._reindexChannelMembership(channel, affectedPublicKey, res)
-              break
-            case constants.INFO_POST:
-              this._reindexInfoName(affectedPublicKey, res)
-              break
-            case constants.TOPIC_POST:
-              this._reindexTopic(channel, res)
-              break
-            default:
-              res()
+    prom.then(() => {
+      let processed = 0
+      // create a self-contained loop of deletions, where each related batch of deletions is performed in unison
+      obj.hashes.forEach(hashToDelete => {
+        deleteHash(hashToDelete, () => {
+          processed++
+          // signal done when all hashes to delete have been processed
+          if (processed >= obj.hashes.length) {
+            done()
           }
         })
-        promises.push(p)
-        Promise.all(promises).then(done)
       })
     })
+
+    const deleteHash = (hashToDelete, finished) => {
+      const promises = []
+      let p
+      this.blobs.api.get(hashToDelete, (err, cablegram) => {
+        if (err) {
+          storedebug("delete err'd", err)
+          return finished()
+        }
+        const post = cable.parsePost(cablegram)
+        storedebug("post to delete %O", post)
+        const channel = post.channel
+        const affectedPublicKey = post.publicKey
+        // record the post/delete in the messages view
+        p = new Promise((res, rej) => {
+          this.messagesView.map([{ ...obj, channel, hash}], res)
+        })
+        promises.push(p)
+
+        // delete the targeted post in the data store using obj.hash
+        p = new Promise((res, rej) => {
+          this.blobs.api.del(hashToDelete, res)
+        })
+        promises.push(p)
+
+        // record hash of deleted post in upcoming deletedView
+        p = new Promise((res, rej) => {
+          this.deletedView.map([hashToDelete], res)
+        })
+        promises.push(p)
+
+        // remove hash from indices that referenced it
+        this.reverseMapView.api.getUses(hashToDelete, (err, uses) => {
+          // go through each index and delete the entry referencing this hash
+          for (let [viewName, viewKeys] of uses) {
+            viewKeys.forEach(key => {
+              storedebug("delete %s in %s", key, viewName)
+              this._viewsMap[viewName].api.del(key)
+            })
+          }
+          // finally, remove the related entries in the reverse hash map
+          this.reverseMapView.api.del(hashToDelete)
+          // reindex accreted views if they were likely to be impacted 
+          // e.g. reindex channel topic view if channel topic was deleted
+
+          p = new Promise((res, rej) => {
+            switch (post.postType) {
+              case constants.JOIN_POST:
+              case constants.LEAVE_POST:
+                this._reindexChannelMembership(channel, affectedPublicKey, res)
+                break
+              case constants.INFO_POST:
+                this._reindexInfoName(affectedPublicKey, res)
+                break
+              case constants.TOPIC_POST:
+                this._reindexTopic(channel, res)
+                break
+              default:
+                res()
+            }
+          })
+          promises.push(p)
+          Promise.all(promises).then(finished)
+        })
+      })
+    }
   }
 
   // reindex an accreted view by re-putting a cablegram using its hash 
@@ -468,24 +481,24 @@ class CableCore extends EventEmitter {
 
 	// post/text
 	postText(channel, text, done) {
-    const link = this._links()
-    const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp(), text)
+    const links = this._links()
+    const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), text)
     this.store.text(buf, done)
     return buf
   }
 
 	// post/info key=name
 	setNick(name, done) {
-    const link = this._links()
-    const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, link, util.timestamp(), "name", name)
+    const links = this._links()
+    const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), "name", name)
     this.store.info(buf, done)
     return buf
   }
 
 	// post/topic
 	setTopic(channel, topic, done) {
-    const link = this._links()
-    const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp(), topic)
+    const links = this._links()
+    const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), topic)
     this.store.topic(buf, done)
     return buf
   }
@@ -493,21 +506,21 @@ class CableCore extends EventEmitter {
   // get the latest links for the given context. with `links` peers have a way to partially order message history
   // without relying on claimed timestamps
   _links(channel) {
-    return crypto.hash(b4a.from("not a message payload at all"))
+    return [crypto.hash(b4a.from("not a message payload at all"))]
   }
 
 	// post/join
 	join(channel, done) {
-    const link = this._links()
-    const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp())
+    const links = this._links()
+    const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
     this.store.join(buf, done)
     return buf
   }
 
 	// post/leave
 	leave(channel, done) {
-    const link = this._links()
-    const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, link, channel, util.timestamp())
+    const links = this._links()
+    const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
     this.store.leave(buf, done)
     return buf
   }
@@ -519,8 +532,9 @@ class CableCore extends EventEmitter {
   // q: should we have a flag that is like `persistDelete: true`? enables for deleting for storage reasons, but not
   // blocking reasons. otherwise all deletes are permanent and not reversible
 	del(hash, done) {
-    const link = this._links()
-    const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, link, util.timestamp(), hash)
+    const links = this._links()
+    // TODO (2023-04-12): create additional api for deleting many hashes
+    const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), [hash])
     this.store.del(buf, done)
     return buf
   }
@@ -685,11 +699,11 @@ class CableCore extends EventEmitter {
 
   /* methods that control requests to peers, causing responses to stream in (or stop) */
 	// cancel request
-	cancelRequest(reqid) {
-    const req = cable.CANCEL_REQUEST.create(reqid)
+	cancelRequest(reqid, cancelid) {
+    const req = cable.CANCEL_REQUEST.create(reqid, cancelid)
     // forget about the canceled request id
     this.dispatchRequest(req)
-    this.requestsMap.delete(reqid.toString("hex"))
+    this.requestsMap.delete(cancelid.toString("hex"))
     return req
   }
  
@@ -728,8 +742,8 @@ class CableCore extends EventEmitter {
     }
 
     switch (reqType) {
-      case constants.HASH_REQUEST:
-        entry.resType = constants.DATA_RESPONSE
+      case constants.POST_REQUEST:
+        entry.resType = constants.POST_RESPONSE
         break
       case constants.CANCEL_REQUEST:
         break
@@ -800,13 +814,13 @@ class CableCore extends EventEmitter {
         case constants.CANCEL_REQUEST:
           // there is no corresponding response for a cancel request
           return res(null)
-        case constants.HASH_REQUEST:
+        case constants.POST_REQUEST:
           // get posts corresponding to the requested hashes
           this.getData(obj.hashes, (err, posts) => {
             if (err) { return rej(err) }
             // hashes we could not find in our database are represented as null: filter those out
             const responsePosts = posts.filter(post => post !== null)
-            response = cable.DATA_RESPONSE.create(reqid, responsePosts)
+            response = cable.POST_RESPONSE.create(reqid, responsePosts)
             return res(response)
           })
           break
@@ -910,7 +924,7 @@ class CableCore extends EventEmitter {
 
   _messageIsRequest (type) {
     switch (type) {
-      case constants.HASH_REQUEST:
+      case constants.POST_REQUEST:
       case constants.CANCEL_REQUEST:
       case constants.TIME_RANGE_REQUEST:
       case constants.CHANNEL_STATE_REQUEST:
@@ -925,7 +939,7 @@ class CableCore extends EventEmitter {
   _messageIsResponse (type) {
     switch (type) {
       case constants.HASH_RESPONSE:
-      case constants.DATA_RESPONSE:
+      case constants.POST_RESPONSE:
       case constants.CHANNEL_LIST_RESPONSE:
         return true
         break
@@ -938,8 +952,8 @@ class CableCore extends EventEmitter {
   forwardRequest(buf, reqType) {
     let decrementedBuf 
     switch (reqType) {
-      case constants.HASH_REQUEST:
-        decrementedBuf = cable.HASH_REQUEST.decrementTTL(buf)
+      case constants.POST_REQUEST:
+        decrementedBuf = cable.POST_REQUEST.decrementTTL(buf)
         break
       case constants.CANCEL_REQUEST:
         decrementedBuf = cable.CANCEL_REQUEST.decrementTTL(buf)
@@ -1004,7 +1018,7 @@ class CableCore extends EventEmitter {
 
 
   _handleRequestedBufs(bufs, done) {
-    // check: does the hash of each entry in the data response correspond to hashes we have requested?
+    // check: does the hash of each entry in the post response correspond to hashes we have requested?
     // process each post depending on which type of post it is
     let p
     const promises = []
@@ -1055,8 +1069,8 @@ class CableCore extends EventEmitter {
       this.forwardResponse(res)
       // we are not the terminal for this response (we did not request it), so in the base case we should not store its
       // data.
-      // however: we could inspect the payload of a DATA_RESPONSE to see if it contains any hashes we are waiting for..
-      if (resType === constants.DATA_RESPONSE) {
+      // however: we could inspect the payload of a POST_RESPONSE to see if it contains any hashes we are waiting for..
+      if (resType === constants.POST_RESPONSE) {
         this._handleRequestedBufs(this._processDataResponse(obj), () => {
           console.log("TODO: wow very great :)")
         })
@@ -1071,7 +1085,7 @@ class CableCore extends EventEmitter {
           // query data store and try to get the data for each of the returned hashes. 
         this.store.blobs.api.getMany(obj.hashes, (err, bufs) => {
           // collect all the hashes we still don't have data for (represented by null in returned `bufs`) and create a
-          // request by hash
+          // post request
           let wantedHashes = []
           bufs.forEach((buf, index) => {
             if (buf === null) {
@@ -1082,15 +1096,15 @@ class CableCore extends EventEmitter {
               this.requestedHashes.set(hash.toString("hex"), true)
             }
           })
-          // dispatch a `request by hash` for the missing hashes
+          // dispatch a `post request` for the missing hashes
           const newReqid = crypto.generateReqID()
-          const req = cable.HASH_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
+          const req = cable.POST_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
           this.dispatchRequest(req)
           done()
         })
         break
-      case constants.DATA_RESPONSE:
-        // TODO (2023-03-23): handle empty data response as a signal that "this concludes the lifetime of this req-res chain" 
+      case constants.POST_RESPONSE:
+        // TODO (2023-03-23): handle empty post response as a signal that "this concludes the lifetime of this req-res chain" 
         // action: decommission the reqid
         this._handleRequestedBufs(this._processDataResponse(obj), () => { 
           done()

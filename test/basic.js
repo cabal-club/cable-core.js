@@ -78,13 +78,15 @@ test("write to a channel and then delete", t => {
       const delBuf = core.del(textHash, () => {
         t.ok(delBuf, "delete buf should be not null")
         assertBufType(t, delBuf, constants.DELETE_POST)
+        setTimeout(() => {
         core.getChat("introduction", 0, 0, -1, (err, chat) => {
           t.error(err)
           t.equal(chat.length, 1, "chat should have 1 message (this time it's only the delete message")
-          t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
+          t.deepEqual(chat[0].hashes[0], textHash, "target of delete should be hash of our prior post/text")
           t.equal(chat[0].postType, constants.DELETE_POST)
           t.end()
         })
+        }, 500)
       })
     })
   })
@@ -107,7 +109,7 @@ test("post/text delete functionality", t => {
     assertBufType(t, delBuf, constants.DELETE_POST)
       core.getChat("introduction", 0, 0, -1, (err, chat) => {
         t.error(err)
-        t.deepEqual(chat[0].hash, textHash, "target of delete should be hash of our prior post/text")
+        t.deepEqual(chat[0].hashes[0], textHash, "target of delete should be hash of our prior post/text")
         t.equal(chat[0].postType, constants.DELETE_POST)
 
         core.store.getData([textHash], (err, data) => {
