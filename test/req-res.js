@@ -143,7 +143,7 @@ test("requesting chat posts and ultimately receiving a post response should work
         core[0].handleResponse(resBuf)
         break
       case constants.POST_RESPONSE:
-        t.equal(obj.data.length, 1, "post response should contain 1 post")
+        t.equal(obj.posts.length, 1, "post response should contain 1 post")
         core[0].handleResponse(resBuf, () => {
           setTimeout(() => {
           core[0].getChat(channel, 0, +(new Date()), limit, (err, posts) => {

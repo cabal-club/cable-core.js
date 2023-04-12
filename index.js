@@ -700,7 +700,8 @@ class CableCore extends EventEmitter {
   /* methods that control requests to peers, causing responses to stream in (or stop) */
 	// cancel request
 	cancelRequest(reqid, cancelid) {
-    const req = cable.CANCEL_REQUEST.create(reqid, cancelid)
+    // set ttl to 0 as it's is unused in cancel req
+    const req = cable.CANCEL_REQUEST.create(reqid, 0, cancelid)
     // forget about the canceled request id
     this.dispatchRequest(req)
     this.requestsMap.delete(cancelid.toString("hex"))
@@ -1005,9 +1006,9 @@ class CableCore extends EventEmitter {
   }
 
   // returns an array of posts whose hashes have been verified to have been requested by us
-  _processDataResponse(obj) {
+  _processPostResponse(obj) {
     const requestedPosts = []
-    obj.data.forEach(post => {
+    obj.posts.forEach(post => {
       const hash = crypto.hash(post)
       if (this.requestedHashes.has(hash.toString("hex"))) {
         requestedPosts.push(post)
@@ -1071,7 +1072,7 @@ class CableCore extends EventEmitter {
       // data.
       // however: we could inspect the payload of a POST_RESPONSE to see if it contains any hashes we are waiting for..
       if (resType === constants.POST_RESPONSE) {
-        this._handleRequestedBufs(this._processDataResponse(obj), () => {
+        this._handleRequestedBufs(this._processPostResponse(obj), () => {
           console.log("TODO: wow very great :)")
         })
         // TODO (2023-03-23): after the post has been ingested: remove it from requestedHashes
@@ -1106,7 +1107,7 @@ class CableCore extends EventEmitter {
       case constants.POST_RESPONSE:
         // TODO (2023-03-23): handle empty post response as a signal that "this concludes the lifetime of this req-res chain" 
         // action: decommission the reqid
-        this._handleRequestedBufs(this._processDataResponse(obj), () => { 
+        this._handleRequestedBufs(this._processPostResponse(obj), () => { 
           done()
         }) 
         break
