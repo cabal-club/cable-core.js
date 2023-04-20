@@ -45,6 +45,9 @@ module.exports = function (lvl, reverseIndex) {
         if (!sanitize(msg)) return
 
         let key
+        // TODO (2023-04-20): make sure using a mono-ts does not create multiple keys when laxily indexing potentially
+        // (but not necessarily!) new messages with a .map() call. rather: come up with a more robust seen{} mechanism?
+        // perhaps a column: seen!<hash> => 1
         const ts = monotonicTimestamp(msg.timestamp)
         switch (msg.postType) {
           case constants.JOIN_POST:
@@ -124,9 +127,10 @@ module.exports = function (lvl, reverseIndex) {
             await member.all()
           ].flatMap(entry => entry)
           debug("hashes", hashes)
-          cb(null, hashes) // only return one hash
+          cb(null, hashes)
         })
       },
+      // TODO (2023-04-20): remove this file's getLatestNameHash function when user-info.js has a latestNameHash operating without latest key
       getLatestNameHash: function (channel, publicKey, cb) {
         // return latest post/info hash for pubkey
         ready(async function () {
@@ -187,16 +191,6 @@ module.exports = function (lvl, reverseIndex) {
              return cb(new Error("channel state's latest topic returned no hashes"), null)
           }
           cb(null, hashes[0])
-        })
-      },
-      getHistoricState: function (channel, cb) {
-        if (!cb) cb = noop
-        ready(async function () {
-          debug("api.getHistoricState")
-          const iter = lvl.iterator()
-          const hashes = await iter.all()
-          debug("historic", hashes)
-          cb(null, hashes)
         })
       },
       del: function (hash, cb) {

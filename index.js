@@ -356,21 +356,6 @@ class CableStore {
   }
 
 
-  // TODO (2023-03-02):
-  //
-  // following scenario needs to be handled:
-  //
-  // * user sets a nickname (hasn't joined any channels)
-  // * time passes
-  // * user joins channels
-  //
-  // when we get historic state, we need to also make sure that we get nickname information in this kind of scenario
-  //
-  // (for channel-state)
-  // e.g. we should not set the nickname based on currently joined channels
-  //
-  //
-  // -- how we solve this for historic state request i'm not entirely certain
   info(buf, done) {
     if (!done) { done = util.noop }
     const promises = []
@@ -409,9 +394,6 @@ class CableStore {
       })
     }
   }
-
-  // store a dispatched request; by reqid?
-  request(buf) {}
 
   // get data by list of hashes
   getData(hashes, cb) {
@@ -725,9 +707,9 @@ class CableCore extends EventEmitter {
   }
 
   // -> request post/topic, post/join, post/leave, post/info
-  requestState(channel, ttl, limit, updates) {
+  requestState(channel, ttl, future) {
     const reqid = crypto.generateReqID()
-    const req = cable.CHANNEL_STATE_REQUEST.create(reqid, ttl, channel, limit, updates)
+    const req = cable.CHANNEL_STATE_REQUEST.create(reqid, ttl, channel, future)
     this.dispatchRequest(req)
     return req
   }
@@ -887,40 +869,47 @@ class CableCore extends EventEmitter {
   //
   // requests which have a live query component:
   // * TIME_RANGE_REQUEST (channel time range request)
-  // * CHANNEL_STATE_REQUEST (channel state request)
+  // * CHANNEL_STATE_REQUEST (channel state request) -- has no limit to updates!
   // that's it!
   //
   // _addLiveStateRequest maps a channel name to one of potentially many ongoing "live" requests
   //
-  // Map structure: <channel name> -> [{ updatesRemaining: Number, reqId: Buffer}]
-  _addLiveStateRequest(channel, reqid, updatesRemaining) {
+  // Map structure: <channel name> -> [{ updatesRemaining: Number, hasLimit: boolean, reqId: Buffer}]
+  _addLiveStateRequest(channel, reqid, updatesRemaining, hasLimit) {
     // TODO (2023-03-31): use _addLiveRequest when processing an incoming TIME_RANGE_REQUEST + CHANNEL_STATE_REQUEST
     if (!this.liveQueries.has(channel)) {
       this.liveQueries.set(channel, [])
     }
     const arr = this.liveQueries.get(channel)
     // track the live request, including how many updates it has left before it has finished being served
-    const req = { reqId: reqid.toString("hex"), updatesRemaining }
+    const req = { reqId: reqid.toString("hex"), updatesRemaining, hasLimit }
     arr.push(req)
   }
 
   _updateLiveStateRequest(channel, reqid, updatesSpent) {
-    const arr = this.liveQueries.get(channel)
-    const index = arr.findIndex(item => item.reqid === reqid.toString("hex"))
-    const entry = arr[index]
-    entry.updatesRemaining = entry.updatesRemaining - updatesSpent
-    if (entry.updatesRemaining <= 0) {
-        // emit an event when a live request has finished service -> enable us to renew the request
-      this.emit("request-ended", entry.reqid)
-      // remove the entry tracking this particular req_id: delete 1 item at index
-      arr.splice(1, index)
-      // no entries being tracked for channel, stop tracking it in this.liveQueries
-      if (arr.length === 0) {
-        this.liveQueries.delete(channel)
-      } else {
-        this.liveQueries.set(channel, arr)
+    const channelQueries = this.liveQueries.get(channel)
+    const index = channelQueries.findIndex(item => item.reqid === reqid.toString("hex"))
+    const entry = channelQueries[index]
+    if (entry.hasLimit) {
+      entry.updatesRemaining = entry.updatesRemaining - updatesSpent
+      if (entry.updatesRemaining <= 0) {
+        cancelLiveStateRequest(entry.channel, entry.reqid)
       }
     }
+  }
+
+  _cancelLiveStateRequest(channel, reqid) {
+    // remove the entry tracking this particular req_id: delete 1 item at index
+    const channelQueries = this.liveQueries.get(channel)
+    channelQueries.splice(1, index)
+    // no entries being tracked for channel, stop tracking it in this.liveQueries
+    if (channelQueries.length === 0) {
+      this.liveQueries.delete(channel)
+    } else {
+      this.liveQueries.set(channel, channelQueries)
+    }
+    // emit an event when a live request has finished service -> enable us to renew the request
+    this.emit("request-ended", entry.reqid)
   }
 
   _messageIsRequest (type) {
