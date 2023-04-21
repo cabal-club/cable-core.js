@@ -45,7 +45,7 @@ module.exports = function (lvl, reverseIndex) {
         if (!sanitize(msg)) return
 
         let key
-        // TODO (2023-04-20): make sure using a mono-ts does not create multiple keys when laxily indexing potentially
+        // TODO (2023-04-20): make sure using a mono-ts does not create multiple keys when lazily indexing potentially
         // (but not necessarily!) new messages with a .map() call. rather: come up with a more robust seen{} mechanism?
         // perhaps a column: seen!<hash> => 1
         const ts = monotonicTimestamp(msg.timestamp)

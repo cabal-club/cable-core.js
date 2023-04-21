@@ -30,7 +30,7 @@ const TOPIC_POST = cable.TOPIC_POST
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
 
-// database interaction, operate on the cablegram?
+// database interactions
 class CableStore {
   // TODO (2023-02-23): ensure proper handling of duplicates in views that index hashes
 
@@ -39,6 +39,17 @@ class CableStore {
   // TODO (2023-03-01): do an error checking pass in all views, in particular the views that have async functions
   
   // TODO (2023-03-02): look over lexicographic sort with regard to keyspace layout in each view
+
+  // TODO (2023-04-21): what shape should progressive history pruning take? how do we, for example, successively forget
+  // posts to stay within a hard boundary of say persisting max 100k posts on disk?
+
+  // TODO (2023-04-21): what should the mechanism look like which makes sure we have some post/info history (say keep
+  // the last 2 posts) while making sure all others are continually scrubbed?
+
+  // TODO (2023-04-21): restoring after a crash needs to be implemented. attempt an idea which acts as a companion index
+  // to reverseHashMap and the data store. if posts are in data store, but not fully indexed in all other views, they
+  // should remain in this companion index. once a post has been fully indexed, it is removed from the companion index
+  // (which acts as a sentinel of sorts)
   constructor(opts) {
     if (!opts) { opts = { temp: true } }
 
