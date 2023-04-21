@@ -37,7 +37,6 @@ module.exports = function (lvl, reverseIndex) {
   return {
     map: function (msgs, next) {
       debug("view.map")
-      let seen = {}
       let ops = []
       let pending = 0
       unprocessedBatches++
@@ -45,9 +44,7 @@ module.exports = function (lvl, reverseIndex) {
         if (!sanitize(msg)) return
 
         let key
-        // TODO (2023-04-20): make sure using a mono-ts does not create multiple keys when lazily indexing potentially
-        // (but not necessarily!) new messages with a .map() call. rather: come up with a more robust seen{} mechanism?
-        // perhaps a column: seen!<hash> => 1
+
         const ts = monotonicTimestamp(msg.timestamp)
         switch (msg.postType) {
           case constants.JOIN_POST:
@@ -66,16 +63,28 @@ module.exports = function (lvl, reverseIndex) {
         }
 
         const hash = msg.hash
+        // column `seen!<hash> => <hash>` makes sure using a mono-ts does not create multiple keys when lazily indexing
+        // potentially (but not necessarily) new messages
+        const seenKey = `seen!${hash.toString("hex")}`
 
         pending++
-        lvl.get(key, function (err) {
+        lvl.get(seenKey, function (err) {
           if (err && err.notFound) {
-            if (!seen[hash]) events.emit('add', hash)
+            events.emit('add', hash)
+            // remember this hash as having been processed
+            ops.push({
+              type: 'put',
+              key: seenKey,
+              value: hash
+            })
+            // also persist the actual key we care about
             ops.push({
               type: 'put',
               key,
               value: hash
             })
+          } else {
+            debug("already seen hash %O for key %s", hash, key)
           }
           if (!--pending) done()
         })
@@ -193,11 +202,15 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes[0])
         })
       },
-      del: function (hash, cb) {
-        debug("api.del")
+      del: function (key, cb) {
+        debug("api.del on key %O", key)
         if (typeof cb === "undefined") { cb = noop }
+        if (key === "undefined" || typeof key === "undefined") {  
+          debug("api.del received a key that was undefined, returning early")
+          return cb(new Error("undefined key"))
+        }
         ready(function () {
-          lvl.del(hash, function (err) {
+          lvl.del(key, function (err) {
             if (err) { return cb(err) }
             return cb(null)
           })
