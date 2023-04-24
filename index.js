@@ -4,6 +4,7 @@ const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const storedebug = require("debug")("core/store")
 const coredebug = require("debug")("core/")
+const eventdebug = require("debug")("core/event-manager")
 // external database dependencies
 const { Level } = require("level")
 const { MemoryLevel } = require("memory-level")
@@ -31,7 +32,7 @@ const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
 
 // database interactions
-class CableStore {
+class CableStore extends EventEmitter {
   // TODO (2023-02-23): ensure proper handling of duplicates in views that index hashes
 
   // TODO (2023-03-01): in all indexes, ensure that we never have any collisions with non-monotonic timestamps 
@@ -50,7 +51,14 @@ class CableStore {
   // to reverseHashMap and the data store. if posts are in data store, but not fully indexed in all other views, they
   // should remain in this companion index. once a post has been fully indexed, it is removed from the companion index
   // (which acts as a sentinel of sorts)
+
+  // TODO (2023-04-21): should we forget about users (wrt channel-state) if they have left a channel and we no longer
+  // persist any of their messages in said channel? the core concern is that channel state request requires sending the
+  // latest post/info of **ex-members** which means that over time responses to a channel-state request will just grow
+  // and grow in size
   constructor(opts) {
+    super()
+
     if (!opts) { opts = { temp: true } }
 
     this._db = new Level("data")
@@ -207,20 +215,47 @@ class CableStore {
     const deleteHash = (hashToDelete, finished) => {
       const promises = []
       let p
-      this.blobs.api.get(hashToDelete, (err, cablegram) => {
+      this.blobs.api.get(hashToDelete, async (err, cablegram) => {
         if (err) {
           storedebug("delete err'd", err)
           return finished()
         }
         const post = cable.parsePost(cablegram)
         storedebug("post to delete %O", post)
-        const channel = post.channel
+        let channels = []
+        
+        // TODO (2023-04-21): write a test to verify the following behaviour:
+        // 1. set a post/info
+        // 2. set another post/info
+        // 3. join 2-3 channels
+        // 4. delete the latest post/info
+        // 5. name should be regarded as updated to the first post/info name in all joined channels
+        //
+        // post/info is the only post type (as of 2023-04) that does not record channel information, and we need to know
+        // which channels in which to record a delete. we can get this info by querying the channel membership view for
+        // the publicKey that deleted a post/info, which returns the channels they have belonged to (incl current
+        // membership)
+        if (post.postType === constants.INFO_POST) {
+          const channelProm = new Promise((channelRes, channelRej) => {
+            this.channelMembershipView.api.getHistoricMembership(post.publicKey, (err, channels) => {
+              if (err) {
+                storedebug("deleteHash err'd during getHistoricMembership", err)
+              }
+              channelRes(channels)
+            })
+          })
+          channels = await channelProm
+        } else {
+          channels = [post.channel]
+        }
         const affectedPublicKey = post.publicKey
-        // record the post/delete in the messages view
-        p = new Promise((res, rej) => {
-          this.messagesView.map([{ ...obj, channel, hash}], res)
+        // record the post/delete in the messages view for each relevant channel
+        channels.forEach(channel => {
+          p = new Promise((res, rej) => {
+            this.messagesView.map([{ ...obj, channel, hash}], res)
+          })
+          promises.push(p)
         })
-        promises.push(p)
 
         // delete the targeted post in the data store using obj.hash
         p = new Promise((res, rej) => {
@@ -228,13 +263,13 @@ class CableStore {
         })
         promises.push(p)
 
-        // record hash of deleted post in upcoming deletedView
+        // record hash of deleted post in deletedView
         p = new Promise((res, rej) => {
           this.deletedView.map([hashToDelete], res)
         })
         promises.push(p)
 
-        // remove hash from indices that referenced it
+        // remove hash from indices that reference it
         this.reverseMapView.api.getUses(hashToDelete, (err, uses) => {
           // go through each index and delete the entry referencing this hash
           for (let [viewName, viewKeys] of uses) {
@@ -245,26 +280,40 @@ class CableStore {
           }
           // finally, remove the related entries in the reverse hash map
           this.reverseMapView.api.del(hashToDelete)
-          // reindex accreted views if they were likely to be impacted 
-          // e.g. reindex channel topic view if channel topic was deleted
 
-          p = new Promise((res, rej) => {
-            switch (post.postType) {
-              case constants.JOIN_POST:
-              case constants.LEAVE_POST:
-                this._reindexChannelMembership(channel, affectedPublicKey, res)
-                break
-              case constants.INFO_POST:
-                this._reindexInfoName(affectedPublicKey, res)
-                break
-              case constants.TOPIC_POST:
-                this._reindexTopic(channel, res)
-                break
-              default:
-                res()
+          // when reindexing finishes, this function receives the new latest post hash and emits it to comply with
+          // correct live query behaviour wrt channel state request's `future` flag. what to do with the emitted data
+          // is handled by event consumers (e.g. CableCore)
+          const hashReceiver = (res) => {
+            if (res) {
+              // emit hash to signal reindex returned a new latest hash for channel after deleting the prior latest
+              this.emit("channel-state-replacement", { channel: res.channel, hash: res.hash })
             }
+          }
+
+          // reindex accreted views if they were likely to be impacted e.g. reindex channel topic view if channel topic
+          // was deleted
+          //
+          // note: if we deleted a post/info that necessitates updating all channels that are/have been joined (?)
+          channels.forEach(channel => {
+            p = new Promise((res, rej) => {
+              switch (post.postType) {
+                case constants.JOIN_POST:
+                case constants.LEAVE_POST:
+                  this._reindexChannelMembership(channel, affectedPublicKey, hashReceiver, res)
+                  break
+                case constants.INFO_POST:
+                  this._reindexInfoName(channel, affectedPublicKey, hashReceiver, res)
+                  break
+                case constants.TOPIC_POST:
+                  this._reindexTopic(channel, hashReceiver, res)
+                  break
+                default:
+                  res()
+              }
+            })
+            promises.push(p)
           })
-          promises.push(p)
           Promise.all(promises).then(finished)
         })
       })
@@ -275,47 +324,57 @@ class CableStore {
   _reindexHash (hash, mappingFunction, done) {
     storedebug("reindexHash %O", hash)
     this.blobs.api.get(hash, (err, buf) => {
+      if (err) { 
+        storedebug("reindexHash could not find hash %O, returning early", hash)
+        return done() 
+      }
       storedebug("reindex with hash - blobs: err %O buf %O", err, buf)
       const obj = cable.parsePost(buf)
       mappingFunction([obj], done)
     })
   }
 
-  _reindexInfoName (publicKey, done) {
-    this.channelStateView.api.getLatestNameHash(publicKey, (err, hash) => {
+  _reindexInfoName (channel, publicKey, sendHash, done) {
+    this.channelStateView.api.getLatestNameHash(channel, publicKey, (err, hash) => {
       storedebug("latest name err", err)
       storedebug("latest name hash", hash)
       if (err && err.notFound) {
         this.userInfoView.api.clearName(publicKey)
+        sendHash(null)
         return done()
       }
       this._reindexHash(hash, this.userInfoView.map, done)
+      sendHash({channel, hash})
     })
   }
 
-  _reindexTopic (channel, done) {
+  _reindexTopic (channel, sendHash, done) {
     this.channelStateView.api.getLatestTopicHash(channel, (err, hash) => {
       storedebug("latest topic err", err)
       storedebug("latest topic hash", hash)
       if (err && err.notFound) {
         this.topicView.api.clearTopic(channel)
+        sendHash(null)
         return done()
       }
       this._reindexHash(hash, this.topicView.map, done)
+      sendHash({channel, hash})
     })
   }
 
-  _reindexChannelMembership (channel, publicKey, done) {
+  _reindexChannelMembership (channel, publicKey, sendHash, done) {
     storedebug("reindex channel membership in %s for %s", channel, publicKey.toString("hex"))
     this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
       storedebug("membership hash %O err %O", hash, err)
       // the only membership record for the given channel was deleted: clear membership information regarding channel
       if (!hash || (err && err.notFound)) {
         this.channelMembershipView.api.clearMembership(channel, publicKey)
+        sendHash(null)
         return done()
       }
       // we had prior membership information for channel, get the post and update the index
       this._reindexHash(hash, this.channelMembershipView.map, done)
+      sendHash({channel, hash})
     })
   }
 
@@ -419,6 +478,65 @@ class CableStore {
   }
 }
 
+// an abstraction that keeps track of all event listeners. reasoning behind it is that event listeners have historically been:
+// 1. many in cabal pursuits
+// 2. hard to keep track of, track down, and manage correctly (a source of leaks)
+class EventsManager {
+  // TODO (2023-04-24): return a singleton instance?
+  
+  constructor (opts) {
+    if (!opts) { opts = {} }
+    // stores the following:
+    // this.sources["store:<event>"] = { listener: eventListener, source: eventSource, eventName: eventName }
+    this.sources = new Map()
+  }
+
+  _id(className, eventName) {
+    return `${className}:${eventName}`
+  }
+
+  // register() argument example:
+  //
+  //                  [v eventSource]                          [v eventListener     ]
+  // register("store", this.store, "channel-state-replacement", () => {/* do stuff */})
+  //         [^ className]        [^ eventName               ]
+  //
+  register(className, eventSource, eventName, eventListener) {
+    const id = this._id(className, eventName)
+    if (this.sources.has(id)) { return }
+    eventdebug("register new listener %s", id)
+    this.sources.set(id, { source: eventSource, listener: eventListener })
+    eventSource.on(eventName, eventListener)
+  }
+
+  // removes all event listeners registered on className
+  deregisterAll(className) {
+    eventdebug("deregister all events on %s", className)
+    const subset = []
+    for (const key of this.sources.keys()) {
+      if (key.startsWith(className)) {
+        subset.push(key)
+      }
+    }
+
+    subset.forEach(id => {
+      const index = id.indexOf(":")
+      const className = id.slice(0, index)
+      const eventName = id.slice(index+1)
+      this.deregister(className, eventName)
+    })
+  }
+
+  deregister(className, eventName) {
+    const id = this._id(className, eventName)
+    if (!this.sources.has(id)) { return }
+    const { source, listener } = this.sources.get(id)
+    eventdebug("deregister listener %s", id)
+    source.removeEventListener(eventName, listener)
+    this.sources.delete(id)
+  }
+}
+
 class CableCore extends EventEmitter {
   constructor(opts) {
     super()
@@ -426,6 +544,7 @@ class CableCore extends EventEmitter {
     if (!opts.storage) {}
     if (!opts.network) {}
 
+    this.events = new EventsManager()
     this.kp = crypto.generateKeypair()
 
     this.store = new CableStore()
@@ -441,6 +560,12 @@ class CableCore extends EventEmitter {
     // tracks "live" requests: requests that have asked for future posts, as they are produced
     this.liveQueries = new Map()
     this._defaultTTL = 0
+
+    this.events.register("store", this.store, "channel-state-replacement", ({ channel, hash }) => {
+      console.log("TODO: Handle channel-state-replacement event")
+      console.log("channel: ", channel)
+      console.log("hash: ", hash)
+    })
 
     this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
 
