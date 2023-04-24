@@ -175,11 +175,11 @@ module.exports = function (lvl) {
           })
           const entries = await iter.all()
           debug("entries", entries)
-          const joined = entries.map(e => {
+          const channels = entries.map(e => {
             return getChannelFromKey(e[0])
           })
-          joined.sort()
-          cb(null, joined)
+          channels.sort()
+          cb(null, channels)
         })
       },
       getUsersInChannel: function (channel, cb) {
