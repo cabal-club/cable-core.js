@@ -157,7 +157,10 @@ class CableStore extends EventEmitter {
     })
     promises.push(p)
 
-    Promise.all(promises).then(done)
+    Promise.all(promises).then(() => {
+      this._emitStoredPost(hash, buf, obj.channel)
+      done()
+    })
   }
 
   leave(buf, done) {
@@ -183,9 +186,14 @@ class CableStore extends EventEmitter {
     })
     promises.push(p)
 
-    Promise.all(promises).then(done)
+    Promise.all(promises).then(() => {
+      this._emitStoredPost(hash, buf, obj.channel)
+      done()
+    })
   }
 
+
+  // TODO (2023-04-25): emit 'store-post' when done
   del(buf, done) {
     storedebug("done fn %O", done)
     if (!done) { done = util.noop }
@@ -288,7 +296,7 @@ class CableStore extends EventEmitter {
           const hashReceiver = (res) => {
             if (res) {
               // emit hash to signal reindex returned a new latest hash for channel after deleting the prior latest
-              this.emit("channel-state-replacement", { channel: res.channel, hash: res.hash })
+              this.emit("channel-state-replacement", { postType: res.postType, channel: res.channel, hash: res.hash })
             }
           }
 
@@ -345,7 +353,7 @@ class CableStore extends EventEmitter {
         return done()
       }
       this._reindexHash(hash, this.userInfoView.map, done)
-      sendHash({channel, hash})
+      sendHash({channel, hash, postType: constants.INFO_POST})
     })
   }
 
@@ -359,7 +367,7 @@ class CableStore extends EventEmitter {
         return done()
       }
       this._reindexHash(hash, this.topicView.map, done)
-      sendHash({channel, hash})
+      sendHash({channel, hash, postType: constants.TOPIC_POST })
     })
   }
 
@@ -375,7 +383,17 @@ class CableStore extends EventEmitter {
       }
       // we had prior membership information for channel, get the post and update the index
       this._reindexHash(hash, this.channelMembershipView.map, done)
-      sendHash({channel, hash})
+      // look up the post by its hash get the exact post type. this doesn't really matter when responding to a live
+      // channel state request, since we just care if it was either a JOIN_POST or LEAVE_POST, but it's good to be
+      // correct in case this sees unexpected use somewhere else down the line
+      this.blobs.api.get((err, buf) => {
+        if (err || !buf) { 
+          storedebug("reindex channel membership: could not get post associated with hash %O, returning early (err %O)", hash, err)
+          return 
+        }
+        const obj = cable.parsePost(buf)
+        sendHash({channel, hash, postType: obj.postType })
+      })
     })
   }
 
@@ -402,7 +420,10 @@ class CableStore extends EventEmitter {
     })
     promises.push(p)
 
-    Promise.all(promises).then(done)
+    Promise.all(promises).then(() => {
+      this._emitStoredPost(hash, buf, obj.channel)
+      done()
+    })
   }
 
   _emitStoredPost(hash, buf, channel) {
@@ -472,7 +493,13 @@ class CableStore extends EventEmitter {
         })
         promises.push(p)
       
-        Promise.all(promises).then(done)
+        // emit 'store-post' for each channel indexes have been confirmed to be updated
+        Promise.all(promises).then(() => {
+          channels.forEach(channel => {
+            this._emitStoredPost(hash, buf, channel)
+          })
+          done()
+        })
       })
     }
   }
@@ -575,22 +602,14 @@ class CableCore extends EventEmitter {
     this.liveQueries.set("reqid-to-channels", new Map())
     this._defaultTTL = 0
 
-    this.events.register("store", this.store, "channel-state-replacement", ({ channel, hash }) => {
-      console.log("TODO: Handle channel-state-replacement event")
-      console.log("channel: ", channel)
-      console.log("hash: ", hash)
+    this.events.register("store", this.store, "channel-state-replacement", ({ channel, postType, hash }) => {
+      livedebug("channel-state-replacement evt (channel: %s, postType %i, hash %O)", channel, postType, hash)
+      this._sendLiveHashResponse(channel, postType, [hash])
     })
 
     this.events.register("store", this.store, "store-post", ({ channel, hash, postType }) => {
       livedebug("store post evt")
-      const reqidList = this._getLiveRequests(channel)
-      reqidList.forEach(reqid => {
-        const response = cable.HASH_RESPONSE.create(reqid, [hash])
-        this.dispatchResponse(response)
-        this._updateLiveStateRequest(channel, reqid, 1)
-        livedebug("dispatch response %O", response)
-        livedebug(this.liveQueries)
-      })
+      this._sendLiveHashResponse(channel, postType, [hash])
     })
 
     this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
@@ -612,6 +631,48 @@ class CableCore extends EventEmitter {
     //  connection 
     //  join - emit(peer)
     //  leave - emit(peer)
+  }
+
+  _sendLiveHashResponse(channel, postType, hashes) {
+    const reqidList = this._getLiveRequests(channel)
+    reqidList.forEach(reqid => {
+      const requestInfo = this.requestsMap.get(reqid.toString("hex"))
+      if (requestInfo.reqType === constants.CHANNEL_STATE_REQUEST) {
+        // channel state request only sends hash responses for:
+        // post/topic
+        // post/info
+        // post/join
+        // post/leave
+        switch (postType) {
+          case constants.TOPIC_POST:
+          case constants.INFO_POST:
+          case constants.JOIN_POST:
+          case constants.LEAVE_POST:
+            // we want to continue in these cases
+            break
+          default: 
+            // the post that was emitted wasn't relevant for request type; skip
+            return
+        }
+      } else if (requestInfo.reqType === constants.CHANNEL_TIME_RANGE_REQUEST) {
+        // channel time range request only sends hash responses for:
+        // post/text
+        // post/delete
+        switch (postType) {
+          case constants.TEXT_POST:
+          case constants.DELETE_POST:
+            // we want to continue in these cases
+            break
+          default:
+            // the post that was emitted wasn't relevant for request type; skip
+            return
+        }
+      }
+      const response = cable.HASH_RESPONSE.create(reqid, hashes)
+      this.dispatchResponse(response)
+      this._updateLiveStateRequest(channel, reqid, hashes.length)
+      livedebug("dispatch response %O", response)
+    })
   }
 
   hash (buf) {

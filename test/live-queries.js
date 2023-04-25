@@ -92,7 +92,6 @@ test("channel time range request + cancel: start with empty database, send hashe
     t.true(receiveCounter <= max, `receive counter should be at most ${limit}, was ${receiveCounter}`)
   })
 
-
   core[1].handleRequest(reqBuf, () => {
     const promises = []
     // let's go for one LESS than limit (we want to test cancelling a request whose limit has not yet been reached!)
@@ -115,7 +114,6 @@ test("channel time range request + cancel: start with empty database, send hashe
     })
   })
 })
-
 
 test("channel time range request: start with populated database, send hashes as they are produced", t => {
   const core = [new CableCore(), new CableCore()]
@@ -142,7 +140,6 @@ test("channel time range request: start with populated database, send hashes as 
       receivedFirstBufHash = true
     } else {
       t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
-      t.comment(`received obj ${JSON.stringify(obj)}`)
       t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
       receiveCounter++
       t.comment(`current receiveCounter: ${receiveCounter}`)
@@ -190,10 +187,45 @@ test("channel time range request: start with populated database, send hashes as 
 
 // TODO (2023-04-25): 
 // * test channel state request with deletes -> should surface the now-newest hash
-// * test channel state request with cancel request -> should not send more hash responses after a cancel
-// * test channel time range request with cancel request -> should not send more hash responses after a cancel
 
-test("channel state request: start with empty database, send hashes as they are produced", t => {
+// a channel state request with future = 1 should only respond with hash responses for the types 
+// post/topic
+// post/join
+// post/join
+// post/leave
+test("channel state request: start with empty database. store post/text, but should not produce hash responses", t => {
+  const core = [new CableCore(), new CableCore()]
+  t.notEqual(undefined, core, "should not be undefined")
+  t.notEqual(null, core, "should not be null")
+  const channel = "introduction"
+  const ttl = 1
+  const future = 1
+  const reqBuf = core[0].requestState(channel, ttl, future)
+  const amount = 3
+  t.true(b4a.isBuffer(reqBuf), "should be buffer")
+
+  let receiveCounter = 0
+  core[1].on("response", (buf) => {
+    t.fail("a live channel state request should never emit a hash response when only post/text has been produced")
+  })
+
+  core[1].handleRequest(reqBuf, () => {
+    const promises = []
+    for (let i = 0; i < amount; i++) {
+      const p = new Promise((res, rej) => {
+        core[1].postText(channel, `${i}: hello hello!`, () => {
+          res()
+        })
+      })
+      promises.push(p)
+    }
+    Promise.all(promises).then(() => {
+      t.end()
+    })
+  })
+})
+
+test("channel state request: start with empty database. store post/topic, should produce hash responses", t => {
   const core = [new CableCore(), new CableCore()]
   t.notEqual(undefined, core, "should not be undefined")
   t.notEqual(null, core, "should not be null")
@@ -218,7 +250,7 @@ test("channel state request: start with empty database, send hashes as they are 
     const promises = []
     for (let i = 0; i < amount; i++) {
       const p = new Promise((res, rej) => {
-        core[1].postText(channel, `${i}: hello hello!`, () => {
+        core[1].setTopic(channel, `topic #${i}: welcome${'!'.repeat(i)}`, () => {
           res()
         })
       })
@@ -258,7 +290,7 @@ test("channel state request + cancel request: start with empty database, send ha
     const promises = []
     for (let i = 0; i < amount; i++) {
       const p = new Promise((res, rej) => {
-        core[1].postText(channel, `${i}: hello hello!`, () => {
+        core[1].setTopic(channel, `topic #${i}: welcome${'!'.repeat(i)}`, () => {
           res()
         })
       })
@@ -268,7 +300,7 @@ test("channel state request + cancel request: start with empty database, send ha
       // now: cancel the open `request channel state`. this means that the final post should not be received
       core[1].handleRequest(cancelBuf, () => {
         // this post should not be emitted as a response
-        core[1].postText(channel, `one final: hello hello!`, () => {
+        core[1].setTopic(channel, `topic finale: good bye${'!'.repeat(10)}`, () => {
           t.end()
         })
       })
@@ -277,6 +309,61 @@ test("channel state request + cancel request: start with empty database, send ha
 })
 
 
+test("channel state request + delete request: start with empty database, send hashes as they are produced. send new latest after a delete", t => {
+  const core = [new CableCore(), new CableCore()]
+  t.notEqual(undefined, core, "should not be undefined")
+  t.notEqual(null, core, "should not be null")
+  const channel = "introduction"
+  const ttl = 1
+  const future = 1
+  const amount = 3
+  const reqBuf = core[0].requestState(channel, ttl, future)
+  t.true(b4a.isBuffer(reqBuf), "should be buffer")
+  let latestPostedHash  // used later on
+  let hashBeforeLatest // used later on
+
+  let receiveCounter = 0
+  core[1].on("response", (buf) => {
+    t.true(b4a.isBuffer(buf))
+    const obj = cable.parseMessage(buf)
+    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+    t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
+    receiveCounter++
+    if (receiveCounter === amount + 1) {
+      t.equal(obj.hashes.length, 1, "last hash response should contain 1 hash")
+      t.true(!latestPostedHash.equals(hashBeforeLatest), "last hash and n-1 last hash should not be equal")
+      t.deepEqual(obj.hashes[0], hashBeforeLatest, "the last hash response should be the hash of the n-1 latest post")
+      t.end()
+    }
+  })
+
+  core[1].handleRequest(reqBuf, () => {
+    const promises = []
+    for (let i = 0; i < amount; i++) {
+      const p = new Promise((res, rej) => {
+        const buf = core[1].setTopic(channel, `topic #${i}: welcome${'!'.repeat(i)}`, () => {
+          res()
+        })
+        hashBeforeLatest = latestPostedHash
+        latestPostedHash = crypto.hash(buf)
+      })
+      promises.push(p)
+    }
+    Promise.all(promises).then(() => {
+      // create a quick and dirty delete request :) (core[0] doesn't have the post but using them to create the delete
+      // should work anyway)
+      t.ok(latestPostedHash, "latest hash should not be empty")
+      const deleteBuf = core[0].del(latestPostedHash)
+      // store a irrelevant (for this test / channel state request) post, for testing a bit of
+      // redundancy wrt correct behaviour & handling
+      core[1].postText(channel, "hello hello this is just some garbageo", () => {
+        // now: store the delete buf should cause a final hash response to be produced, which should
+        // be equivalent with the n-1 latest hash (the hash that was stored right before the hash that was deleted)
+        core[1]._storeExternalBuf(deleteBuf)
+      })
+    })
+  })
+})
 
 
 
