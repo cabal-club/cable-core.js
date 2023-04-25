@@ -843,15 +843,23 @@ class CableCore extends EventEmitter {
 
   /* methods that control requests to peers, causing responses to stream in (or stop) */
 	// cancel request
-	cancelRequest(reqid, cancelid) {
+	cancelRequest(cancelid) {
+    // the cancel id is the request to cancel (stop)
+    const reqid = crypto.generateReqID()
     // set ttl to 0 as it's is unused in cancel req
     const req = cable.CANCEL_REQUEST.create(reqid, 0, cancelid)
-    // cancel any potential ongoing live requests
-    this._cancelLiveStateRequest(reqid.toString("hex"))
-    // forget about the canceled request id
+    // signal to others to forget about the canceled request id
     this.dispatchRequest(req)
-    this.requestsMap.delete(cancelid.toString("hex"))
+    this._removeRequest(cancelid)
     return req
+  }
+
+  _removeRequest(reqid) {
+    const reqidHex = reqid.toString("hex")
+    // cancel any potential ongoing live requests
+    this._cancelLiveStateRequest(reqidHex)
+    // forget the targeted request id locally
+    this.requestsMap.delete(reqidHex)
   }
  
   // <-> getChannels
@@ -960,8 +968,7 @@ class CableCore extends EventEmitter {
       let response
       switch (reqType) {
         case constants.CANCEL_REQUEST:
-          // cancel any potential ongoing live requests
-          this._cancelLiveStateRequest(reqidHex)
+          this._removeRequest(obj.cancelid)
           // note: there is no corresponding response for a cancel request
           return res(null)
         case constants.POST_REQUEST:
@@ -984,7 +991,7 @@ class CableCore extends EventEmitter {
           // get post hashes for a certain channel & time range
           this.store.getChannelTimeRange(obj.channel, obj.timeStart, obj.timeEnd, obj.limit, (err, hashes) => {
             if (err) { return rej(err) }
-            if (hashes.length > 0) {
+            if (hashes && hashes.length > 0) {
               response = cable.HASH_RESPONSE.create(reqid, hashes)
               return res(response)
             } else {
@@ -1001,8 +1008,12 @@ class CableCore extends EventEmitter {
           // get channel state hashes
           this.getChannelStateHashes(obj.channel, (err, hashes) => {
             if (err) { return rej(err) }
-            response = cable.HASH_RESPONSE.create(reqid, hashes)
-            return res(response)
+            if (hashes && hashes.length > 0) {
+              response = cable.HASH_RESPONSE.create(reqid, hashes)
+              return res(response)
+            } else {
+              return res(null)
+            }
           })
           break
         case constants.CHANNEL_LIST_REQUEST:
