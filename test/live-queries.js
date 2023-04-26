@@ -7,7 +7,8 @@ const crypto = require("../../cable/cryptography.js")
 const { testPostType, getDescriptiveType, assertPostType, assertBufType }  = require("../testutils.js")
 
 /* this test suite contains a bunch of tests exercising live query functionality of the channel state request
- * and the channel time range request. where one party has received a request for more post hashes as they are produced"
+ * and the channel time range request. what is termed "live query" refers to the behaviour where one party has
+ * received a request to respond with more post hashes as they are produced
 */
 
 test("test passes", t => {
@@ -185,10 +186,7 @@ test("channel time range request: start with populated database, send hashes as 
   })
 })
 
-// TODO (2023-04-25): 
-// * test channel state request with deletes -> should surface the now-newest hash
-
-// a channel state request with future = 1 should only respond with hash responses for the types 
+// a channel state request with future = 1 should only respond with hash responses for the types :
 // post/topic
 // post/join
 // post/join
@@ -262,7 +260,6 @@ test("channel state request: start with empty database. store post/topic, should
   })
 })
 
-
 test("channel state request + cancel request: start with empty database, send hashes as they are produced. stop after cancel", t => {
   const core = [new CableCore(), new CableCore()]
   t.notEqual(undefined, core, "should not be undefined")
@@ -308,7 +305,7 @@ test("channel state request + cancel request: start with empty database, send ha
   })
 })
 
-
+// tests channel state request with deletes -> should surface the now-newest hash
 test("channel state request + delete request: start with empty database, send hashes as they are produced. send new latest after a delete", t => {
   const core = [new CableCore(), new CableCore()]
   t.notEqual(undefined, core, "should not be undefined")
@@ -365,12 +362,97 @@ test("channel state request + delete request: start with empty database, send ha
   })
 })
 
+test("channel state request: start with empty database. store post/topic, post/join, post/info. should produce hash responses", t => {
+  const core = [new CableCore(), new CableCore()]
+  t.notEqual(undefined, core, "should not be undefined")
+  t.notEqual(null, core, "should not be null")
+  const channel = "introduction"
+  const ttl = 1
+  const future = 1
+  const reqBuf = core[0].requestState(channel, ttl, future)
+  const amount = 3
+  t.true(b4a.isBuffer(reqBuf), "should be buffer")
 
+  let receiveCounter = 0
+  core[1].on("response", (buf) => {
+    t.true(b4a.isBuffer(buf))
+    const obj = cable.parseMessage(buf)
+    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+    t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
+    receiveCounter++
+    t.true(receiveCounter <= amount, `receive counter should be at most ${amount}, was ${receiveCounter}`)
+    if (receiveCounter == amount) {
+      t.end()
+    }
+  })
 
+  // register the channel state request
+  core[1].handleRequest(reqBuf, () => {
+    // then start writing posts to the databasem which will be sent out as future'd hash responses
+    const promises = []
+    for (let i = 0; i < amount; i++) {
+      const p = new Promise((res, rej) => {
+        switch (i) {
+          case 0:
+            core[1].join(channel, () => { res() })
+            break
+          case 1:
+            core[1].setTopic(channel, `topic: welcome!`, () => { res() })
+            break
+          case 2:
+            core[1].setNick("sweet-vine", () => { res() })
+            break
+        }
+      })
+      promises.push(p)
+    }
+    Promise.all(promises)
+  })
+})
 
+test("channel state request: start with empty database. store post/topic, post/join, post/info, but some to an unrelated channel. should produce hash responses for requested channel only", t => {
+  const core = [new CableCore(), new CableCore()]
+  t.notEqual(undefined, core, "should not be undefined")
+  t.notEqual(null, core, "should not be null")
+  const channel = "introduction"
+  const unrelatedChannel = "chats-and-such"
+  const ttl = 1
+  const future = 1
+  const reqBuf = core[0].requestState(channel, ttl, future)
+  const amount = 3
+  t.true(b4a.isBuffer(reqBuf), "should be buffer")
 
+  let receiveCounter = 0
+  core[1].on("response", (buf) => {
+    t.true(b4a.isBuffer(buf))
+    const obj = cable.parseMessage(buf)
+    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+    t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
+    receiveCounter++
+    t.true(receiveCounter <= amount, `receive counter should be at most ${amount}, was ${receiveCounter}`)
+  })
 
-
-
-
+  // register the channel state request
+  core[1].handleRequest(reqBuf, () => {
+    // then start writing posts to the databasem which will be sent out as future'd hash responses
+    const promises = []
+    for (let i = 0; i < amount; i++) {
+      const p = new Promise((res, rej) => {
+        switch (i) {
+          case 0:
+            core[1].join(channel, () => { res() })
+            break
+          case 1:
+            core[1].setTopic(unrelatedChannel, `topic: welcome!`, () => { res() })
+            break
+          case 2:
+            core[1].setNick("sweet-vine", () => { res() })
+            break
+        }
+      })
+      promises.push(p)
+    }
+    Promise.all(promises).then(() => { t.end() })
+  })
+})
 
