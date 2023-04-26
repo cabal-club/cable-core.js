@@ -192,8 +192,6 @@ class CableStore extends EventEmitter {
     })
   }
 
-
-  // TODO (2023-04-25): emit 'store-post' when done
   del(buf, done) {
     storedebug("done fn %O", done)
     if (!done) { done = util.noop }
@@ -207,6 +205,7 @@ class CableStore extends EventEmitter {
     const prom = new Promise((res, rej) => {
       this._storeNewPost(buf, hash, res)
     })
+
     prom.then(() => {
       let processed = 0
       // create a self-contained loop of deletions, where each related batch of deletions is performed in unison
@@ -302,8 +301,7 @@ class CableStore extends EventEmitter {
 
           // reindex accreted views if they were likely to be impacted e.g. reindex channel topic view if channel topic
           // was deleted
-          //
-          // note: if we deleted a post/info that necessitates updating all channels that are/have been joined (?)
+          // note: if what was deleted was a post/info that necessitates updating all channels that identity is or has been a member of
           channels.forEach(channel => {
             p = new Promise((res, rej) => {
               switch (post.postType) {
@@ -323,7 +321,13 @@ class CableStore extends EventEmitter {
             })
             promises.push(p)
           })
-          Promise.all(promises).then(finished)
+          Promise.all(promises).then(() => {
+            // finally: emit 'store-post' event for the post/delete that were stored, one per relevant channel
+            channels.forEach(channel => {
+              this._emitStoredPost(hash, buf, channel)
+            })
+            finished()
+          })
         })
       })
     }
@@ -426,14 +430,6 @@ class CableStore extends EventEmitter {
     })
   }
 
-  _emitStoredPost(hash, buf, channel) {
-    if (channel) {
-      this.emit("store-post", { hash, channel, postType: cable.peekPost(buf) })
-    } else { // post/info
-      this.emit("store-post", { hash, channel: null, postType: cable.peekPost(buf) })
-    }
-  }
-
   text(buf, done) {
     if (!done) { done = util.noop }
     const promises = []
@@ -501,6 +497,14 @@ class CableStore extends EventEmitter {
           done()
         })
       })
+    }
+  }
+
+  _emitStoredPost(hash, buf, channel) {
+    if (channel) {
+      this.emit("store-post", { hash, channel, postType: cable.peekPost(buf) })
+    } else { // post/info where we couldn't find any channel membership?
+      this.emit("store-post", { hash, channel: null, postType: cable.peekPost(buf) })
     }
   }
 
@@ -608,7 +612,7 @@ class CableCore extends EventEmitter {
     })
 
     this.events.register("store", this.store, "store-post", ({ channel, hash, postType }) => {
-      livedebug("store post evt")
+      livedebug("store post evt, post type: %i", postType)
       this._sendLiveHashResponse(channel, postType, [hash])
     })
 
@@ -1328,6 +1332,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     const resType = cable.peek(res)
     const reqid = cable.peekReqid(res)
+    const reqidHex = reqid.toString("hex")
 
     // check if message is a request or a response
     if (!this._messageIsResponse(resType)) {
@@ -1335,11 +1340,11 @@ class CableCore extends EventEmitter {
     }
 
     // if we don't know about a reqid, then the corresponding response is not something we want to handle
-    if (!this.requestsMap.has(reqid.toString("hex"))) {
+    if (!this.requestsMap.has(reqidHex)) {
       return
     }
 
-    const entry = this.requestsMap.get(reqid.toString("hex"))
+    const entry = this.requestsMap.get(reqidHex)
 
     if (entry.resType === resType) {
       coredebug("response for id %O is of the type expected when making the request", reqid)
@@ -1349,11 +1354,6 @@ class CableCore extends EventEmitter {
 
     const obj = cable.parseMessage(res)
 
-    // const entry = this._reqEntryTemplate(resType)
-    // entry.reqid = reqid
-    // this._registerRequest(entry)
-    // if (obj.ttl > 0) { this.forwardRequest(res) }
-    
     // TODO (2023-03-23): handle decommissioning all data relating to a reqid whose request-response lifetime has ended
     //
     // TODO (2023-03-23): handle forwarding responses onward; use entry.origin?
@@ -1361,7 +1361,7 @@ class CableCore extends EventEmitter {
       this.forwardResponse(res)
       // we are not the terminal for this response (we did not request it), so in the base case we should not store its
       // data.
-      // however: we could inspect the payload of a POST_RESPONSE to see if it contains any hashes we are waiting for..
+      // however: we could inspect the payload of a POST_RESPONSE to see if it contains posts for any hashes we are waiting for..
       if (resType === constants.POST_RESPONSE) {
         this._handleRequestedBufs(this._processPostResponse(obj), () => {
           console.log("TODO: wow very great :)")
