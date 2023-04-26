@@ -616,6 +616,11 @@ class CableCore extends EventEmitter {
       this._sendLiveHashResponse(channel, postType, [hash])
     })
 
+    this.events.register("core", this, "live-request-ended", (reqidHex) => {
+      livedebug("live query concluded for %s", reqidHex)
+      this._sendConcludingHashResponse(b4a.from(reqidHex, "hex"))
+    })
+
     this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
 
     /* event sources */
@@ -677,6 +682,15 @@ class CableCore extends EventEmitter {
       this._updateLiveStateRequest(channel, reqid, hashes.length)
       livedebug("dispatch response %O", response)
     })
+  }
+
+  _sendConcludingHashResponse (reqid) {
+    // a concluding hash response is a signal to others that we've finished with this request, and regard it as ended on
+    // our side
+    const response = cable.HASH_RESPONSE.create(reqid, [])
+    coredebug("send concluding hash response for %O", reqid)
+    this.dispatchResponse(response)
+    this._removeRequest(reqid)
   }
 
   hash (buf) {
@@ -1043,12 +1057,14 @@ class CableCore extends EventEmitter {
             // hashes we could not find in our database are represented as null: filter those out
             const responsePosts = posts.filter(post => post !== null)
             response = cable.POST_RESPONSE.create(reqid, responsePosts)
-            return res(response)
+            return res([response])
           })
           break
         case constants.TIME_RANGE_REQUEST:
           coredebug("create a response: get time range using params in %O", obj)
           // if obj.timeEnd === 0 => keep this request alive
+          // TODO (2023-04-26): if timeEnd !== 0 and we've gotten out all our hashes, send a hash response with
+          // hashes=[] to signal end of request + conclude it & remove request
           if (obj.timeEnd === 0) {
             const hasLimit = obj.limit !== 0
             this._addLiveStateRequest(obj.channel, obj.reqid, obj.limit, hasLimit)
@@ -1057,8 +1073,17 @@ class CableCore extends EventEmitter {
           this.store.getChannelTimeRange(obj.channel, obj.timeStart, obj.timeEnd, obj.limit, (err, hashes) => {
             if (err) { return rej(err) }
             if (hashes && hashes.length > 0) {
+              const responses = []
               response = cable.HASH_RESPONSE.create(reqid, hashes)
-              return res(response)
+              responses.push(response)
+              // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
+              if (obj.timeEnd > 0) {
+                coredebug("time-range-request: prepare concluding hash response for %O", reqid)
+                response = cable.HASH_RESPONSE.create(reqid, [])
+                responses.push(response)
+                this._removeRequest(reqid)
+              }
+              return res(responses)
             } else {
               return res(null)
             }
@@ -1074,8 +1099,17 @@ class CableCore extends EventEmitter {
           this.getChannelStateHashes(obj.channel, (err, hashes) => {
             if (err) { return rej(err) }
             if (hashes && hashes.length > 0) {
+              const responses = []
               response = cable.HASH_RESPONSE.create(reqid, hashes)
-              return res(response)
+              responses.push(response)
+              // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
+              if (obj.future === 0) {
+                coredebug("channel-state-request: prepare concluding hash response for %O", reqid)
+                response = cable.HASH_RESPONSE.create(reqid, [])
+                responses.push(response)
+                this._removeRequest(reqid)
+              }
+              return res(responses)
             } else {
               return res(null)
             }
@@ -1086,7 +1120,7 @@ class CableCore extends EventEmitter {
             if (err) { return rej(err) }
             // get a list of channel names
             response = cable.CHANNEL_LIST_RESPONSE.create(reqid, channels)
-            return res(response)
+            return res([response])
           })
           break
         default:
@@ -1094,10 +1128,12 @@ class CableCore extends EventEmitter {
       }
     })
 
-    promise.then(response => {
+    promise.then(responses => {
       // cancel request has no response => it returns null to resolve promise
-      if (response !== null) {
-        this.dispatchResponse(response)
+      if (responses !== null) {
+        responses.forEach(response => {
+          this.dispatchResponse(response)
+        })
       }
       done()
     })
@@ -1188,6 +1224,8 @@ class CableCore extends EventEmitter {
       livedebug("updated live request for %O", entry)
       if (entry.updatesRemaining <= 0) {
         this._cancelLiveStateRequest(entry.reqid)
+        // emit an event when a live request has finished service
+        this.emit("live-request-ended", entry.reqid)
       }
     }
   }
@@ -1212,8 +1250,7 @@ class CableCore extends EventEmitter {
     } else {
       this.liveQueries.set(channel, channelQueries)
     }
-    // emit an event when a live request has finished service -> enable us to renew the request
-    this.emit("live-request-ended", reqidHex)
+    this.liveQueries.get("reqid-to-channels").delete(reqidHex)
   }
 
   _messageIsRequest (type) {

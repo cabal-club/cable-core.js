@@ -39,12 +39,19 @@ test("channel time range request: start with empty database, send hashes as they
 
   let receiveCounter = 0
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
-    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+    if (receiveCounter <= limit) {
+      t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+    }
     t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-    receiveCounter++
-    t.true(receiveCounter <= limit, `receive counter should be at most ${limit}, was ${receiveCounter}`)
+    if (obj.hashes.length > 0) {
+      t.true(receiveCounter <= limit, `receive counter should be at most ${limit}, was ${receiveCounter}`)
+    } 
+    if (obj.hashes.length == 0) {
+      t.true(receiveCounter == limit + 1, `receive counter should be at ${limit}+1 (has concluding hash response), was ${receiveCounter}`)
+    }
   })
 
 
@@ -85,12 +92,19 @@ test("channel time range request + cancel: start with empty database, send hashe
 
   let receiveCounter = 0
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
-    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+    if (receiveCounter <= max) {
+      t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+    }
     t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-    receiveCounter++
-    t.true(receiveCounter <= max, `receive counter should be at most ${limit}, was ${receiveCounter}`)
+    if (obj.hashes.length > 0) {
+      t.true(receiveCounter <= max, `receive counter should be at most ${max}, was ${receiveCounter}`)
+    } 
+    if (obj.hashes.length == 0) {
+      t.true(receiveCounter === max + 1, `receive counter should be at ${max}+1 (has concluding hash response), was ${receiveCounter}`)
+    }
   })
 
   core[1].handleRequest(reqBuf, () => {
@@ -133,18 +147,22 @@ test("channel time range request: start with populated database, send hashes as 
   let receivedFirstBufHash = false
   let firstBufHash
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
+    t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
     if (obj.hashes.length > 0 && obj.hashes[0].equals(firstBufHash)) {
       t.comment("first buf received")
       t.false(receivedFirstBufHash, "should only receive hash of first buf once")
       receivedFirstBufHash = true
     } else {
-      t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
-      t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-      receiveCounter++
-      t.comment(`current receiveCounter: ${receiveCounter}`)
-      t.true(receiveCounter <= limit, `receive counter should be at most ${limit}, was ${receiveCounter}`)
+      // +1 because we have one message in database to start with (firstBuf) which will be sent as a response as part
+      // of the non-live behaviour of a channel time range request
+      if (receiveCounter <= (limit + 1)) {
+        t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
+      } else {
+        t.true(obj.hashes.length === 0, "concluding response hash should be zero in length")
+      }
     }
   })
 
@@ -202,7 +220,6 @@ test("channel state request: start with empty database. store post/text, but sho
   const amount = 3
   t.true(b4a.isBuffer(reqBuf), "should be buffer")
 
-  let receiveCounter = 0
   core[1].on("response", (buf) => {
     t.fail("a live channel state request should never emit a hash response when only post/text has been produced")
   })
@@ -236,12 +253,11 @@ test("channel state request: start with empty database. store post/topic, should
 
   let receiveCounter = 0
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
-    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
     t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-    receiveCounter++
-    t.true(receiveCounter <= amount, `receive counter should be at most ${amount}, was ${receiveCounter}`)
+    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
   })
 
   core[1].handleRequest(reqBuf, () => {
@@ -275,12 +291,11 @@ test("channel state request + cancel request: start with empty database, send ha
 
   let receiveCounter = 0
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
-    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
     t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-    receiveCounter++
-    t.true(receiveCounter <= amount, `receive counter should be at most ${amount}, was ${receiveCounter}`)
+    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
   })
 
   core[1].handleRequest(reqBuf, () => {
@@ -321,11 +336,11 @@ test("channel state request + delete request: start with empty database, send ha
 
   let receiveCounter = 0
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
-    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
     t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-    receiveCounter++
+    t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
     if (receiveCounter === amount + 1) {
       t.equal(obj.hashes.length, 1, "last hash response should contain 1 hash")
       t.true(!latestPostedHash.equals(hashBeforeLatest), "last hash and n-1 last hash should not be equal")
@@ -375,11 +390,11 @@ test("channel state request: start with empty database. store post/topic, post/j
 
   let receiveCounter = 0
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
     t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
     t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-    receiveCounter++
     t.true(receiveCounter <= amount, `receive counter should be at most ${amount}, was ${receiveCounter}`)
     if (receiveCounter == amount) {
       t.end()
@@ -424,11 +439,11 @@ test("channel state request: start with empty database. store post/topic, post/j
 
   let receiveCounter = 0
   core[1].on("response", (buf) => {
+    receiveCounter++
     t.true(b4a.isBuffer(buf))
     const obj = cable.parseMessage(buf)
     t.true(obj.hashes.length > 0, "response hashes should be non-zero in length")
     t.equal(obj.msgType, constants.HASH_RESPONSE, "response buffer should be hash response") 
-    receiveCounter++
     t.true(receiveCounter <= amount, `receive counter should be at most ${amount}, was ${receiveCounter}`)
   })
 
