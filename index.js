@@ -999,7 +999,8 @@ class CableCore extends EventEmitter {
 
   _registerRequest(id, origin, type) {
     if (this.requestsMap.has(id)) {
-      throw new Error(`request map already had reqid %O`, reqid)
+      coredebug(`request map already had reqid %O`, reqid)
+      return
     }
     // TODO (2023-03-23): handle recipients at some point
     // entry.recipients.push(peer)
@@ -1151,6 +1152,7 @@ class CableCore extends EventEmitter {
       return
     }
     const reqid = cable.peekReqid(buf)
+    // don't remember a cancel request id as it expects no response
     if (reqtype !== constants.CANCEL_REQUEST) {
       this._registerLocalRequest(reqid, reqtype)
     }
@@ -1344,11 +1346,16 @@ class CableCore extends EventEmitter {
       const hash = crypto.hash(post)
       if (this.requestedHashes.has(hash.toString("hex"))) {
         requestedPosts.push(post)
+        // clear hash from map
+        this.requestedHashes.delete(hash.toString("hex"))
       }
     })
     return requestedPosts
   }
 
+  _isReqidKnown (reqid) {
+    return this.requestsMap.has(reqid.toString("hex"))
+  }
 
   _handleRequestedBufs(bufs, done) {
     // check: does the hash of each entry in the post response correspond to hashes we have requested?
@@ -1411,7 +1418,12 @@ class CableCore extends EventEmitter {
     // process the response according to what type it was
     switch (resType) {
       case constants.HASH_RESPONSE:
-          // query data store and try to get the data for each of the returned hashes. 
+        // hash response has signalled end of responses, deallocate reqid
+        if (obj.hashes.length === 0) {
+          this._removeRequest(reqid)
+          return done()
+        }
+        // query data store and try to get the data for each of the returned hashes. 
         this.store.blobs.api.getMany(obj.hashes, (err, bufs) => {
           // collect all the hashes we still don't have data for (represented by null in returned `bufs`) and create a
           // post request

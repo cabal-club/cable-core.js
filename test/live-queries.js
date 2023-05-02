@@ -74,6 +74,83 @@ test("channel time range request: start with empty database, send hashes as they
   })
 })
 
+test("end to end channel time range request: start with empty database, send hashes as they are produced. end of response message should be processed correctly (reqid forgotten)", t => {
+  // core[0] requester
+  // core[1] responder
+  const core = [new CableCore(), new CableCore()]
+  t.notEqual(undefined, core, "should not be undefined")
+  t.notEqual(null, core, "should not be null")
+  const referenceTime = new Date("2023-04-25")
+  const startTime = new Date(referenceTime - ONE_DAY_MS).getTime()
+  const channel = "introduction"
+  const endTime = 0
+  const ttl = 1
+  const limit = 3
+  const reqBuf = core[0].requestPosts(channel, startTime, endTime, ttl, limit)
+  const reqid = cable.parseMessage(reqBuf).reqid
+  t.true(b4a.isBuffer(reqBuf), "should be buffer")
+  t.true(b4a.isBuffer(reqid), "reqid should be buffer")
+  t.true(core[0]._isReqidKnown(reqid), "core[0] should initially know reqid for newly created request")
+
+  let receiveCounter = 0
+  const bufs = []
+  const queue = []
+  // potentially jank prone way of testing
+  let processing = false
+  const processQueue = (index) => {
+    if (index > bufs.length) {
+      t.true(index > limit, "index should be greater than limit")
+      t.end()
+      return
+    }
+    const buf = bufs[index]
+    const cb = queue[index]
+    const p = new Promise((res, rej) => {
+      core[0].handleResponse(buf, cb)
+    }).then(() => {
+      processQueue(index + 1)
+    })
+  }
+  core[1].on("response", (buf) => {
+    t.true(b4a.isBuffer(buf), "response should be a buffer")
+    bufs.push(buf)
+    const obj = cable.parseMessage(buf)
+    const testAfterHandlingResponse = () => {
+      receiveCounter++
+      t.deepEqual(reqid, obj.reqid, "reqid should be same for request and response")
+      if (receiveCounter >= limit) {
+        t.false(core[0]._isReqidKnown(reqid), "core[0] should forget request id after response finish")
+      } else if (receiveCounter < limit) {
+        t.true(core[0]._isReqidKnown(reqid), "core[0] should known the request id for its ongoing request")
+      }
+    }
+    queue.push(testAfterHandlingResponse)
+    if (!processing) {
+      processQueue(0)
+      processing = true
+    }
+  })
+
+
+  core[1].handleRequest(reqBuf, () => {
+    const promises = []
+    for (let i = 0; i < limit; i++) {
+      const p = new Promise((res, rej) => {
+        core[1].postText(channel, `${i}: hello hello!`, () => {
+          res()
+        })
+      })
+      promises.push(p)
+    }
+    Promise.all(promises).then(() => {
+      // this post should not be emitted as a response
+      core[1].postText(channel, `one final: hello hello!`, () => {
+        t.end()
+      })
+    })
+  })
+})
+
 test("channel time range request + cancel: start with empty database, send hashes as they are produced. stop after a cancel", t => {
   const core = [new CableCore(), new CableCore()]
   t.notEqual(undefined, core, "should not be undefined")
