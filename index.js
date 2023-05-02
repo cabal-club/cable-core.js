@@ -1068,7 +1068,7 @@ class CableCore extends EventEmitter {
 
     const obj = cable.parseMessage(req)
     this._registerRemoteRequest(reqid, reqType)
-    if (obj.ttl > 1) { this.forwardRequest(req) }
+    if (obj.ttl > 0) { this.forwardRequest(req) }
 
     // create the appropriate response depending on the request we're handling
     let promise = new Promise((res, rej) => {
@@ -1316,10 +1316,6 @@ class CableCore extends EventEmitter {
       case constants.POST_REQUEST:
         decrementedBuf = cable.POST_REQUEST.decrementTTL(buf)
         break
-      case constants.CANCEL_REQUEST:
-        decrementedBuf = cable.CANCEL_REQUEST.decrementTTL(buf)
-        // TODO (2023-04-24): handle cancel request behaviour
-        break
       case constants.TIME_RANGE_REQUEST:
         decrementedBuf = cable.TIME_RANGE_REQUEST.decrementTTL(buf)
         break
@@ -1381,18 +1377,19 @@ class CableCore extends EventEmitter {
     return requestedPosts
   }
 
+  // useful for tests
   _isReqidKnown (reqid) {
     return this.requestsMap.has(reqid.toString("hex"))
   }
 
   _handleRequestedBufs(bufs, done) {
-    // check: does the hash of each entry in the post response correspond to hashes we have requested?
-    // process each post depending on which type of post it is
+    // here we check: 
+    // does the hash of each entry in the post response correspond to hashes we have requested?  
     let p
     const promises = []
     bufs.forEach(buf => {
       p = new Promise((res, rej) => {
-        // correctly indexes the external buf depending on post type
+        // _storeExternalBuf correctly indexes the external buf depending on post type
         this._storeExternalBuf(buf, () => { res() })
       })
       promises.push(p)
