@@ -75,6 +75,10 @@ module.exports = function (lvl) {
         let value
         let variableKey = ""
         switch (msg.postType) {
+          // writing to a channel is interpreted as a signal to join that channel
+          case constants.TEXT_POST:
+          // setting a channel topic is interpreted as an implicit signal to have joined that channel
+          case constants.TOPIC_POST:
           case constants.JOIN_POST:
             value = 1
             break

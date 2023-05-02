@@ -424,6 +424,20 @@ class CableStore extends EventEmitter {
     })
     promises.push(p)
 
+    // handle implicit channel membership behaviour (posting to a channel one is not a member of)
+    p = new Promise((res, rej) => {
+      // check if pubkey is a member of said channel
+      this.channelMembershipView.api.isInChannel(obj.channel, obj.publicKey, (err, isChannelMember) => {
+        // if not a member, and they posted a post/topic, register that as an intent to join that channel as a member
+        if (!err && !isChannelMember) {
+          this.channelMembershipView.map([obj], res)
+          return
+        }
+        res()
+      })
+    })
+    promises.push(p)
+
     Promise.all(promises).then(() => {
       this._emitStoredPost(hash, buf, obj.channel)
       done()
@@ -445,6 +459,19 @@ class CableStore extends EventEmitter {
     
     p = new Promise((res, rej) => {
       this.messagesView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    // handle implicit channel membership behaviour (posting to a channel one is not a member of)
+    p = new Promise((res, rej) => {
+      this.channelMembershipView.api.isInChannel(obj.channel, obj.publicKey, (err, isChannelMember) => {
+        // if not a member, and they posted a post/text, register that as an intent to join that channel as a member
+        if (!err && !isChannelMember) {
+          this.channelMembershipView.map([obj], res)
+          return
+        }
+        res()
+      })
     })
     promises.push(p)
 
@@ -1344,6 +1371,7 @@ class CableCore extends EventEmitter {
     const requestedPosts = []
     obj.posts.forEach(post => {
       const hash = crypto.hash(post)
+      // we wanted this post!
       if (this.requestedHashes.has(hash.toString("hex"))) {
         requestedPosts.push(post)
         // clear hash from map
@@ -1364,6 +1392,7 @@ class CableCore extends EventEmitter {
     const promises = []
     bufs.forEach(buf => {
       p = new Promise((res, rej) => {
+        // correctly indexes the external buf depending on post type
         this._storeExternalBuf(buf, () => { res() })
       })
       promises.push(p)

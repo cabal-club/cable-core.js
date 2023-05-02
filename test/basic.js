@@ -43,6 +43,56 @@ test("writing to channel should persist post in store", t => {
   testPostType(t, core, buf, constants.TEXT_POST, t.end)
 })
 
+test("writing to channel implicitly signals membership, user should read as a member after posting", t => {
+  const core = new CableCore()
+  const pubkey = core.kp.publicKey
+  const channel = "introduction"
+  const text = "hello cablers! i am cable-person"
+  core.getUsersInChannel(channel, (err, users) => {
+    t.error(err, "get users in channel should work")
+    t.equal(users.size, 0, "should be no users at start")
+  })
+  const buf = core.postText(channel, text, () => {
+    const obj = cable.parsePost(buf)
+    t.ok(obj.channel, "channel property should exist")
+    t.equal(obj.channel, channel, `channel should be ${channel}`)
+    t.equal(obj.text, text, `text in object should be identical to input`)
+
+    core.getUsersInChannel(channel, (err, users) => {
+      t.error(err, "get users in channel should work")
+      t.equal(users.size, 1, "should have 1 user after posting")
+      t.true(users.has(pubkey.toString("hex")), "returned users map should have posting user")
+      t.end()
+    })
+  })
+})
+
+test("implicitly joined channel should be possible to leave", t => {
+  const core = new CableCore()
+  const pubkey = core.kp.publicKey
+  const channel = "introduction"
+  const text = "hello cablers! i am cable-person"
+  const buf = core.postText(channel, text, () => {
+    const obj = cable.parsePost(buf)
+    t.ok(obj.channel, "channel property should exist")
+    t.equal(obj.channel, channel, `channel should be ${channel}`)
+    t.equal(obj.text, text, `text in object should be identical to input`)
+
+    core.getUsersInChannel(channel, (err, users) => {
+      t.error(err, "get users in channel should work")
+      t.equal(users.size, 1, "should have 1 user after posting")
+      t.true(users.has(pubkey.toString("hex")), "returned users map should have posting user")
+      core.leave(channel, () => {
+        core.getUsersInChannel(channel, (err, users) => {
+          t.error(err, "get users in channel should work")
+          t.equal(users.size, 0, "channel should have no user after leaving")
+          t.end()
+        })
+      })
+    })
+  })
+})
+
 test("write to a channel and then get message as chat", t => {
   const core = new CableCore()
   const channel = "introduction"
@@ -136,6 +186,60 @@ test("setting channel topic should persist post in store", t => {
   t.equal(obj.topic, topic, `topic in object should be identical to input`)
 
   testPostType(t, core, buf, constants.TOPIC_POST, t.end)
+})
+
+test("setting channel topic should implicitly join channel", t => {
+  const core = new CableCore()
+  const pubkey = core.kp.publicKey
+  const channel = "introduction"
+  const topic = "introduce yourself to fellow cablers"
+  core.getUsersInChannel(channel, (err, users) => {
+    t.error(err, "get users in channel should work")
+    t.equal(users.size, 0, "should have no users initially")
+  })
+
+  const buf = core.setTopic(channel, topic, () => {
+    assertBufType(t, buf, constants.TOPIC_POST)
+    const obj = cable.parsePost(buf)
+    t.ok(obj.channel, "channel property should exist")
+    t.equal(obj.channel, channel, `channel should be ${channel}`)
+    t.equal(obj.topic, topic, `topic in object should be identical to input`)
+
+    core.getUsersInChannel(channel, (err, users) => {
+      t.error(err, "get users in channel should work")
+      t.equal(users.size, 1, "should have 1 user after setting topic")
+      t.true(users.has(pubkey.toString("hex")), "returned users map should have posting user")
+      t.end()
+    })
+  })
+})
+
+test("implicitly joined channel (by setting topic) should be possible to leave", t => {
+  const core = new CableCore()
+  const pubkey = core.kp.publicKey
+  const channel = "introduction"
+  const topic = "introduce yourself to fellow cablers"
+
+  const buf = core.setTopic(channel, topic, () => {
+    assertBufType(t, buf, constants.TOPIC_POST)
+    const obj = cable.parsePost(buf)
+    t.ok(obj.channel, "channel property should exist")
+    t.equal(obj.channel, channel, `channel should be ${channel}`)
+    t.equal(obj.topic, topic, `topic in object should be identical to input`)
+
+    core.getUsersInChannel(channel, (err, users) => {
+      t.error(err, "get users in channel should work")
+      t.equal(users.size, 1, "should have 1 user after setting topic")
+      t.true(users.has(pubkey.toString("hex")), "returned users map should have posting user")
+      core.leave(channel, () => {
+        core.getUsersInChannel(channel, (err, users) => {
+          t.error(err, "get users in channel should work")
+          t.equal(users.size, 0, "channel should have no user after leaving")
+          t.end()
+        })
+      })
+    })
+  })
 })
 
 test("setting a nick should persist post in store", t => {
