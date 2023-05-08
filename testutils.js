@@ -38,7 +38,7 @@ function testPostType (t, core, buf, postType, next) {
 }
 
 function getDescriptiveType(t, postType) {
-  let descripitiveType = ""
+  let descriptiveType = ""
   switch (postType) {
     case constants.TEXT_POST:
       descriptiveType = "post/text"
