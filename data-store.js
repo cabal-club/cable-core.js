@@ -43,7 +43,6 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
-        // TODO: decide format of input; should we operate on a json object or not? 
         if (!sanitize(msg)) return
         // TODO (2023-02-23): decide on if key should be binary form of hash, or hex encoded hash.
         // benefits of binary: don't need to convert back and forth

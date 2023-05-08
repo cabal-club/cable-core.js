@@ -42,7 +42,6 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach(function (msg) {
-        // TODO: decide format of input; should we operate on a json object or not?
         if (!sanitize(msg)) return
 
         /* key scheme
