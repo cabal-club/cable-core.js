@@ -681,8 +681,8 @@ class CableCore extends EventEmitter {
     const reqidList = this._getLiveRequests(channel)
     reqidList.forEach(reqid => {
       const requestInfo = this.requestsMap.get(reqid.toString("hex"))
-      livedebug("%O", requestInfo)
-      if (requestInfo.reqType === constants.CHANNEL_STATE_REQUEST) {
+      const reqType = requestInfo.obj.msgType
+      if (reqType === constants.CHANNEL_STATE_REQUEST) {
         // channel state request only sends hash responses for:
         // post/topic
         // post/info
@@ -699,7 +699,7 @@ class CableCore extends EventEmitter {
             // the post that was emitted wasn't relevant for request type; skip
             return
         }
-      } else if (requestInfo.reqType === constants.TIME_RANGE_REQUEST) {
+      } else if (reqType === constants.TIME_RANGE_REQUEST) {
         // channel time range request only sends hash responses for:
         // post/text
         // post/delete
@@ -1009,17 +1009,15 @@ class CableCore extends EventEmitter {
     return req
   }
 
-  _reqEntryTemplate (reqid, reqType, obj) {
+  _reqEntryTemplate (obj) {
     const entry = {
-      reqid,
-      "circuitId": b4a.alloc(4).fill(0),
-      reqType,
-      obj,
+      obj, // `obj` is the full JSON encoded cable message representing the request being mapped
       "resType": -1,
       "recipients": [],
       "origin": false
     }
 
+    const reqType = obj.msgType
     switch (reqType) {
       case constants.POST_REQUEST:
         entry.resType = constants.POST_RESPONSE
@@ -1042,16 +1040,16 @@ class CableCore extends EventEmitter {
   }
 
 
-  _registerRequest(id, origin, type, obj) {
-    if (this.requestsMap.has(id)) {
+  _registerRequest(reqid, origin, type, obj) {
+    if (this.requestsMap.has(reqid)) {
       coredebug(`request map already had reqid %O`, reqid)
       return
     }
     // TODO (2023-03-23): handle recipients at some point
     // entry.recipients.push(peer)
-    const entry = this._reqEntryTemplate(id, type, obj)
+    const entry = this._reqEntryTemplate(obj)
     entry.origin = origin
-    this.requestsMap.set(entry.reqid.toString("hex"), entry)
+    this.requestsMap.set(reqid.toString("hex"), entry)
   }
 
   // register a request that is originating from the local node, sets origin to true
@@ -1440,7 +1438,7 @@ class CableCore extends EventEmitter {
     if (entry.resType === resType) {
       coredebug("response for id %O is of the type expected when making the request", reqid)
     } else {
-      coredebug("response for id %O does not have the expected type (was %d, expected %d)", reqid, reqstype, entry.resType)
+      coredebug("response for id %O does not have the expected type (was %d, expected %d)", reqid, resType, entry.resType)
     }
 
     const obj = cable.parseMessage(res)
