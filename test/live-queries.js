@@ -403,6 +403,7 @@ test("channel state request + cancel request: start with empty database, send ha
       core[1].handleRequest(cancelBuf, () => {
         // this post should not be emitted as a response
         core[1].setTopic(channel, `topic finale: good bye${'!'.repeat(10)}`, () => {
+          t.equal(receiveCounter, amount, `receiveCounter should be ${amount}`)
           t.end()
         })
       })
@@ -507,6 +508,8 @@ test("channel state request: start with empty database. store post/topic, post/j
           case 2:
             core[1].setNick("sweet-vine", () => { res() })
             break
+          default:
+            t.fail("test should only produce channel state-related messages (topic/join/info)")
         }
       })
       promises.push(p)
