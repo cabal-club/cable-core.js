@@ -528,10 +528,11 @@ class CableStore extends EventEmitter {
   }
 
   _emitStoredPost(hash, buf, channel) {
+    const obj = cable.parsePost(buf)
     if (channel) {
-      this.emit("store-post", { hash, channel, postType: cable.peekPost(buf) })
-    } else { // post/info where we couldn't find any channel membership?
-      this.emit("store-post", { hash, channel: null, postType: cable.peekPost(buf) })
+      this.emit("store-post", { hash, timestamp: obj.timestamp, channel, postType: obj.postType })
+    } else { // probably a post/info, which has no channel membership information
+      this.emit("store-post", { hash, timestamp: obj.timestamp, channel: null, postType: obj.postType })
     }
   }
 
@@ -635,12 +636,15 @@ class CableCore extends EventEmitter {
 
     this.events.register("store", this.store, "channel-state-replacement", ({ channel, postType, hash }) => {
       livedebug("channel-state-replacement evt (channel: %s, postType %i, hash %O)", channel, postType, hash)
-      this._sendLiveHashResponse(channel, postType, [hash])
+      // set timestamp to -1 because we don't have it when producing a channel-state-replacement, 
+      // and timestamp only matters for correctly sending hash responses for channel time range requests 
+      // (i.e. not applicable for channel state requests)
+      this._sendLiveHashResponse(channel, postType, [hash], -1)
     })
 
-    this.events.register("store", this.store, "store-post", ({ channel, hash, postType }) => {
+    this.events.register("store", this.store, "store-post", ({ channel, timestamp, hash, postType }) => {
       livedebug("store post evt, post type: %i", postType)
-      this._sendLiveHashResponse(channel, postType, [hash])
+      this._sendLiveHashResponse(channel, postType, [hash], timestamp)
     })
 
     this.events.register("core", this, "live-request-ended", (reqidHex) => {
@@ -669,10 +673,15 @@ class CableCore extends EventEmitter {
     //  leave - emit(peer)
   }
 
-  _sendLiveHashResponse(channel, postType, hashes) {
+  // this function is part of "live query" behaviour of the channel state request (when future = 1) 
+  // and the channel time range request (when timeEnd = 0)
+  // note: `timestamp` === -1 if event channel-state-replacement called this function (the timestamp only matters for
+  // channel time range request, which will always set it)
+  _sendLiveHashResponse(channel, postType, hashes, timestamp) {
     const reqidList = this._getLiveRequests(channel)
     reqidList.forEach(reqid => {
       const requestInfo = this.requestsMap.get(reqid.toString("hex"))
+      livedebug("%O", requestInfo)
       if (requestInfo.reqType === constants.CHANNEL_STATE_REQUEST) {
         // channel state request only sends hash responses for:
         // post/topic
@@ -690,19 +699,27 @@ class CableCore extends EventEmitter {
             // the post that was emitted wasn't relevant for request type; skip
             return
         }
-      } else if (requestInfo.reqType === constants.CHANNEL_TIME_RANGE_REQUEST) {
+      } else if (requestInfo.reqType === constants.TIME_RANGE_REQUEST) {
         // channel time range request only sends hash responses for:
         // post/text
         // post/delete
         switch (postType) {
+          // we want to continue in these cases
           case constants.TEXT_POST:
           case constants.DELETE_POST:
-            // we want to continue in these cases
             break
           default:
             // the post that was emitted wasn't relevant for request type; skip
             return
         }
+        // the time start boundary set by the channel time range request 
+        const timeStart = requestInfo.obj.timeStart
+        // we only want to emit a live hash response if the stored post's timestamp >= timeStart; 
+        // it wasn't, return early and avoid dispatching a response
+        if (timestamp < timeStart) { return }
+      } else {
+        // no matches, skip to next loop
+        return
       }
       const response = cable.HASH_RESPONSE.create(reqid, hashes)
       this.dispatchResponse(response)
@@ -992,11 +1009,12 @@ class CableCore extends EventEmitter {
     return req
   }
 
-  _reqEntryTemplate (reqid, reqType) {
+  _reqEntryTemplate (reqid, reqType, obj) {
     const entry = {
       reqid,
       "circuitId": b4a.alloc(4).fill(0),
       reqType,
+      obj,
       "resType": -1,
       "recipients": [],
       "origin": false
@@ -1024,26 +1042,28 @@ class CableCore extends EventEmitter {
   }
 
 
-  _registerRequest(id, origin, type) {
+  _registerRequest(id, origin, type, obj) {
     if (this.requestsMap.has(id)) {
       coredebug(`request map already had reqid %O`, reqid)
       return
     }
     // TODO (2023-03-23): handle recipients at some point
     // entry.recipients.push(peer)
-    const entry = this._reqEntryTemplate(id, type)
+    const entry = this._reqEntryTemplate(id, type, obj)
     entry.origin = origin
     this.requestsMap.set(entry.reqid.toString("hex"), entry)
   }
 
   // register a request that is originating from the local node, sets origin to true
-  _registerLocalRequest(reqid, reqType) {
-    this._registerRequest(reqid, true, reqType)
+  _registerLocalRequest(reqid, reqType, buf) {
+    const obj = cable.parseMessage(buf)
+    this._registerRequest(reqid, true, reqType, obj)
   }
 
   // register a request that originates from a remote node, sets origin to false
-  _registerRemoteRequest(reqid, reqType) {
-    this._registerRequest(reqid, false, reqType)
+  _registerRemoteRequest(reqid, reqType, buf) {
+    const obj = cable.parseMessage(buf)
+    this._registerRequest(reqid, false, reqType, obj)
   }
 
   /* methods that deal with responding to requests */
@@ -1067,7 +1087,7 @@ class CableCore extends EventEmitter {
     }
 
     const obj = cable.parseMessage(req)
-    this._registerRemoteRequest(reqid, reqType)
+    this._registerRemoteRequest(reqid, reqType, req)
     if (obj.ttl > 0) { this.forwardRequest(req) }
 
     // create the appropriate response depending on the request we're handling
@@ -1181,7 +1201,7 @@ class CableCore extends EventEmitter {
     const reqid = cable.peekReqid(buf)
     // don't remember a cancel request id as it expects no response
     if (reqtype !== constants.CANCEL_REQUEST) {
-      this._registerLocalRequest(reqid, reqtype)
+      this._registerLocalRequest(reqid, reqtype, buf)
     }
     this.emit("request", buf)
   }
@@ -1215,8 +1235,9 @@ class CableCore extends EventEmitter {
     const reqidHex = reqid.toString("hex")
     livedebug("track %s", reqidHex)
 
-    // rascally attempt to fuck shit up
+    // a potentially rascally attempt to fuck shit up; abort
     if (channel === "reqid-to-channels") { return } 
+
     const reqidMap = this.liveQueries.get("reqid-to-channels")
     if (!reqidMap.has(reqidHex)) {
       reqidMap.set(reqidHex, channel)
