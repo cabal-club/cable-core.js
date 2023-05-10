@@ -614,9 +614,23 @@ class CableCore extends EventEmitter {
     if (!opts) { opts = {} }
     if (!opts.storage) {}
     if (!opts.network) {}
+    // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
+    const validKeypair = (
+      opts.kp && opts.kp.publicKey && opts.kp.secretKey && 
+      b4a.isBuffer(opts.kp.publicKey) && 
+      opts.kp.publicKey.length === constants.PUBLICKEY_SIZE && 
+      b4a.isBuffer(opts.kp.secretKey) && 
+      opts.kp.secretKey.length === constants.SECRETKEY_SIZE
+    )
+    if (validKeypair) {
+      this.kp = opts.kp
+      coredebug("using opts.kp as keypair")
+    } else {
+      this.kp = crypto.generateKeypair()
+      coredebug("generated new keypair")
+    }
 
     this.events = new EventsManager()
-    this.kp = crypto.generateKeypair()
 
     this.store = new CableStore()
     /* used as: 
