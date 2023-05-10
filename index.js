@@ -993,7 +993,7 @@ class CableCore extends EventEmitter {
     return req
   }
 
-  // <-> getPosts
+  // <-> getChat
   requestPosts(channel, start, end, ttl, limit) {
     const reqid = crypto.generateReqID()
     const req = cable.TIME_RANGE_REQUEST.create(reqid, ttl, channel, start, end, limit)
@@ -1482,6 +1482,9 @@ class CableCore extends EventEmitter {
               this.requestedHashes.set(hash.toString("hex"), true)
             }
           })
+          if (wantedHashes.length === 0) {
+            return done()
+          }
           // dispatch a `post request` for the missing hashes
           const newReqid = crypto.generateReqID()
           const req = cable.POST_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
