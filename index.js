@@ -223,12 +223,12 @@ class CableStore extends EventEmitter {
     const deleteHash = (hashToDelete, finished) => {
       const promises = []
       let p
-      this.blobs.api.get(hashToDelete, async (err, cablegram) => {
+      this.blobs.api.get(hashToDelete, async (err, retrievedBuf) => {
         if (err) {
           storedebug("delete err'd", err)
           return finished()
         }
-        const post = cable.parsePost(cablegram)
+        const post = cable.parsePost(retrievedBuf)
         storedebug("post to delete %O", post)
         let channels = []
         

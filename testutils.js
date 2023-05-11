@@ -10,13 +10,13 @@ function assertPostType(t, obj, postType) {
   t.equal(obj.postType, postType,  `post type should be ${descriptiveType}`)
 }
 
-function testPostType (t, core, buf, postType, next) {
-  t.ok(buf, "message buffer should be not null")
+function testPostType (t, core, postBuf, postType, next) {
+  t.ok(postBuf, "post buffer should be not null")
 
-  const hash = core.hash(buf)
+  const hash = core.hash(postBuf)
   t.ok(hash, "hash should be not null")
 
-  const initialObj = cable.parsePost(buf)
+  const initialObj = cable.parsePost(postBuf)
   assertPostType(t, initialObj, postType)
 
   // TODO (2023-03-08): big switch that checks all properties that should exist do exist
@@ -25,11 +25,11 @@ function testPostType (t, core, buf, postType, next) {
     t.error(err, "getting data for persisted hash should work")
     t.ok(data, "data should be not null")
     t.equal(data.length, 1, "should only return one result when querying one hash")
-    const cablegram = data[0]
-    const hashedData = core.hash(cablegram)
+    const storedBuf = data[0]
+    const hashedData = core.hash(storedBuf)
     t.deepEqual(hashedData, hash, "data put into store and retrieved from store should have identical hashes")
 
-    const retrievedObj = cable.parsePost(cablegram)
+    const retrievedObj = cable.parsePost(storedBuf)
     t.ok(retrievedObj, "returned post should be parsed correctly")
     assertPostType(t, retrievedObj, postType)
     t.deepEqual(retrievedObj, initialObj, "parsed bufs should be identical")

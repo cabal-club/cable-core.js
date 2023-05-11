@@ -120,7 +120,7 @@ of pass / logic that to index uniquely using the claimed timestamp
 implementation.  But maybe it doesn't matter? To do search, we essentially get
 a window of history, resolve the text and then figure out which of the messages
 are relevant to return as results. So: I guess the answer to the initial
-question is, no, it seems better to have access to the full cablegram because
+question is, no, it seems better to have access to the full message buffer because
 it has more data than just the text. 
 -->
 
@@ -243,9 +243,9 @@ We could go one step further, and associate the two request-response pairs that 
 required to fulfill the entire life cycle. That is:
 
 Let's say we make a channel time range request. The intent of that is to eventually receive
-cablegrams of types `post/text` and `post/delete`. To achieve this, the channel time range
+posts of types `post/text` and `post/delete`. To achieve this, the channel time range
 request is sent. The reply that comes back is a hash response (list of hashes). To get the
-actual cablegrams containing posts (and not a list of hashes), we send out a new request, this
+actual messages containing posts (and not a list of post hashes), we send out a new request, this
 time a post request. Back comes a post response, containing some or all of the requested
 hashes. That is, we have two roundtrips:
 
@@ -360,7 +360,7 @@ Query:
 
     <hash> -> <blob>
 
-Use the returned binary payloads, i.e. cablegrams, to fashion the post response. Construct a
+Use the returned binary payloads to fashion the post response. Construct a
 list and fill it with the payloads that were found when querying the view.
 
 #### Answer a channel time range request (`msg_type = 4`)
@@ -429,13 +429,13 @@ And in all cases: the cryptographic signature of the post/delete payload must be
 <hash> -> <blob>
 ```
 
-2) Persist the post/delete cablegram by saving the binary payload in: 
+2) Persist the post/delete by saving the binary payload in: 
 
 ```
 <hash> -> <blob>
 ```
 
-3) Persist the hash of the post/delete cablegram in the posts view:
+3) Persist the hash of the post/delete in the posts view:
 
 ```
 !chat!text!<channel>!<ts> -> <hash>
@@ -508,7 +508,7 @@ did not come from a peer requesting a delete, and so it *should not* be persiste
 This one is a bit tricky to think about correctly. When a `post/delete` is
 created, this necessitates deleting what it points to as well.
 
-First: perist the cablegram as usual; a post/delete (`post_type=1`) is written,
+First: perist the post as usual; a post/delete (`post_type=1`) is written,
 meaning a hash is mapped to a binary payload and persisted in the database.
 
 The following tables are updated:
