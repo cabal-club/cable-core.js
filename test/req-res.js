@@ -38,13 +38,13 @@ test("request should be emitted", t => {
 
   // register event handler for `request` type event (emitted when a request has been dispatched)
   core.on("request", reqBuf => {
-    const msgType = cable.peek(reqBuf)
+    const msgType = cable.peekMessage(reqBuf)
     t.equal(constants.TIME_RANGE_REQUEST, msgType, `emitted request should be of type time range request (was ${msgType})`)
   })
 
   // request post hashes (channel time range request)
   const buf = core.requestPosts(channel, start, end, ttl, limit)
-  const msgType = cable.peek(buf)
+  const msgType = cable.peekMessage(buf)
   t.equal(constants.TIME_RANGE_REQUEST, msgType, `returned request should be of type time range request (was ${msgType})`)
   t.end()
 })
@@ -65,7 +65,7 @@ test("handling a request should emit a correct response message", t => {
 
   // register event handler for `request` type event (emitted when a request has been dispatched)
   core[0].on("request", reqBuf => {
-    const msgType = cable.peek(reqBuf)
+    const msgType = cable.peekMessage(reqBuf)
     t.equal(msgType, constants.TIME_RANGE_REQUEST, `emitted request should be of type time range request (was ${msgType})`)
   })
 
@@ -78,12 +78,12 @@ test("handling a request should emit a correct response message", t => {
     // request post hashes (channel time range request)
     const buf = core[0].requestPosts(channel, start, end, ttl, limit)
     const reqid = cable.peekReqid(buf)
-    const msgType = cable.peek(buf)
+    const msgType = cable.peekMessage(buf)
     t.equal(msgType, constants.TIME_RANGE_REQUEST, `returned request should be of type time range request (was ${msgType})`)
 
 
     core[1].on("response", resBuf => {
-      const msgType = cable.peek(resBuf)
+      const msgType = cable.peekMessage(resBuf)
       t.equal(msgType, constants.HASH_RESPONSE, `emitted request should be of type hash response(was ${msgType})`)
       const obj = cable.parseMessage(resBuf)
       t.equal(obj.hashes.length, 1, "hash response should contain 1 hash")
@@ -114,7 +114,7 @@ test("requesting chat posts and ultimately receiving a post response should work
   // register event handler for `request` type event (emitted when a request has been dispatched)
   core[0].on("request", reqBuf => {
     requestCounter++
-    const msgType = cable.peek(reqBuf)
+    const msgType = cable.peekMessage(reqBuf)
     switch (msgType) {
       case constants.TIME_RANGE_REQUEST:
         t.equal(requestCounter, 1, "time range request should be first request")
@@ -134,7 +134,7 @@ test("requesting chat posts and ultimately receiving a post response should work
   })
 
   core[1].on("response", resBuf => {
-    const msgType = cable.peek(resBuf)
+    const msgType = cable.peekMessage(resBuf)
     const obj = cable.parseMessage(resBuf)
     switch (msgType) {
       case constants.HASH_RESPONSE:
@@ -168,7 +168,7 @@ test("requesting chat posts and ultimately receiving a post response should work
     core[1].postText(channel, text, () => {
       // request post hashes (channel time range request)
       const buf = core[0].requestPosts(channel, start, end, ttl, limit)
-      const msgType = cable.peek(buf)
+      const msgType = cable.peekMessage(buf)
       t.equal(msgType, constants.TIME_RANGE_REQUEST, `returned request should be of type time range request (was ${msgType})`)
     })
   })
@@ -185,7 +185,7 @@ test("channel list request should yield a channel list response", t => {
   channels.sort()
 
   core[0].on("request", reqBuf => {
-    const msgType = cable.peek(reqBuf)
+    const msgType = cable.peekMessage(reqBuf)
     const obj = cable.parseMessage(reqBuf)
     switch (msgType) {
       case constants.CHANNEL_LIST_REQUEST:
@@ -198,7 +198,7 @@ test("channel list request should yield a channel list response", t => {
   })
 
   core[1].on("response", resBuf => {
-    const msgType = cable.peek(resBuf)
+    const msgType = cable.peekMessage(resBuf)
     const obj = cable.parseMessage(resBuf)
     switch (msgType) {
       case constants.CHANNEL_LIST_RESPONSE:
@@ -254,7 +254,7 @@ test("channel state request should yield a hash response", t => {
   let requests = 0
   core[0].on("request", reqBuf => {
     requests++
-    const msgType = cable.peek(reqBuf)
+    const msgType = cable.peekMessage(reqBuf)
     const obj = cable.parseMessage(reqBuf)
     switch (msgType) {
       case constants.CHANNEL_STATE_REQUEST:
@@ -272,7 +272,7 @@ test("channel state request should yield a hash response", t => {
 
   let responses = 0
   core[1].on("response", resBuf => {
-    const msgType = cable.peek(resBuf)
+    const msgType = cable.peekMessage(resBuf)
     const obj = cable.parseMessage(resBuf)
     responses++
     switch (msgType) {

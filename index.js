@@ -1082,7 +1082,7 @@ class CableCore extends EventEmitter {
   // TODO (2023-03-23): write tests that exercise handleRequest cases
   handleRequest(req, done) {
     if (!done) { done = util.noop }
-    const reqType = cable.peek(req)
+    const reqType = cable.peekMessage(req)
     const reqid = cable.peekReqid(req)
     const reqidHex = reqid.toString("hex")
 
@@ -1206,7 +1206,7 @@ class CableCore extends EventEmitter {
   }
 
   dispatchRequest(buf) {
-    const reqtype = cable.peek(buf)
+    const reqtype = cable.peekMessage(buf)
     if (!this._messageIsRequest(reqtype)) {
       return
     }
@@ -1343,7 +1343,7 @@ class CableCore extends EventEmitter {
 
   // send buf onwards to other peers
   forwardRequest(buf) {
-    const reqType = cable.peek(buf)
+    const reqType = cable.peekMessage(buf)
     let decrementedBuf 
     switch (reqType) {
       case constants.POST_REQUEST:
@@ -1433,7 +1433,7 @@ class CableCore extends EventEmitter {
   /* methods that handle responses */
   handleResponse(res, done) {
     if (!done) { done = util.noop }
-    const resType = cable.peek(res)
+    const resType = cable.peekMessage(res)
     const reqid = cable.peekReqid(res)
     const reqidHex = reqid.toString("hex")
 
