@@ -4,6 +4,7 @@ const kp = crypto.generateKeypair()
 const CableCore = require("./index.js").CableCore
 const requester = new CableCore({kp})
 const responder = new CableCore()
+const { humanizeMessageType } = require("./util.js")
 
 const ttl = 0
 const channel = "introduction"
@@ -12,33 +13,10 @@ const start = +(new Date("2023-03-01"))
 const end = 0
 const limit = 1500
 
-function msgType (t) {
-  switch (t) {
-    case 0:
-      return "hash response"
-    case 1:
-      return "post response"
-    case 2:
-      return "post request"
-    case 3:
-      return "cancel request"
-    case 4:
-      return "channel time range request"
-    case 5:
-      return "channel state request"
-    case 6:
-      return "channel list request"
-    case 7:
-      return "channel list response"
-    default:
-      return "unknown"
-  }
-}
-
 /* hook up requester and responder to each other (we're basically simulating a two way network connection :)*/
 // each request should reach and be handled by the responder
 requester.on("request", reqBuf => {
-  console.log(`requester: emitted ${msgType(cable.peek(reqBuf))}`, reqBuf)
+  console.log(`requester: emitted ${humanizeMessageType(cable.peek(reqBuf))}`, reqBuf)
   console.log(cable.parseMessage(reqBuf))
   console.log()
   // responder receives the request and reacts to it
@@ -47,7 +25,7 @@ requester.on("request", reqBuf => {
 
 // each response should reach and be handled by the requester
 responder.on("response", resBuf => {
-  console.log(`responder: emitted ${msgType(cable.peek(resBuf))}`, resBuf)
+  console.log(`responder: emitted ${humanizeMessageType(cable.peek(resBuf))}`, resBuf)
   console.log(cable.parseMessage(resBuf))
   console.log()
   // requester receives the response and reacts to it

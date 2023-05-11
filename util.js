@@ -41,8 +41,57 @@ function monotonicTimestamp () {
   }
 }
 
+function humanizeMessageType(msgtype) {
+  switch (msgtype) {
+    case 0:
+      return "hash response"
+    case 1:
+      return "post response"
+    case 2:
+      return "post request"
+    case 3:
+      return "cancel request"
+    case 4:
+      return "channel time range request"
+    case 5:
+      return "channel state request"
+    case 6:
+      return "channel list request"
+    case 7:
+      return "channel list response"
+    default:
+      return "unknown"
+  }
+}
+
+function humanizePostType(posttype) {
+  switch (posttype) {
+    case 0:
+      return "post/text"
+    case 1:
+      return "post/delete"
+    case 2:
+      return "post/info"
+    case 3:
+      return "post/topic"
+    case 4:
+      return "post/join"
+    case 5:
+      return "post/leave"
+    case 6:
+      return "channel list request"
+    case 7:
+      return "channel list response"
+    default:
+      return "unknown"
+  }
+}
+
+
 module.exports = {
   timestamp,
   monotonicTimestamp, 
-  noop: function() {}
+  noop: function() {},
+  humanizeMessageType,
+  humanizePostType
 }
