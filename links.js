@@ -179,7 +179,8 @@ module.exports = function (lvl) {
             // get the first duplicate and set it as our value (list of string'd hashes)
             let valueString = ops[indexes[0]].value
             for (let i = 1; i < indexes.length; i++) {
-              const valueList = ops[i].value.split(SEPARATOR)
+              // appendHashes expects first argument to be a list of buf-encoded hashes
+              const valueList = ops[i].value.split(SEPARATOR).map(h => return b4a.from(h))
               valueString = appendHashes(valueList, valueString)
               // remove each index in ops for this duplicated key
               ops.splice(i, 1)
@@ -200,6 +201,34 @@ module.exports = function (lvl) {
 
     api: {
       events: events,
+      // check if any of a list of hashes are the current heads for a channel. returns a list of the hashes that were
+      // heads
+      checkIfHeads(channel, hashList, cb) {
+        if (!cb) { return }
+        getHeads(channel, (err, heads) {
+          if (err) { return cb(err, null) }
+          const hexHeads = heads.map(buf => buf.toString("hex"))
+          // convert hashes to hex-encoded strings, check if any of the input hashes were part of the current heads,
+          // and convert each of the input hashes that were heads to buffer representation
+          const headsFromInput = hashList.map(buf => return buf.toString("hex")).filter(hexHash => hexHeads.includes(hexHash)).map(hexHash => b4a.from(hexHash))
+          cb(null, headsFromInput)
+        })
+      },
+      getHeads(channel, cb) {
+        if (!cb) { return }
+        lvl.get(formatHeadsKey(channel), (err, liststring) => {
+          // there was no key / no heads for that channel
+          if (err && err.notFound) {
+            return cb(null, [])
+          } else if (err) {
+            // some other error happened
+            return cb(err, null)
+          }
+          const heads = liststring.split(SEPARATOR).map(h => return b4a.from(h))
+          cb(null, heads)
+        })
+      },
+      // fully replace the set of heads for <channel> with <hashList>
       setNewHeads(channel, hashList, cb) {
         if (!cb) cb == util.noop
         const linklistString = formatLinkList(hashList)
@@ -208,7 +237,11 @@ module.exports = function (lvl) {
           return cb(null)
         })
       },
-      // addHeads: list of hashes to track as heads
+      // mutates the current set of heads by adding new ones and accepting a list of old heads to remove if present.
+      // automatically takes care of deduplicating the entries, so one hash is only ever present once in the final list
+      // of heads. returns the new list of heads when done 
+      //
+      // addHeads: list of hashes (buf-encoded) to track as heads
       // rmHeads: list of hashes to remove from heads
       // returns the new set of heads or (err, null)
       pushHeadChanges(channel, addHeads, rmHeads, cb) {
@@ -219,7 +252,7 @@ module.exports = function (lvl) {
             return cb(err, null)
           }
           // add the new heads to the previous set of heads
-          let linklistString = appendHashes(addHeads, val)
+          et linklistString = appendHashes(addHeads, val)
           const heads = linklistString.split(SEPARATOR)
           // go through the new set of heads and make sure it does not contain anything from rmHeads
           rmHeads.forEach(hash => {
@@ -231,12 +264,13 @@ module.exports = function (lvl) {
           })
           // time to store the new heads
           linklistString = formatLinkList(heads)
-          lvl.put(formatHeadsKey(channel, linklistString, (err) => {
+          lvl.put(formatHeadsKey(channel, linklistString), (err) => {
             if (err) { return cb(err, null) }
             return cb(null, heads)
-          }))
+          })
         })
       },
+      // get the links linked to from <hash>. returns a list of buf-encoded hashes
       getLinks(hash, cb) {
         lvl.get(formatLinkKey(hash), (err, val) => {
           if (!cb) { return }
@@ -245,6 +279,7 @@ module.exports = function (lvl) {
           cb(null, links)
         })
       },
+      // get the links linking to <hash>. returns a list of buf-encoded hashes
       getReverseLinks(hash) {
         lvl.get(formatReverseLinkKey(hash), (err, val) => {
           if (!cb) { return }
