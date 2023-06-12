@@ -24,6 +24,7 @@ const createAuthorView = require("./author.js")
 const createMessagesView = require("./messages.js")
 const createDeletedView = require("./deleted.js")
 const createReverseMapView = require("./reverse-hash-map.js")
+const createLinksView = require("./links.js")
 // aliases
 const TEXT_POST = cable.TEXT_POST
 const DELETE_POST = cable.DELETE_POST
@@ -80,8 +81,8 @@ class CableStore extends EventEmitter {
     this.userInfoView = createUserInfoView(this._db.sublevel("user-info", { valueEncoding: "binary" }), this.reverseMapView)
     this.authorView = createAuthorView(this._db.sublevel("author", { valueEncoding: "binary" }), this.reverseMapView)
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }), this.reverseMapView)
-    // TODO (2023-03-01) hook up deleted view to all the appropriate locations in CabalStore
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
+    this.linksView = createLinksView(this._db.sublevel("links", { valueEncoding: "binary" }))
 
     // used primarily when processing an accepted delete request to delete entries in other views with the results from a reverse hash map query.
     // however all views have been added to this map for sake of completeness
@@ -94,6 +95,7 @@ class CableStore extends EventEmitter {
       "author": this.authorView,
       "messages": this.messagesView,
       "deleted": this.deletedView,
+      "links": this.linksView,
     }
   }
 
@@ -113,19 +115,34 @@ class CableStore extends EventEmitter {
     })
     promises.push(p)
     const obj = cable.parsePost(buf)
-    // index posts made by author's public key and type of post
 
+    // index posts made by author's public key and type of post
     p = new Promise((res, rej) => {
       this.authorView.map([{...obj, hash}], (err) => {
         if (err !== null) {
           storedebug("author (error: %o)", err) 
         } else {
-          storedebug("author", err) 
+          storedebug("author") 
         }
         res()
       })
     })
     promises.push(p)
+
+    // index links information for the post: which links it has (if any), and reverse map those links as well to the
+    // hash of this post
+    p = new Promise((res, rej) => {
+      this.linksView.map([{links: obj.links, hash}], (err) => {
+        if (err) { 
+          storedebug("storeNewPosts:links - error %O", err) 
+        } else {
+          storedebug("storeNewPosts:links") 
+        }
+        res()
+      })
+    })
+    promises.push(p)
+
     Promise.all(promises).then(done)
   }
 
@@ -568,9 +585,9 @@ class EventsManager {
 
   // register() argument example:
   //
-  //                  [v eventSource]                          [v eventListener     ]
+  //                  {v eventSource}                          {v eventListener     }
   // register("store", this.store, "channel-state-replacement", () => {/* do stuff */})
-  //         [^ className]        [^ eventName               ]
+  //         {^ className}        {^ eventName               }
   //
   register(className, eventSource, eventName, eventListener) {
     const id = this._id(className, eventName)
@@ -638,6 +655,15 @@ class CableCore extends EventEmitter {
      * store.join(buf) 
     */
 
+    // keeps tracks of each set of head per channel (or context in case of posts w/o channel info)
+    this.heads = new Map() 
+    this.store.linksView.api.getAllKnownHeads((err, headsMap) => {
+      if (err) {
+        coredebug("experienced an error getting known heads: %O", err)
+        return
+      }
+      this.heads = headsMap
+    })
     // tracks still ongoing requests 
     this.requestsMap = new Map()
     // tracks which hashes we have explicitly requested in a 'request for hash' request
@@ -758,18 +784,36 @@ class CableCore extends EventEmitter {
     return null
   }
 
-  /* methods that produce cablegrams, and which we store in our database */
+  // get the latest links for the given context. with `links` peers have a way to partially order message history
+  // without relying on claimed timestamps
+  _links(channel) {
+    if (!channel) {
+      coredebug("_links() called without channel info - what context do we use?")
+      return []
+    }
+    if this.heads.has(channel)) {
+      return this.heads.get(channel)
+    }
+    // no links -> return an empty array
+    return []
+  }
 
+  /* methods that produce cablegrams, and which we store in our database */
 	// post/text
 	postText(channel, text, done) {
-    const links = this._links()
+    const links = this._links(channel)
     const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), text)
-    this.store.text(buf, done)
+    const bufHash = this.hash(buf)
+    this.store.text(buf, () => {
+      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
+      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+    })
     return buf
   }
 
 	// post/info key=name
 	setNick(name, done) {
+    // TODO (2023-06-11): decide what to do wrt context for post/info
     const links = this._links()
     const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), "name", name)
     this.store.info(buf, done)
@@ -778,31 +822,37 @@ class CableCore extends EventEmitter {
 
 	// post/topic
 	setTopic(channel, topic, done) {
-    const links = this._links()
+    const links = this._links(channel)
     const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), topic)
-    this.store.topic(buf, done)
+    const bufHash = this.hash(buf)
+    this.store.topic(buf, () => {
+      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
+      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+    })
     return buf
-  }
-
-  // get the latest links for the given context. with `links` peers have a way to partially order message history
-  // without relying on claimed timestamps
-  _links(channel) {
-    return [crypto.hash(b4a.from("not a message payload at all"))]
   }
 
 	// post/join
 	join(channel, done) {
-    const links = this._links()
+    const links = this._links(channel)
     const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
-    this.store.join(buf, done)
+    const bufHash = this.hash(buf)
+    this.store.join(buf, () => {
+      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
+      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+    })
     return buf
   }
 
 	// post/leave
 	leave(channel, done) {
-    const links = this._links()
+    const links = this._links(channel)
     const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
-    this.store.leave(buf, done)
+    const bufHash = this.hash(buf)
+    this.store.leave(buf, () => {
+      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
+      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+    })
     return buf
   }
 
@@ -813,6 +863,7 @@ class CableCore extends EventEmitter {
   // q: should we have a flag that is like `persistDelete: true`? enables for deleting for storage reasons, but not
   // blocking reasons. otherwise all deletes are permanent and not reversible
 	del(hash, done) {
+    // TODO (2023-06-11): decide what do with links for post/delete (lacking channel info)
     const links = this._links()
     // TODO (2023-04-12): create additional api for deleting many hashes
     const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), [hash])
@@ -1370,29 +1421,44 @@ class CableCore extends EventEmitter {
 
   _storeExternalBuf(buf, done) {
     if (!done) { done = util.noop }
-    const postType = cable.peekPost(buf)
-    switch (postType) {
-      case constants.TEXT_POST:
-        this.store.text(buf, done)
-        break
-      case constants.DELETE_POST:
-        this.store.del(buf, done)
-        break
-      case constants.INFO_POST:
-        this.store.info(buf, done)
-        break
-      case constants.TOPIC_POST:
-        this.store.topic(buf, done)
-        break
-      case constants.JOIN_POST:
-        this.store.join(buf, done)
-        break
-      case constants.LEAVE_POST:
-        this.store.leave(buf, done)
-        break
-      default:
-        throw new Error(`store external buf: unknown post type ${postType}`)
-    }
+    new Promise((res, rej) => {
+      const postType = cable.peekPost(buf)
+      switch (postType) {
+        case constants.TEXT_POST:
+          this.store.text(buf, () => { res() })
+          break
+        case constants.DELETE_POST:
+          this.store.del(buf, () => { res() })
+          break
+        case constants.INFO_POST:
+          this.store.info(buf, () => { res() })
+          break
+        case constants.TOPIC_POST:
+          this.store.topic(buf, () => { res() })
+          break
+        case constants.JOIN_POST:
+          this.store.join(buf, () => { res() })
+          break
+        case constants.LEAVE_POST:
+          this.store.leave(buf, () => { res() })
+          break
+        default:
+          rej()
+          throw new Error(`store external buf: unknown post type ${postType}`)
+      }
+    }).then(() => {
+      const obj = cable.parsePost(buf)
+      // TODO (2023-06-12): figure out how to links-index post/info + post/delete
+      if (!obj.channel) { return }
+      const hash = this.hash(buf)
+      this.store.linksView.map([{ links: obj.links, hash }])
+      this.store.linksView.api.checkIfHeads([ hash ], (err, heads) => {
+        if (err) { return coredebug("store external buf: error when checking if heads for %O (%O)", hash, err) }
+        if (heads.length > 0) {
+          this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, done)
+        }
+      })
+    })
   }
 
   // returns an array of posts whose hashes have been verified to have been requested by us
