@@ -210,7 +210,6 @@ class CableStore extends EventEmitter {
   }
 
   del(buf, done) {
-    storedebug("done fn %O", done)
     if (!done) { done = util.noop }
 
     // the hash of the post/delete message
@@ -791,7 +790,7 @@ class CableCore extends EventEmitter {
       coredebug("_links() called without channel info - what context do we use?")
       return []
     }
-    if this.heads.has(channel)) {
+    if (this.heads.has(channel)) {
       return this.heads.get(channel)
     }
     // no links -> return an empty array
@@ -1449,14 +1448,20 @@ class CableCore extends EventEmitter {
     }).then(() => {
       const obj = cable.parsePost(buf)
       // TODO (2023-06-12): figure out how to links-index post/info + post/delete
-      if (!obj.channel) { return }
+      if (!obj.channel) { 
+        return done() 
+      }
       const hash = this.hash(buf)
-      this.store.linksView.map([{ links: obj.links, hash }])
-      this.store.linksView.api.checkIfHeads([ hash ], (err, heads) => {
-        if (err) { return coredebug("store external buf: error when checking if heads for %O (%O)", hash, err) }
-        if (heads.length > 0) {
-          this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, done)
-        }
+      this.store.linksView.map([{ links: obj.links, hash }], () => {
+        this.store.linksView.api.checkIfHeads([ hash ], (err, heads) => {
+          if (err) { 
+            coredebug("store external buf: error when checking if heads for %O (%O)", hash, err)
+            return done()
+          }
+          if (heads.length > 0) {
+            this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, done)
+          }
+        })
       })
     })
   }

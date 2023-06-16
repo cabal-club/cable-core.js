@@ -3,6 +3,7 @@ const b4a = require("b4a")
 const viewName = "links"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("../cable/constants.js")
+const util = require("./util.js")
 const SEPARATOR = ","
 
 function noop () {}
@@ -23,7 +24,7 @@ module.exports = function (lvl) {
   const ready = (cb) => {
     debug("ready called")
     debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
+    if (!cb) cb = util.noop
     // we can process the queue
     if (unprocessedBatches <= 0) {
       for (let fn of queue) { fn() }
@@ -43,22 +44,22 @@ module.exports = function (lvl) {
     const linkKey = `links!1!${hash.toString("hex")}`
   }
 
-  const formatHeadsKey(channel) => { 
+  const formatHeadsKey = (channel) => { 
     return `heads!${channel}`
   }
   
-  const listStringToHashList(str) {
+  const listStringToHashList = (str) => {
     return str.split(SEPARATOR).map(s => b4a.from(s))
   }
 
   // takes a list of bufs, returns a string representation of the list
   const formatLinkList = (links) => {
-    return links.map(link => return link.toString("hex")).join(SEPARATOR)
+    return links.map(link => { return link.toString("hex") }).join(SEPARATOR)
   }
 
   // appends hashesToAppend to hashlistString. checks each hash to make sure it is not already part of the list
   // returns the new hashlistString or the original string if no changes were made
-  const appendHashes(hashesToAppend, hashlistString) {
+  const appendHashes = (hashesToAppend, hashlistString) => {
     // take stringified hash list and break into a list of individual hashes
     const stringHashesSet = new Set(hashlistString.split(SEPARATOR))
     // dedupe the incoming hashes, removing those that we already know are part of the list
@@ -78,6 +79,7 @@ module.exports = function (lvl) {
 
   return {
     map: function (msgs, next) {
+      if (!next) { next = util.noop }
       debug("view.map")
       let ops = []
       let pending = 0
@@ -86,7 +88,9 @@ module.exports = function (lvl) {
       msgs.forEach(msg => {
         if (!sanitize(msg)) return
         // no links 
-        if (!msg.links || msg.links.length === 0) { return } 
+        if (!msg.links || msg.links.length === 0) { 
+          return 
+        } 
 
         // key scheme:
         // links!<isReverseLink>!<hash> -> [list of hashes as a string]
@@ -154,6 +158,8 @@ module.exports = function (lvl) {
           if (!--pending) done()
         })
       })
+
+      if (!pending) done()
 
       function done () {
         debug("ops %O", ops)
@@ -255,6 +261,7 @@ module.exports = function (lvl) {
         })
       },
       getHeads(channel, cb) {
+        debug("api.getHeads for %s", channel)
         if (!cb) { return }
         ready(() => {
           lvl.get(formatHeadsKey(channel), (err, liststring) => {
@@ -272,13 +279,17 @@ module.exports = function (lvl) {
       },
       // fully replace the set of heads for <channel> with <hashList>
       setNewHeads(channel, hashList, cb) {
+        debug("api.setNewHeads for %s to %O", channel, hashList)
         if (!cb) { cb = util.noop }
         ready(() => {
+          debug("setNewHeads post ready")
           const liststring = formatLinkList(hashList)
           lvl.put(formatHeadsKey(channel), liststring, (err) => {
             if (err) {
               debug("setNewHeads error putting new record (%s): %O", liststring, err)
-              return cb(err) }
+              return cb(err) 
+            }
+            debug("setNewHeads was successful")
             return cb(null)
           })
         })
@@ -291,6 +302,7 @@ module.exports = function (lvl) {
       // rmHeads: list of hashes to remove from heads
       // returns the new set of heads or (err, null)
       pushHeadChanges(channel, addHeads, rmHeads, cb) {
+        debug("api.pushHeadChanges for %s; add heads %O, remove heads %O", channel, addHeads, rmHeads)
         if (!cb) { cb = util.noop }
         ready(() => {
           lvl.get(formatHeadsKey(channel), (err, val) => {
@@ -322,6 +334,7 @@ module.exports = function (lvl) {
       },
       // get the links linked to from <hash>. returns a list of buf-encoded hashes
       getLinks(hash, cb) {
+        debug("api.getLinks for %O", hash)
         ready(() => {
           lvl.get(formatLinkKey(hash), (err, val) => {
             if (!cb) { return }
@@ -333,6 +346,7 @@ module.exports = function (lvl) {
       },
       // get the links linking to <hash>. returns a list of buf-encoded hashes
       getReverseLinks(hash) {
+        debug("api.getReverseLinks for %O", hash)
         ready(() => {
           lvl.get(formatReverseLinkKey(hash), (err, val) => {
             if (!cb) { return }
