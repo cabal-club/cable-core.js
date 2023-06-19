@@ -363,7 +363,7 @@ module.exports = function (lvl) {
         })
       },
       // get the links linking to <hash>. returns a list of buf-encoded hashes
-      getReverseLinks(hash) {
+      getReverseLinks(hash, cb) {
         debug("api.getReverseLinks for %O", hash)
         ready(() => {
           lvl.get(formatReverseLinkKey(hash), (err, val) => {

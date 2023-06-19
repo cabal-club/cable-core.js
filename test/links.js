@@ -177,3 +177,43 @@ test("multiple links should be set and merged", t => {
     })
   })
 })
+
+test("setting links should work", t => {
+  const core = new CableCore
+  t.notEqual(undefined, core, "should not be undefined")
+  t.notEqual(null, core, "should not be null")
+
+  const channel = "introduction"
+  const text = ["Hello hello.", "this is the second message!"]
+
+  const buf1 = core.postText(channel, text[0], () => {
+    t.ok(buf1, "first post buffer should be ok")
+    const firstHash = core.hash(buf1)
+    const obj1 = cable.parsePost(buf1)
+    t.equal(obj1.links.length, 0, "links of first post buffer should be empty")
+    t.equal(obj1.text, text[0], "first post's contents should be correct")
+    const buf2 = core.postText(channel, text[1], () => {
+      t.ok(buf2, "second post buffer should be ok")
+      const obj2 = cable.parsePost(buf2)
+      t.equal(obj2.links.length, 1, "links of second post buffer should have 1 entry")
+      t.equal(obj2.text, text[1], "second post's contents should be correct")
+      t.deepEqual(obj2.links[0], firstHash, "links of second post buffer should be hash of first post")
+      const secondHash = core.hash(buf2)
+      core.store.linksView.api.getReverseLinks(firstHash, (err, reverseLinks) => {
+        t.error(err, "should have no error when getting reverse links")
+        t.equal(reverseLinks.length, 1, "there should be one reverse link set for hash of first post§")
+        t.deepEqual(reverseLinks[0], secondHash, "the reverse link set of the first post should be the second post")
+        core.store.linksView.api.getLinks(secondHash, (err, links) => {
+          t.error(err, "should have no error when getting  links")
+          t.equal(links.length, 1, "there should be one link set for hash of second post")
+          t.deepEqual(links[0], firstHash, "the link set for the second post should be the first post ")
+          core.store.linksView.api.getHeads(channel, (err, heads) => {
+            t.equal(heads.length, 1, "channel should have 1 head")
+            t.deepEqual(heads[0], secondHash, "head for channel should be hash of second post")
+            t.end()
+          })
+        })
+      })
+    })
+  })
+})
