@@ -158,14 +158,18 @@ test("multiple links should be set and merged", t => {
       core[1]._storeExternalBuf(buf1, () => {
         const links = core[1]._links(channel)
         t.equal(links.length, 2, "tracked heads for channel should contain two links")
+        // core[1] make's a second post, whose links property should link to two hashes
         const buf3 = core[1].postText(channel, text[2], () => {
           const obj3 = cable.parsePost(buf3)
-          t.equal(obj3.links.length, 2, "links of third post buffer should have two links set")
-          t.equal(obj3.text, text[2], "third post's contents should be correct")
+          t.equal(obj3.links.length, 2, "post buffer should have two links set")
+          t.equal(obj3.text, text[2], "post's contents should be correct")
           const buf4 = core[1].postText(channel, text[3], () => {
             const obj4 = cable.parsePost(buf4)
+            const lastHash = core[1].hash(buf4)
             t.equal(obj4.links.length, 1, "links of last post buffer should have one link set")
             t.equal(obj4.text, text[3], "last post's contents should be correct")
+            const lastLinks = core[1]._links(channel)
+            t.deepEqual(lastHash, lastLinks[0], `the tracked heads for ${channel} should be the hash of the last post)`)
             t.end()
           })
         })
