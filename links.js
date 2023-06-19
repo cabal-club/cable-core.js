@@ -36,20 +36,20 @@ module.exports = function (lvl) {
 
   // takes a buf, returns a string
   const formatLinkKey = (hash) => {
-    const linkKey = `links!0!${hash.toString("hex")}`
+    return `links!0!${hash.toString("hex")}`
   }
 
   // takes a buf, returns a string
   const formatReverseLinkKey = (hash) => {
-    const linkKey = `links!1!${hash.toString("hex")}`
+    return `links!1!${hash.toString("hex")}`
   }
 
   const formatHeadsKey = (channel) => { 
     return `heads!${channel}`
   }
   
-  const listStringToHashList = (str) => {
-    return str.split(SEPARATOR).map(s => b4a.from(s))
+  const liststringToHashlist = (str) => {
+    return str.split(SEPARATOR).map(s => b4a.from(s, "hex"))
   }
 
   // takes a list of bufs, returns a string representation of the list
@@ -72,7 +72,7 @@ module.exports = function (lvl) {
       }
     }
     if (verifiedNewHashes.length > 0) {
-      hashlistString = `${hashListString}${SEPARATOR}${verifiedNewHashes.join(SEPARATOR)}`
+      hashlistString = `${hashlistString}${SEPARATOR}${verifiedNewHashes.join(SEPARATOR)}`
     }
     return hashlistString
   }
@@ -89,6 +89,7 @@ module.exports = function (lvl) {
         if (!sanitize(msg)) return
         // no links 
         if (!msg.links || msg.links.length === 0) { 
+          debug("skipping msg %O (no links content)", msg)
           return 
         } 
 
@@ -141,7 +142,7 @@ module.exports = function (lvl) {
           const hashHex = msg.hash.toString("hex")
           let reverseKeyValue
           if (err) { return debug("error on .getMany for reverse keys %O", err) }
-          for (let i = 0; i <= reverseKeys.length; i++) {
+          for (let i = 0; i < reverseKeys.length; i++) {
             // the corresponding reverse key record did not exist, we can put msg.hash as is
             if (typeof values[i] === "undefined") {
               reverseKeyValue = msg.hash.toString("hex")
@@ -171,7 +172,7 @@ module.exports = function (lvl) {
         const dupindexes = new Map()
         const keys = []
         ops.forEach((key, index) => {
-          if (keys.contains(key)) {
+          if (keys.includes(key)) {
             if (!dupindexes.has(key)) {
               // make a list to store the `ops` indexes to merge for this key
               dupindexes.get(key) = []
@@ -190,7 +191,7 @@ module.exports = function (lvl) {
             let valueString = ops[indexes[0]].value
             for (let i = 1; i < indexes.length; i++) {
               // appendHashes expects first argument to be a list of buf-encoded hashes
-              const valueList = listStringToHashList(ops[i].value)
+              const valueList = liststringToHashlist(ops[i].value)
               valueString = appendHashes(valueList, valueString)
               // remove each index in ops for this duplicated key
               ops.splice(i, 1)
@@ -213,13 +214,13 @@ module.exports = function (lvl) {
       events: events,
       // check if any of a list of hashes are heads (unlinked hashes). returns a list of the hashes that were
       // heads
-      checkIfHeads(hashList, cb) {
+      checkIfHeads(hashlist, cb) {
         if (!cb) { return }
         ready(() => {
-          const reverseLinkLookups = hashList.map(formatReverseLinkKey)
+          const reverseLinkLookups = hashlist.map(formatReverseLinkKey)
           lvl.getMany(reverseLinkLookups, (err, values) => {
             // TODO (2023-06-09): wonder if this can happen for getMany; if so, all the hashes were heads
-            if (err && err.notFound) { return cb(null, hashList) }
+            if (err && err.notFound) { return cb(null, hashlist) }
             if (err) { return cb(err, null) }
             let headsAmongInput = []
             for (let i = 0; i < values.length; i++) {
@@ -252,7 +253,7 @@ module.exports = function (lvl) {
             if (headsMap.has(context)) {
               debug("known heads: already know of context %s! (should only have one channel/context per unique name)", context)
             }
-            const hashlist = listStringToHashList(value)
+            const hashlist = liststringToHashlist(value)
             headsMap.set(context, hashlist)
           })
           debug("allKnownHeads entries %O", entries)
@@ -272,18 +273,18 @@ module.exports = function (lvl) {
               // some other error happened
               return cb(err, null)
             }
-            const heads = listStringToHashList(liststring)
+            const heads = liststringToHashlist(liststring)
             cb(null, heads)
           })
         })
       },
-      // fully replace the set of heads for <channel> with <hashList>
-      setNewHeads(channel, hashList, cb) {
-        debug("api.setNewHeads for %s to %O", channel, hashList)
+      // fully replace the set of heads for <channel> with <hashlist>
+      setNewHeads(channel, hashlist, cb) {
+        debug("api.setNewHeads for %s to %O", channel, hashlist)
         if (!cb) { cb = util.noop }
         ready(() => {
           debug("setNewHeads post ready")
-          const liststring = formatLinkList(hashList)
+          const liststring = formatLinkList(hashlist)
           lvl.put(formatHeadsKey(channel), liststring, (err) => {
             if (err) {
               debug("setNewHeads error putting new record (%s): %O", liststring, err)
@@ -301,34 +302,51 @@ module.exports = function (lvl) {
       // addHeads: list of hashes (buf-encoded) to track as heads
       // rmHeads: list of hashes to remove from heads
       // returns the new set of heads or (err, null)
-      pushHeadChanges(channel, addHeads, rmHeads, cb) {
-        debug("api.pushHeadChanges for %s; add heads %O, remove heads %O", channel, addHeads, rmHeads)
+      pushHeadsChanges(channel, addHeads, rmHeads, cb) {
+        debug("api.pushHeadsChanges for %s; add heads %O, remove heads %O", channel, addHeads, rmHeads)
         if (!cb) { cb = util.noop }
         ready(() => {
           lvl.get(formatHeadsKey(channel), (err, val) => {
-            if (err) { 
-              debug("error for pushHeadChanges %O", err)
-              return cb(err, null)
-            }
-            // add the new heads to the previous set of heads
-            let liststring = appendHashes(addHeads, val)
-            const stringHeads = liststring.split(SEPARATOR)
-            // go through the new set of heads and make sure it does not contain anything from rmHeads
-            rmHeads.forEach(hash => {
-              // operate on hexencoded strings to make comparisons trivial
-              const hexHash = hash.toString("hex")
-              const index = stringHeads.indexOf(hexHash)
-              // we had an rmHead match, remove it from heads candidates
-              if (index >= 0) {
-                stringHeads.splice(index, 1)
+            // the heads key wasn't set, let's set it and return
+            if (err && err.notFound) {
+            // when the heads key is unset, there is nothing to remove - all that matters is that we have some hashes in list addHeads
+              if (addHeads.length > 0) {
+                const liststring = formatLinkList(addHeads)
+                lvl.put(formatHeadsKey(channel), liststring, (err) => {
+                  if (err) {
+                    debug("pushHeadsChanges error putting new record (%s): %O", liststring, err)
+                    return cb(err, [])
+                  }
+                  return cb(null, addHeads)
+                })
+              } else {
+                // even addHeads was empty - oh well! return default values
+                return cb(null, [])
               }
-            })
-            // time to store the new heads
-            liststring = stringHeads.join(SEPARATOR)
-            lvl.put(formatHeadsKey(channel, liststring), (err) => {
-              if (err) { return cb(err, null) }
-              return cb(null, heads)
-            })
+            } else if (err) { 
+              debug("pushHeadsChanges err %O", err)
+              return cb(err, null)
+            } else {
+              // add the new heads to the previous set of heads
+              let liststring = appendHashes(addHeads, val)
+              const stringHeads = liststring.split(SEPARATOR)
+              // go through the new set of heads and make sure it does not contain anything from rmHeads
+              rmHeads.forEach(hash => {
+                // operate on hexencoded strings to make comparisons trivial
+                const hexHash = hash.toString("hex")
+                const index = stringHeads.indexOf(hexHash)
+                // we had an rmHead match, remove it from heads candidates
+                if (index >= 0) {
+                  stringHeads.splice(index, 1)
+                }
+              })
+              // time to store the new heads
+              liststring = stringHeads.join(SEPARATOR)
+              lvl.put(formatHeadsKey(channel), liststring, (err) => {
+                if (err) { return cb(err, null) }
+                return cb(null, stringHeads.map(str => { return b4a.from(str, "hex") }))
+              })
+            }
           })
         })
       },
@@ -339,7 +357,7 @@ module.exports = function (lvl) {
           lvl.get(formatLinkKey(hash), (err, val) => {
             if (!cb) { return }
             if (err) { return cb(err, []) }
-            const links = listStringToHashList(val)
+            const links = liststringToHashlist(val)
             cb(null, links)
           })
         })
@@ -351,7 +369,7 @@ module.exports = function (lvl) {
           lvl.get(formatReverseLinkKey(hash), (err, val) => {
             if (!cb) { return }
             if (err) { return cb(err, []) }
-            const reverseLinks = listStringToHashList(val)
+            const reverseLinks = liststringToHashlist(val)
             cb(null, reverseLinks)
           })
         })

@@ -82,7 +82,7 @@ class CableStore extends EventEmitter {
     this.authorView = createAuthorView(this._db.sublevel("author", { valueEncoding: "binary" }), this.reverseMapView)
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }), this.reverseMapView)
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
-    this.linksView = createLinksView(this._db.sublevel("links", { valueEncoding: "binary" }))
+    this.linksView = createLinksView(this._db.sublevel("links", { valueEncoding: "json" }))
 
     // used primarily when processing an accepted delete request to delete entries in other views with the results from a reverse hash map query.
     // however all views have been added to this map for sake of completeness
@@ -800,18 +800,24 @@ class CableCore extends EventEmitter {
   /* methods that produce cablegrams, and which we store in our database */
 	// post/text
 	postText(channel, text, done) {
+    if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), text)
     const bufHash = this.hash(buf)
     this.store.text(buf, () => {
       // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
+        // update the newest heads
+        this.heads.set(channel, [bufHash])
+        done()
+      })
     })
     return buf
   }
 
 	// post/info key=name
 	setNick(name, done) {
+    if (!done) { done = util.noop }
     // TODO (2023-06-11): decide what to do wrt context for post/info
     const links = this._links()
     const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), "name", name)
@@ -821,36 +827,51 @@ class CableCore extends EventEmitter {
 
 	// post/topic
 	setTopic(channel, topic, done) {
+    if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), topic)
     const bufHash = this.hash(buf)
     this.store.topic(buf, () => {
       // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
+        // update the newest heads
+        this.heads.set(channel, [bufHash])
+        done()
+      })
     })
     return buf
   }
 
 	// post/join
 	join(channel, done) {
+    if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
     const bufHash = this.hash(buf)
     this.store.join(buf, () => {
       // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
+        // update the newest heads
+        this.heads.set(channel, [bufHash])
+        done()
+      })
     })
     return buf
   }
 
 	// post/leave
 	leave(channel, done) {
+    if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
     const bufHash = this.hash(buf)
     this.store.leave(buf, () => {
       // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], done)
+      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
+        // update the newest heads
+        this.heads.set(channel, [bufHash])
+        done()
+      })
     })
     return buf
   }
@@ -862,6 +883,7 @@ class CableCore extends EventEmitter {
   // q: should we have a flag that is like `persistDelete: true`? enables for deleting for storage reasons, but not
   // blocking reasons. otherwise all deletes are permanent and not reversible
 	del(hash, done) {
+    if (!done) { done = util.noop }
     // TODO (2023-06-11): decide what do with links for post/delete (lacking channel info)
     const links = this._links()
     // TODO (2023-04-12): create additional api for deleting many hashes
@@ -1459,7 +1481,14 @@ class CableCore extends EventEmitter {
             return done()
           }
           if (heads.length > 0) {
-            this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, done)
+            this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, (err, newHeads) => {
+              if (err) {
+                coredebug("store external buf: error when pushing new heads for %O (%O)", hash, err)
+                return done()
+              }
+              this.heads.set(obj.channel, newHeads)
+              done()
+            })
           }
         })
       })
