@@ -78,10 +78,10 @@ module.exports = function (lvl) {
         // resynced
         ready(function () {
           lvl.get(hash, (err, value) => {
-            if (err && err.notFound) { cb(null, false) }
-            if (err) { cb(err) }
-            if (value === 1) { cb(null, true) }
-            cb(null, false)
+            if (err && err.notFound) { return cb(null, false) }
+            if (err) { return cb(err) }
+            if (value === 1) { return cb(null, true) }
+            return cb(null, false)
           })
         })
       },

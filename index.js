@@ -1443,54 +1443,63 @@ class CableCore extends EventEmitter {
 
   _storeExternalBuf(buf, done) {
     if (!done) { done = util.noop }
-    new Promise((res, rej) => {
-      const postType = cable.peekPost(buf)
-      switch (postType) {
-        case constants.TEXT_POST:
-          this.store.text(buf, () => { res() })
-          break
-        case constants.DELETE_POST:
-          this.store.del(buf, () => { res() })
-          break
-        case constants.INFO_POST:
-          this.store.info(buf, () => { res() })
-          break
-        case constants.TOPIC_POST:
-          this.store.topic(buf, () => { res() })
-          break
-        case constants.JOIN_POST:
-          this.store.join(buf, () => { res() })
-          break
-        case constants.LEAVE_POST:
-          this.store.leave(buf, () => { res() })
-          break
-        default:
-          rej()
-          throw new Error(`store external buf: unknown post type ${postType}`)
+    const hash = this.hash(buf)
+    this.store.deletedView.api.isDeleted(hash, (err, deleted) => {
+      if (err) { return done() }
+      if (deleted) { 
+        // this hash has been deleted -> we should never try to store and reindex a deleted message
+        // i.e. we abort here
+        return done()
       }
-    }).then(() => {
-      const obj = cable.parsePost(buf)
-      // TODO (2023-06-12): figure out how to links-index post/info + post/delete
-      if (!obj.channel) { 
-        return done() 
-      }
-      const hash = this.hash(buf)
-      this.store.linksView.map([{ links: obj.links, hash }], () => {
-        this.store.linksView.api.checkIfHeads([ hash ], (err, heads) => {
-          if (err) { 
-            coredebug("store external buf: error when checking if heads for %O (%O)", hash, err)
-            return done()
-          }
-          if (heads.length > 0) {
-            this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, (err, newHeads) => {
-              if (err) {
-                coredebug("store external buf: error when pushing new heads for %O (%O)", hash, err)
-                return done()
-              }
-              this.heads.set(obj.channel, newHeads)
-              done()
-            })
-          }
+      // the buf was not a deleted buf: onward!
+      new Promise((res, rej) => {
+        const postType = cable.peekPost(buf)
+        switch (postType) {
+          case constants.TEXT_POST:
+            this.store.text(buf, () => { res() })
+            break
+          case constants.DELETE_POST:
+            this.store.del(buf, () => { res() })
+            break
+          case constants.INFO_POST:
+            this.store.info(buf, () => { res() })
+            break
+          case constants.TOPIC_POST:
+            this.store.topic(buf, () => { res() })
+            break
+          case constants.JOIN_POST:
+            this.store.join(buf, () => { res() })
+            break
+          case constants.LEAVE_POST:
+            this.store.leave(buf, () => { res() })
+            break
+          default:
+            rej()
+            throw new Error(`store external buf: unknown post type ${postType}`)
+        }
+      }).then(() => {
+        const obj = cable.parsePost(buf)
+        // TODO (2023-06-12): figure out how to links-index post/info + post/delete
+        if (!obj.channel) { 
+          return done() 
+        }
+        this.store.linksView.map([{ links: obj.links, hash }], () => {
+          this.store.linksView.api.checkIfHeads([ hash ], (err, heads) => {
+            if (err) { 
+              coredebug("store external buf: error when checking if heads for %O (%O)", hash, err)
+              return done()
+            }
+            if (heads.length > 0) {
+              this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, (err, newHeads) => {
+                if (err) {
+                  coredebug("store external buf: error when pushing new heads for %O (%O)", hash, err)
+                  return done()
+                }
+                this.heads.set(obj.channel, newHeads)
+                done()
+              })
+            }
+          })
         })
       })
     })
@@ -1517,18 +1526,40 @@ class CableCore extends EventEmitter {
   }
 
   _handleRequestedBufs(bufs, done) {
-    // here we check: 
-    // does the hash of each entry in the post response correspond to hashes we have requested?  
     let p
     const promises = []
-    bufs.forEach(buf => {
+    const hashes = bufs.map(buf => { return this.hash(buf) })
+    // make sure we never try to store a post we know has been deleted
+    new Promise((res, rej) => {
+      this.store.deletedView.api.isDeletedMany(hashes, (err, deleted) => {
+        if (err) { return rej(err) }
+        let bufsToStore = []
+        for (let i = 0; i < bufs.length; i++) {
+          if (!deleted[i]) {
+            bufsToStore.push(bufs[i])
+          }
+        }
+        res(bufsToStore)
+      })
+    }).then(bufsToStore => {
+      // here we check: 
+      // does the hash of each entry in the post response correspond to hashes we have requested?  
+      bufsToStore.forEach(buf => {
+        p = new Promise((res, rej) => {
+          // _storeExternalBuf correctly indexes the external buf depending on post type
+          this._storeExternalBuf(buf, () => { res() })
+        })
+        promises.push(p)
+      })
       p = new Promise((res, rej) => {
-        // _storeExternalBuf correctly indexes the external buf depending on post type
-        this._storeExternalBuf(buf, () => { res() })
+        // remove handled hashes from requestedHashes
+        hashes.forEach(hash => {
+          this.requestedHashes.delete(hash.toString("hex")) 
+        })
       })
       promises.push(p)
+      Promise.all(promises).then(() => { done() })
     })
-    Promise.all(promises).then(() => { done() })
   }
 
   /* methods that handle responses */
@@ -1568,9 +1599,8 @@ class CableCore extends EventEmitter {
       // however: we could inspect the payload of a POST_RESPONSE to see if it contains posts for any hashes we are waiting for..
       if (resType === constants.POST_RESPONSE) {
         this._handleRequestedBufs(this._processPostResponse(obj), () => {
-          console.log("TODO: wow very great :)")
+          // console.log("TODO: wow very great :)")
         })
-        // TODO (2023-03-23): after the post has been ingested: remove it from requestedHashes
       }
       return
     }
@@ -1600,11 +1630,24 @@ class CableCore extends EventEmitter {
           if (wantedHashes.length === 0) {
             return done()
           }
-          // dispatch a `post request` for the missing hashes
-          const newReqid = crypto.generateReqID()
-          const req = cable.POST_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
-          this.dispatchRequest(req)
-          done()
+          // make sure we don't request posts for any hashes that we honor as deleted
+          this.store.deletedView.api.isDeletedMany(wantedHashes, (err, deleteArr) => {
+            if (err) { throw err }
+            // each entry in deleteArr contains either true or false for the corresponding hash in wantedHashes.
+            // reduce wantedHashes to only contain the hashes we know have not been deleted
+            let temp = []
+            for (let i = 0; i < wantedHashes.length; i++) {
+              if (!deleteArr[i]) {
+                temp.push(wantedHashes[i])
+              }
+            }
+            wantedHashes = temp // update wantedHashes to new set of values known to not be deleted
+            // dispatch a `post request` for the missing hashes
+            const newReqid = crypto.generateReqID()
+            const req = cable.POST_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
+            this.dispatchRequest(req)
+            done()
+          })
         })
         break
       case constants.POST_RESPONSE:
