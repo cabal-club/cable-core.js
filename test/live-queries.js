@@ -1,9 +1,9 @@
 const test = require("tape")
 const b4a = require("b4a")
 const CableCore = require("../index.js").CableCore
-const constants = require("../../cable/constants")
-const cable = require("../../cable/index.js")
-const crypto = require("../../cable/cryptography.js")
+const constants = require("cable.js/constants")
+const cable = require("cable.js/index.js")
+const crypto = require("cable.js/cryptography.js")
 const { testPostType, getDescriptiveType, assertPostType, assertBufType }  = require("../testutils.js")
 
 /* this test suite contains a bunch of tests exercising live query functionality of the channel state request

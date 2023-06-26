@@ -1,7 +1,7 @@
 const test = require("tape")
 const CableCore = require("../index.js").CableCore
-const constants = require("../../cable/constants")
-const cable = require("../../cable/index.js")
+const constants = require("cable.js/constants")
+const cable = require("cable.js/index.js")
 const { testPostType, getDescriptiveType, assertPostType, assertBufType }  = require("../testutils.js")
 
 /* this test suite contains a bunch of tests exercising functionality across more than one user. typically one user

@@ -1,5 +1,5 @@
-const constants = require("../cable/constants")
-const cable = require("../cable/index.js")
+const constants = require("cable.js/constants")
+const cable = require("cable.js/index.js")
 function assertBufType (t, buf, postType) {
   const desc = getDescriptiveType(t, postType)
   t.equal(cable.peekPost(buf), postType, `expected ${desc}`)

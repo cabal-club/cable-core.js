@@ -6,7 +6,6 @@
   "scripts": {
     "test": "$(npm bin)/tape test/*.js | $(npm bin)/tap-spec",
     "bail": "$(npm bin)/tape test/*.js | $(npm bin)/tap-bail | $(npm bin)/tap-spec "
-
   },
   "repository": {
     "type": "git",
@@ -25,6 +24,7 @@
   "homepage": "https://github.com/cabal-club/cable-core.js#readme",
   "dependencies": {
     "b4a": "^1.6.1",
+    "cable.js": "0.0.1",
     "debug": "^4.3.4",
     "level": "^8.0.0",
     "memory-level": "^1.0.0"

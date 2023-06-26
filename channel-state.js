@@ -2,7 +2,7 @@ const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "channel-state"
 const debug = require("debug")(`core/${viewName}`)
-const constants = require("../cable/constants.js")
+const constants = require("cable.js/constants.js")
 const util = require("./util.js")
 const monotonicTimestamp = util.monotonicTimestamp()
 

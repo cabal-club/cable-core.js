@@ -10,9 +10,9 @@ const livedebug = require("debug")("core/live")
 const { Level } = require("level")
 const { MemoryLevel } = require("memory-level")
 // internal dependencies
-const cable = require("../cable/index.js")
-const crypto = require("../cable/cryptography.js")
-const constants = require("../cable/constants.js")
+const cable = require("cable.js")
+const crypto = require("cable.js/cryptography.js")
+const constants = require("cable.js/constants.js")
 const util = require("./util.js")
 // materialized views and indices
 const createDatastore = require("./data-store.js")

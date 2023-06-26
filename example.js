@@ -1,5 +1,5 @@
-const crypto = require("../cable/cryptography.js")
-const cable = require("../cable/index.js")
+const crypto = require("cable.js/cryptography.js")
+const cable = require("cable.js/index.js")
 const kp = crypto.generateKeypair()
 const CableCore = require("./index.js").CableCore
 const requester = new CableCore({kp})

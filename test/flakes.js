@@ -1,7 +1,7 @@
 const test = require("tape")
 const CableCore = require("../index.js").CableCore
-const constants = require("../../cable/constants")
-const cable = require("../../cable/index.js")
+const constants = require("cable.js/constants")
+const cable = require("cable.js/index.js")
 
 // this test should fail
 // test("failing test with flakes without synchronization", t => {
