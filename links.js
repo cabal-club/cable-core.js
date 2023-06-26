@@ -114,12 +114,12 @@ module.exports = function (lvl) {
             // process the list of buf links to a stringified form that we can work with easily on next retrieval
             liststring = formatLinkList(msg.links)
           } else {
+            debug("hash %s already had values set:\n\tvalues already had %s\n\tincoming links to set %s", msg.hash.toString("hex"), val, msg.links.map(h => h.toString("hex")))
             // we need to process the already stored value to make sure we only add new entries
             liststring = appendHashes(msg.links, val)
             // note: this will probably not happen? the only time we ought to associate a post hash with its linked
             // hashes is when we process that post. subsequent processing of the post should not have its links
             // changed
-            debug("hash %s already had values set!", msg.hash)
           }
           ops.push({
             type: 'put',
