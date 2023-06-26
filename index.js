@@ -887,7 +887,6 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     // TODO (2023-06-11): decide what do with links for post/delete (lacking channel info)
     const links = this._links()
-    // TODO (2023-04-12): create additional api for deleting many hashes
     const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), [hash])
     this.store.del(buf, done)
     return buf
@@ -1152,7 +1151,6 @@ class CableCore extends EventEmitter {
   }
 
   /* methods that deal with responding to requests */
-  // TODO (2023-03-23): write tests that exercise handleRequest cases
   handleRequest(req, done) {
     if (!done) { done = util.noop }
     const reqType = cable.peekMessage(req)
@@ -1270,7 +1268,6 @@ class CableCore extends EventEmitter {
       }
       done()
     })
-    // TODO (2023-03-28): handle errors in a .catch(err) clause
   }
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
@@ -1291,10 +1288,6 @@ class CableCore extends EventEmitter {
     this.emit("request", buf)
   }
 
-  // TODO (2023-04-24): write tests that verify live query behaviour for both
-  // channel state request
-  // channel time range request
-  //
   // we want to test the following when a request sets live query to true:
   // * receives new hash responses when they are produced locally (e.g. a post is written whose timespan fits the interval)
   // * time range request's limits are not exceeded & the live query is canceled once reached
