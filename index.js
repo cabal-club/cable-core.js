@@ -1556,9 +1556,12 @@ class CableCore extends EventEmitter {
         hashes.forEach(hash => {
           this.requestedHashes.delete(hash.toString("hex")) 
         })
+        res()
       })
       promises.push(p)
-      Promise.all(promises).then(() => { done() })
+      Promise.all(promises).then(() => { 
+        done() 
+      })
     })
   }
 
@@ -1571,11 +1574,13 @@ class CableCore extends EventEmitter {
 
     // check if message is a request or a response
     if (!this._messageIsResponse(resType)) {
+      storedebug("incoming response (reqid %s) was not a response type, dropping", reqidHex)
       return
     }
 
     // if we don't know about a reqid, then the corresponding response is not something we want to handle
     if (!this.requestsMap.has(reqidHex)) {
+      storedebug("reqid %s was unknown, dropping response", reqidHex)
       return
     }
 
