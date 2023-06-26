@@ -29,8 +29,10 @@ elucidation.
 For the nitty gritty details, read the [tests](https://github.com/cabal-club/cable-core.js/tree/main/test).
 
 ```js
-const crypto = require("cable/cryptography.js")
-const cable = require("cable/index.js")
+/* NOTE: require "cable.js" and not just "cable" (the latter is a completely unrelated module!!) */
+
+const crypto = require("cable.js/cryptography.js")
+const cable = require("cable.js/index.js")
 const { humanizeMessageType } = require("./util.js")
 const kp = crypto.generateKeypair()
 const CableCore = require("./index.js").CableCore
