@@ -3,7 +3,7 @@ const b4a = require("b4a")
 const viewName = "author"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("cable.js/constants.js")
-const util = require("./util.js")
+const util = require("../util.js")
 const monotonicTimestamp = util.monotonicTimestamp()
 
 function noop () {}

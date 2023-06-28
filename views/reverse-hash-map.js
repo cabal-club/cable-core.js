@@ -2,7 +2,7 @@ const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "reverse-hash-map"
 const debug = require("debug")(`core/${viewName}`)
-const util = require("./util.js")
+const util = require("../util.js")
 const monotonicTimestamp = util.monotonicTimestamp()
 
 function noop () {}
