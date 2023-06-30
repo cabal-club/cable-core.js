@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # cable-core.js
 
-**Status**: pre-alpha (api surface still in flux)
+**Status**: alpha (api surface still in flux)
 
 The core library powering a [cable](https://github.com/cabal-club/cable/tree/v1-draft) peer.
 This specific implementation is written in node.js, we anticipate cable implementations in other
@@ -39,9 +39,9 @@ For the nitty gritty details, read the [tests](https://github.com/cabal-club/cab
 
 const crypto = require("cable.js/cryptography.js")
 const cable = require("cable.js/index.js")
-const { humanizeMessageType } = require("./util.js")
+const { humanizeMessageType } = require("cable-core/util.js")
 const kp = crypto.generateKeypair()
-const CableCore = require("./index.js").CableCore
+const CableCore = require("cable-core/index.js").CableCore
 const requester = new CableCore({kp})
 const responder = new CableCore()
 
