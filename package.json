@@ -1,6 +1,6 @@
 {
   "name": "cable-core",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "database and protocol interactions for cable + cabal",
   "main": "index.js",
   "scripts": {
