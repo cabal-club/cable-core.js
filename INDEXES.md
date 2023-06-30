@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2023 the cabal-club authors
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+-->
+
 # Database indexes and views
 ## Definitions
 * `<thing>` signifies a placeholder value, where the text in brackets is a concrete value

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 the cabal-club authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const test = require("tape")
 const b4a = require("b4a")
 const CableCore = require("../index.js").CableCore

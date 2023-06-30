@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 the cabal-club authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const crypto = require("cable.js/cryptography.js")
 const cable = require("cable.js/index.js")
 const kp = crypto.generateKeypair()

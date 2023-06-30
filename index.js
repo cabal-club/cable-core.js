@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 the cabal-club authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // node core dependencies
 const EventEmitter = require('events').EventEmitter
 // external dependencies
