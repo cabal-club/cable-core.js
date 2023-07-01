@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const CableCore = require("./index.js").CableCore
+const CableCore = require("cable-core/index.js").CableCore
 const core = new CableCore()
 
 const { promisify } = require("util")
