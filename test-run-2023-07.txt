@@ -1,0 +1,705 @@
+> cable-core@0.0.2 test /home/cblgh/code/cabal-club/grant-work-2022/cable-core
+> $(npm bin)/tape test/*.js | $(npm bin)/tap-spec
+
+
+  test passes
+
+    ✔ this test always passes
+
+  core should be initializable
+
+    ✔ should not be undefined
+    ✔ should not be null
+
+  hashing message buffer works as expected
+
+    ✔ message buffer should be not null
+    ✔ hash should be not null
+    ✔ hash should be 32 bytes
+
+  writing to channel should persist post in store
+
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ text in object should be identical to input
+    ✔ post buffer should be not null
+    ✔ hash should be not null
+    ✔ post type should be post/text
+    ✔ getting data for persisted hash should work
+    ✔ data should be not null
+    ✔ should only return one result when querying one hash
+    ✔ data put into store and retrieved from store should have identical hashes
+    ✔ returned post should be parsed correctly
+    ✔ post type should be post/text
+    ✔ parsed bufs should be identical
+
+  writing to channel implicitly signals membership, user should read as a member after posting
+
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ text in object should be identical to input
+    ✔ get users in channel should work
+    ✔ should be no users at start
+    ✔ get users in channel should work
+    ✔ should have 1 user after posting
+    ✔ returned users map should have posting user
+
+  implicitly joined channel should be possible to leave
+
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ text in object should be identical to input
+    ✔ get users in channel should work
+    ✔ should have 1 user after posting
+    ✔ returned users map should have posting user
+    ✔ get users in channel should work
+    ✔ channel should have no user after leaving
+
+  write to a channel and then get message as chat
+
+    ✔ expected post/text
+    ✔ null
+    ✔ chat should have 1 message
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+
+  write to a channel and then delete
+
+    ✔ expected post/text
+    ✔ null
+    ✔ chat should have 1 message
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ delete buf should be not null
+    ✔ expected post/delete
+    ✔ null
+    ✔ chat should have 1 message (this time it's only the delete message
+    ✔ target of delete should be hash of our prior post/text
+    ✔ should be strictly equal
+
+  post/text delete functionality
+
+    ✔ expected post/text
+    ✔ null
+    ✔ chat should have 1 message
+    ✔ delete buf should be not null
+    ✔ expected post/delete
+    ✔ null
+    ✔ target of delete should be hash of our prior post/text
+    ✔ should be strictly equal
+    ✔ null
+    ✔ we queried for 1 hash so result list should be same size
+    ✔ returned data should be null because we should not be able to retrieve the deleted post/text
+
+  setting channel topic should persist post in store
+
+    ✔ expected post/topic
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ topic in object should be identical to input
+    ✔ post buffer should be not null
+    ✔ hash should be not null
+    ✔ post type should be post/topic
+    ✔ getting data for persisted hash should work
+    ✔ data should be not null
+    ✔ should only return one result when querying one hash
+    ✔ data put into store and retrieved from store should have identical hashes
+    ✔ returned post should be parsed correctly
+    ✔ post type should be post/topic
+    ✔ parsed bufs should be identical
+
+  setting channel topic should implicitly join channel
+
+    ✔ expected post/topic
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ topic in object should be identical to input
+    ✔ get users in channel should work
+    ✔ should have no users initially
+    ✔ get users in channel should work
+    ✔ should have 1 user after setting topic
+    ✔ returned users map should have posting user
+
+  implicitly joined channel (by setting topic) should be possible to leave
+
+    ✔ expected post/topic
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ topic in object should be identical to input
+    ✔ get users in channel should work
+    ✔ should have 1 user after setting topic
+    ✔ returned users map should have posting user
+    ✔ get users in channel should work
+    ✔ channel should have no user after leaving
+
+  setting a nick should persist post in store
+
+    ✔ expected post/info
+    ✔ key property should exist
+    ✔ value property should exist
+    ✔ info property 'key' should be 'name
+    ✔ info property 'value' should be 'cabler
+    ✔ post buffer should be not null
+    ✔ hash should be not null
+    ✔ post type should be post/info
+    ✔ getting data for persisted hash should work
+    ✔ data should be not null
+    ✔ should only return one result when querying one hash
+    ✔ data put into store and retrieved from store should have identical hashes
+    ✔ returned post should be parsed correctly
+    ✔ post type should be post/info
+    ✔ parsed bufs should be identical
+    ✔ getNick should work
+    ✔ the set nickname should be cabler
+
+  leaving channel should persist post in store
+
+    ✔ expected post/leave
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ post buffer should be not null
+    ✔ hash should be not null
+    ✔ post type should be post/leave
+    ✔ getting data for persisted hash should work
+    ✔ data should be not null
+    ✔ should only return one result when querying one hash
+    ✔ data put into store and retrieved from store should have identical hashes
+    ✔ returned post should be parsed correctly
+    ✔ post type should be post/leave
+    ✔ parsed bufs should be identical
+
+  joining channel should persist post in store
+
+    ✔ expected post/join
+    ✔ channel property should exist
+    ✔ channel should be introduction
+    ✔ post buffer should be not null
+    ✔ hash should be not null
+    ✔ post type should be post/join
+    ✔ getting data for persisted hash should work
+    ✔ data should be not null
+    ✔ should only return one result when querying one hash
+    ✔ data put into store and retrieved from store should have identical hashes
+    ✔ returned post should be parsed correctly
+    ✔ post type should be post/join
+    ✔ parsed bufs should be identical
+
+  join and leave channels
+
+    ✔ should be able to get one joined channel
+    ✔ should only be joined to one channel
+    ✔ joined channel should be 'another-channel'
+
+  get users functionality
+
+    ✔ get users should work
+    ✔ should be truthy
+    ✔ users map should be size 1
+    ✔ get users in channel should work
+    ✔ channel introduction should have no users
+    ✔ get users in channel should work
+    ✔ channel another-channel should have users
+
+  set multiple topics and delete
+
+    ✔ get topic should work
+    ✔ actively set topic should be second topic (second topic
+    ✔ get topic should work
+    ✔ active topic should be third topic (third topic
+    ✔ get topic should work after a delete
+    ✔ active topic should now be second topic (second topic) not first (first topic) or third (third topic)
+
+  persisted posts should be indexed by reverse hash map view
+
+    ✔ expected post/join
+    ✔ get joined channels should work
+    ✔ returned data should be good
+    ✔ should return only 1 channel
+    ✔ should have joined channel introduction
+
+  get a map of views where the hash of the post/join is referenced
+
+    ✔ reverse map view's get uses should work
+    ✔ returned data should be good
+    ✔ view data-store should index the hash of a join post}
+    ✔ view channel-state should index the hash of a join post}
+    ✔ view author should index the hash of a join post}
+    ✔ expected post/delete
+
+  post/join message should no longer be referenced anywhere, let's see if that's true
+
+    ✔ reverse map view's get uses should work
+    ✔ returned data should be good
+
+  the hash of the delete message should now be referenced in the appropriate views
+
+    ✔ reverse map view's get uses should work
+    ✔ returned data should be good
+    ✔ view data-store should index the hash of a delete post}
+    ✔ view author should index the hash of a delete post}
+    ✔ view messages should index the hash of a delete post}
+
+  successful test without flakes when synchronization utilized
+
+    ✔ get joined channels should work
+    ✔ returned data should be good
+    ✔ should have 1 joined channel
+    ✔ should be correct channel name
+    ✔ get joined channels should work
+    ✔ returned data should be good
+    ✔ should have no joined channel
+
+  test passes
+
+    ✔ this test always passes
+
+  setting links should work
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ first post buffer should be ok
+    ✔ links of first post buffer should be empty
+    ✔ first post's contents should be correct
+    ✔ second post buffer should be ok
+    ✔ links of second post buffer should have 1 entry
+    ✔ second post's contents should be correct
+    ✔ links of second post buffer should be hash of first post
+
+  links should not be set if posts are two separate channel contexts
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ first post buffer should be ok
+    ✔ links of first post buffer should be empty
+    ✔ second post buffer should be ok
+    ✔ links of second post buffer should have no entry
+
+  links should be set correctly when ingesting external posts
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ first post buffer should be ok
+    ✔ links of first post buffer should be empty
+    ✔ first post's contents should be correct
+    ✔ second post buffer should be ok
+    ✔ links of second post buffer should have 1 entry
+    ✔ second post's contents should be correct
+    ✔ links of second post buffer should be hash of first post
+
+  multiple links should be tracked
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ first post buffer should be ok
+    ✔ links of first post buffer should be empty
+    ✔ first post's contents should be correct
+    ✔ second post buffer should be ok
+    ✔ links of second post buffer should have no entry
+    ✔ second post's contents should be correct
+    ✔ tracked heads for channel should contain two links
+
+  multiple links should be set and merged
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ first post buffer should be ok
+    ✔ links of first post buffer should be empty
+    ✔ first post's contents should be correct
+    ✔ second post buffer should be ok
+    ✔ links of second post buffer should have no entry
+    ✔ second post's contents should be correct
+    ✔ tracked heads for channel should contain two links
+    ✔ post buffer should have two links set
+    ✔ post's contents should be correct
+    ✔ links of last post buffer should have one link set
+    ✔ last post's contents should be correct
+    ✔ the tracked heads for introduction should be the hash of the last post)
+
+  setting links should work
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ first post buffer should be ok
+    ✔ links of first post buffer should be empty
+    ✔ first post's contents should be correct
+    ✔ second post buffer should be ok
+    ✔ links of second post buffer should have 1 entry
+    ✔ second post's contents should be correct
+    ✔ links of second post buffer should be hash of first post
+    ✔ should have no error when getting reverse links
+    ✔ there should be one reverse link set for hash of first post§
+    ✔ the reverse link set of the first post should be the second post
+    ✔ should have no error when getting links
+    ✔ there should be one link set for hash of second post
+    ✔ the link set for the second post should be the first post 
+    ✔ channel should have 1 head
+    ✔ head for channel should be hash of second post
+
+  test passes
+
+    ✔ this test always passes
+
+  core should be initializable
+
+    ✔ should not be undefined
+    ✔ should not be null
+
+  channel time range request: start with empty database, send hashes as they are produced
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 1
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 2
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 3
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at 3+1 (has concluding hash response), was 4
+
+  channel time range request + cancel: start with empty database, send hashes as they are produced. stop after a cancel
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 2, was 1
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 2, was 2
+
+  channel time range request: start with populated database, send hashes as they are produced
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+
+  first buf received
+
+    ✔ should only receive hash of first buf once
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ concluding response hash should be zero in length
+
+  end to end channel time range request: start with empty database, send hashes as they are produced. end of response message should be processed correctly and reqid of finished request forgotten
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ reqid should be buffer
+    ✔ core[0] should initially know reqid for newly created request
+    ✔ response should be a buffer
+    ✔ response should be a buffer
+    ✔ response should be a buffer
+    ✔ response should be a buffer
+    ✔ reqid should be same for request and response
+    ✔ core[0] should known the request id for its ongoing request
+    ✔ reqid should be same for request and response
+    ✔ core[0] should known the request id for its ongoing request
+    ✔ reqid should be same for request and response
+    ✔ reqid should be same for request and response
+    ✔ final hash response should have 0 hashes (concluding hash response)
+    ✔ receive counter should be 4 at end of test
+    ✔ core[0] should forget request id after response finish
+
+  channel state request: start with empty database. store post/text, but should not produce hash responses
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+
+  channel state request: start with empty database. store post/topic, should produce hash responses
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+
+  channel state request + cancel request: start with empty database, send hashes as they are produced. stop after cancel
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ receiveCounter should be 3
+
+  channel state request + delete request: start with empty database, send hashes as they are produced. send new latest after a delete
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ latest hash should not be empty
+    ✔ should be truthy
+    ✔ response buffer should be hash response
+    ✔ response hashes should be non-zero in length
+    ✔ last hash response should contain 1 hash
+    ✔ last hash and n-1 last hash should not be equal
+    ✔ the last hash response should be the hash of the n-1 latest post
+
+  channel state request: start with empty database. store post/topic, post/join, post/info. should produce hash responses
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 1
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 2
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 3
+
+  channel state request: start with empty database. store post/topic, post/join, post/info, but some to an unrelated channel. should produce hash responses for requested channel only
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should be buffer
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 1
+    ✔ should be truthy
+    ✔ response hashes should be non-zero in length
+    ✔ response buffer should be hash response
+    ✔ receive counter should be at most 3, was 2
+    ✔ receive counter should be at most 3, was 2
+
+  test passes
+
+    ✔ this test always passes
+
+  core should be initializable
+
+    ✔ should not be undefined
+    ✔ should not be null
+
+  multiple cores should be initializable
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ should not be undefined
+    ✔ should not be null
+
+  multiple users setting a nicknames should work
+
+    ✔ expected post/info
+    ✔ 0: key property should exist
+    ✔ 0: value property should exist
+    ✔ 0: info property 'key' should be 'name
+    ✔ 0: info property 'value' should be 'cabler0
+    ✔ expected post/info
+    ✔ 1: key property should exist
+    ✔ 1: value property should exist
+    ✔ 1: info property 'key' should be 'name
+    ✔ 1: info property 'value' should be 'cabler1
+    ✔ 0: get users should work
+    ✔ 0: ret value should be ok
+    ✔ 0: user name of user #0 should be correct
+    ✔ 0: user name of user #1 should be correct
+    ✔ 1: get users should work
+    ✔ 1: ret value should be ok
+    ✔ 1: user name of user #0 should be correct
+    ✔ 1: user name of user #1 should be correct
+
+  multi-user topics should work
+
+    ✔ 0: topic should be set to first topic
+    ✔ 1: topic should be set to first topic
+    ✔ 0: topic should now be set to second topic
+    ✔ 1: topic should now be set to second topic
+
+  users joining multiple channels should end up with same view on channel set
+
+    ✔ core 0: get users should work
+    ✔ should be truthy
+    ✔ core 0: users map should be size 2
+    ✔ core 1: get users should work
+    ✔ should be truthy
+    ✔ core 1: users map should be size 2
+    ✔ core 0: get users in channel should work
+    ✔ core 0: channel introduction should have two users
+    ✔ core 1: get users in channel should work
+    ✔ core 1: channel introduction should have two users
+    ✔ core 0: get users in channel should work
+    ✔ core 0: channel another-channel should have 1 user
+    ✔ core 1: get users in channel should work
+    ✔ core 1: channel another-channel should have 1 user
+
+  indexing external cable post should work as expected
+
+    ✔ public keys should be different for the two cores
+    ✔ null
+    ✔ chat should have 1 message
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ author of message should be core 0's public key (24b5d3319c166a114e6491044597c6badeb74d9ce8ac66b20cad3b3c36deae51)
+    ✔ null
+    ✔ chat should have 1 message
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ author of message should be core 0's public key (24b5d3319c166a114e6491044597c6badeb74d9ce8ac66b20cad3b3c36deae51)
+
+  for two different users: write to a channel and then delete
+
+    ✔ expected post/text
+    ✔ hashes from two independent instance on same buf should be identical
+    ✔ null
+    ✔ chat should have 1 message
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ null
+    ✔ chat should have 1 message
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ should be strictly equal
+    ✔ delete buf should be not null
+    ✔ expected post/delete
+    ✔ null
+    ✔ chat should have 1 message (this time it's only the delete message
+    ✔ target of delete should be hash of our prior post/text
+    ✔ should be strictly equal
+    ✔ null
+    ✔ chat should have 1 message (this time it's only the delete message
+    ✔ target of delete should be hash of our prior post/text
+    ✔ should be strictly equal
+
+  test passes
+
+    ✔ this test always passes
+
+  core should be initializable
+
+    ✔ should not be undefined
+    ✔ should not be null
+
+  request should be emitted
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ emitted request should be of type time range request (was 4)
+    ✔ returned request should be of type time range request (was 4)
+
+  handling a request should emit a correct response message
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ emitted request should be of type time range request (was 4)
+    ✔ returned request should be of type time range request (was 4)
+    ✔ emitted request should be of type hash response(was 0)
+    ✔ hash response should contain 1 hash
+    ✔ req_id of initial request and response message should be identical
+
+  requesting chat posts and ultimately receiving a post response should work
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ time range request should be first request
+    ✔ returned request should be of type time range request (was 4)
+    ✔ emitted request should be of type hash response(was 0)
+    ✔ hash response should contain 1 hash
+    ✔ post request should be second request
+    ✔ post response should contain 1 post
+    ✔ get chat should work
+    ✔ posts should be not null
+    ✔ get chat should return a post
+    ✔ channel should be same as initial post
+    ✔ text contents should be same as initial post
+    ✔ public key should be that of instance 1 (not instance 0)
+
+  channel list request should yield a channel list response
+
+    ✔ should not be undefined
+    ✔ should not be null
+    ✔ get channels should work
+    ✔ returned channels should equal list of channels we joined
+    ✔ should be a channel list request
+    ✔ should be a channel list response
+    ✔ get channels should work for core[0]
+    ✔ core[0]'s returned channels should equal list of channels we joined
+
+  channel state request should yield a hash response
+
+    ✔ CableCore instance 0 should be ok
+    ✔ CableCore instance 1 should be ok
+    ✔ get channel state hashes should not err
+    ✔ core[0] should have 3 channel state hashes for introduction before request-response cycle
+    ✔ get channel state hashes should not err
+    ✔ core[1] should have 3 channel state hashes for introduction (1 topic, 1 post/info for themselves, 1 post/join for themselves
+    ✔ first request should be a channel state request
+    ✔ first should be a channel state response
+    ✔ second request should be a post request
+    ✔ should be a post request
+    ✔ second should be a post response
+    ✔ get channel state hashes should not err
+    ✔ core[0] should have 3 channel state hashes for introduction (1 topic, 1 post/info for core[1], 1 post/join for core[1]
+    ✔ hash should be a buffer
+    ✔ hash size should be 32
+    ✔ hash should be a buffer
+    ✔ hash size should be 32
+    ✔ hash should be a buffer
+    ✔ hash size should be 32
+    ✔ indexed topic should be equal to the topic that was set
+    ✔ core[1]'s user should be in channel after core[0] state sync
+    ✔ name of core[1] should be set correctly
+    ✔ only core[1] should be in channel
+
+
+  total:     521
+  passing:   521
+  duration:  1.3s
+
+
