@@ -884,7 +884,6 @@ class CableCore extends EventEmitter {
       default:
         throw new Error(`forward request: unknown request type ${reqType}`)
     }
-    console.log("forward request", decrementedBuf)
   }
 
   forwardResponse(buf) {

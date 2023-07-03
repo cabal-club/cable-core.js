@@ -263,7 +263,6 @@ test("end to end channel time range request: start with empty database, send has
     const obj = cable.parseMessage(buf)
     const testAfterHandlingResponse = (done) => {
       receiveCounter++
-      console.log("receive counter", receiveCounter)
       t.deepEqual(reqid, obj.reqid, "reqid should be same for request and response")
       if (receiveCounter < limit) {
         t.true(core[0]._isReqidKnown(reqid), "core[0] should known the request id for its ongoing request")
