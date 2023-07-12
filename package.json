@@ -24,7 +24,7 @@
   "homepage": "https://github.com/cabal-club/cable-core.js#readme",
   "dependencies": {
     "b4a": "^1.6.1",
-    "cable.js": "0.0.1",
+    "cable.js": "0.0.2",
     "debug": "^4.3.4",
     "level": "^8.0.0",
     "memory-level": "^1.0.0"
