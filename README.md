@@ -8,9 +8,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 **Status**: alpha (api surface still in flux)
 
-The core library powering a [cable](https://github.com/cabal-club/cable/tree/v1-draft) peer.
+The core library powering a [cable](https://github.com/cabal-club/cable/) peer.
 This specific implementation is written in node.js, we anticipate cable implementations in other
-languages to follow. (Interested? See cable's [spec](https://github.com/cabal-club/cable/tree/v1-draft))
+languages to follow. (Interested? See cable's [spec](https://github.com/cabal-club/cable/))
 
 **Responsibilities**:
 
