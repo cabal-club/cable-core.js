@@ -439,14 +439,24 @@ class CableCore extends EventEmitter {
     })
   }
 
-  // resolves hashes into post objects
+  // resolves hashes into post objects. note: all post objects that are returned from cable-core will have their buffer
+  // instances be converted to hex strings 
   resolveHashes(hashes, cb) {
     coredebug("the hashes", hashes)
     this.getData(hashes, (err, bufs) => {
       const posts = []
-      bufs.forEach(buf => {
+      bufs.forEach((buf, index) => {
         if (buf !== null) { 
-          posts.push(cable.parsePost(buf)) 
+					const post = cable.parsePost(buf)
+          // deviating from spec behaviour!
+          // 1. add a 'hash' key to each resolved hash.
+          // this allows downstream clients to refer to a particular post and act on it
+          post["postHash"] = hashes[index].toString("hex")
+          // 2. convert to hex string instead of buffer instance
+          post.links = post.links.map(l => l.toString("hex"))
+          post.publicKey = post.publicKey.toString("hex")
+          post.signature = post.signature.toString("hex")
+          posts.push(post) 
         } else {
           posts.push(null)
         }

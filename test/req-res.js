@@ -157,7 +157,7 @@ test("requesting chat posts and ultimately receiving a post response should work
             const p = posts[0]
             t.equal(p.channel, channel, "channel should be same as initial post")
             t.equal(p.text, text, "text contents should be same as initial post")
-            t.deepEqual(p.publicKey, core[1].kp.publicKey, "public key should be that of instance 1 (not instance 0)")
+            t.deepEqual(p.publicKey, core[1].kp.publicKey.toString("hex"), "public key should be that of instance 1 (not instance 0)")
             t.end()
           })
           }, 200)
