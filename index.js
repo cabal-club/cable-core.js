@@ -255,21 +255,24 @@ class CableCore extends EventEmitter {
     return []
   }
 
+
   /* methods that produce cablegrams, and which we store in our database */
+  _updateNewestHeads(channel, buf, done) {
+    const bufHash = this.hash(buf)
+    // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
+    this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
+      // update the newest heads
+      this.heads.set(channel, [bufHash])
+      done()
+    })
+  }
+
 	// post/text
 	postText(channel, text, done) {
     if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), text)
-    const bufHash = this.hash(buf)
-    this.store.text(buf, () => {
-      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
-        // update the newest heads
-        this.heads.set(channel, [bufHash])
-        done()
-      })
-    })
+    this.store.text(buf, () => { this._updateNewestHeads(channel, buf, done) })
     return buf
   }
 
@@ -288,15 +291,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = TOPIC_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), topic)
-    const bufHash = this.hash(buf)
-    this.store.topic(buf, () => {
-      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
-        // update the newest heads
-        this.heads.set(channel, [bufHash])
-        done()
-      })
-    })
+    this.store.topic(buf, () => { this._updateNewestHeads(channel, buf, done) })
     return buf
   }
 
@@ -305,15 +300,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
-    const bufHash = this.hash(buf)
-    this.store.join(buf, () => {
-      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
-        // update the newest heads
-        this.heads.set(channel, [bufHash])
-        done()
-      })
-    })
+    this.store.join(buf, () => { this._updateNewestHeads(channel, buf, done) })
     return buf
   }
 
@@ -322,15 +309,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = LEAVE_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
-    const bufHash = this.hash(buf)
-    this.store.leave(buf, () => {
-      // we're storing a new post we have *just* created -> we *know* this is our latest heads for the specified channel
-      this.store.linksView.api.setNewHeads(channel, [bufHash], () => {
-        // update the newest heads
-        this.heads.set(channel, [bufHash])
-        done()
-      })
-    })
+    this.store.leave(buf, () => { this._updateNewestHeads(channel, buf, done) })
     return buf
   }
 
