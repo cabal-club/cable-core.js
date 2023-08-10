@@ -15,6 +15,8 @@ const crypto = require("cable.js/cryptography.js")
 const constants = require("cable.js/constants.js")
 const util = require("./util.js")
 const CableStore = require("./store.js")
+const Swarm = require("./peers.js").Swarm
+// const Network = require("./network.js").Network
 // aliases
 const TEXT_POST = cable.TEXT_POST
 const DELETE_POST = cable.DELETE_POST
@@ -87,7 +89,14 @@ class CableCore extends EventEmitter {
     super()
     if (!opts) { opts = {} }
     if (!opts.storage) {}
-    if (!opts.network) {}
+    if (!opts.network) { /*opts.network = Network*/ }
+    if (!opts.port) { opts.port = 13331 }
+    // i.e. the network of connections with other cab[a]l[e] peers
+    this.swarm = new Swarm(opts.network, "fake-key", opts.port)
+    this.swarm.on("data", (data) => {
+      this._handleIncomingMessage(data)
+      coredebug("incoming swarm data", data)
+    })
     // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
     const validKeypair = (
       opts.kp && opts.kp.publicKey && opts.kp.secretKey && 
@@ -149,25 +158,21 @@ class CableCore extends EventEmitter {
       this._sendConcludingHashResponse(b4a.from(reqidHex, "hex"))
     })
 
-    this.swarm = null // i.e. the network of connections with other cab[a]l[e] peers
-
     /* event sources */
-    this.posts = null// n.b. in original cabal-core the name for this was `this.messages`
     // posts events:
     //  add - emit(channel, post, hash)
     //  remove - emit(channel, hash)
-    this.channels = null
     // channels events:
     //  add - emit(channel)
     //  join - emit(channel, pubkey)
     //  leave - emit(channel, pubkey)
     //  topic - emit(channel, topic)
     //  archive - emit(channel)
-    this.network = null
     // network events:
     //  connection 
     //  join - emit(peer)
     //  leave - emit(peer)
+    //  data - emit(data, {address, data})
   }
 
   // this function is part of "live query" behaviour of the channel state request (when future = 1) 
@@ -489,7 +494,7 @@ class CableCore extends EventEmitter {
       // resolve promises to get at the hashes
       Promise.all([namePromise, statePromise]).then(results => {
         // collapse results into a single array, deduplicate via set and get the list of hashes
-        const hashes = Array.from(new Set(results.flatMap(item => item)))
+        const hashes = Array.from(new Set(results.flatMap(item => item))).filter(item => typeof item !== "undefined")
         coredebug("all hashes %O", hashes)
         cb(null, hashes)
       })
@@ -534,6 +539,7 @@ class CableCore extends EventEmitter {
   }
 
   // -> request post/topic, post/join, post/leave, post/info
+  // future is either 0 or 1, 1 if we want to request future posts
   requestState(channel, ttl, future) {
     const reqid = crypto.generateReqID()
     const req = cable.CHANNEL_STATE_REQUEST.create(reqid, ttl, channel, future)
@@ -616,6 +622,7 @@ class CableCore extends EventEmitter {
     }
 
     const obj = cable.parseMessage(req)
+    coredebug("request obj", obj)
     this._registerRemoteRequest(reqid, reqType, req)
     if (obj.ttl > 0) { this.forwardRequest(req) }
 
@@ -717,8 +724,10 @@ class CableCore extends EventEmitter {
   }
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
+  // TODO (2023-08-09): hook up response / requests to swarm/peers logic
   dispatchResponse(buf) {
     this.emit("response", buf)
+    this.swarm.broadcast(buf)
   }
 
   dispatchRequest(buf) {
@@ -732,6 +741,20 @@ class CableCore extends EventEmitter {
       this._registerLocalRequest(reqid, reqtype, buf)
     }
     this.emit("request", buf)
+    this.swarm.broadcast(buf)
+  }
+
+  _handleIncomingMessage(buf) {
+    const msgType = cable.peekMessage(buf)
+    if (this._messageIsRequest(msgType)) {
+      coredebug("message:", util.humanizeMessageType(msgType))
+      this.handleRequest(buf)
+      return
+    } else if (this._messageIsResponse(msgType)) {
+      coredebug("message:", util.humanizeMessageType(msgType))
+      this.handleResponse(buf)
+      return
+    }
   }
 
   // we want to test the following when a request sets live query to true:
@@ -876,7 +899,7 @@ class CableCore extends EventEmitter {
   }
 
   forwardResponse(buf) {
-    console.log("forward response", buf)
+    coredebug("todo forward response", buf)
   }
 
   _storeExternalBuf(buf, done) {
@@ -1012,13 +1035,13 @@ class CableCore extends EventEmitter {
 
     // check if message is a request or a response
     if (!this._messageIsResponse(resType)) {
-      storedebug("incoming response (reqid %s) was not a response type, dropping", reqidHex)
+      coredebug("incoming response (reqid %s) was not a response type, dropping", reqidHex)
       return
     }
 
     // if we don't know about a reqid, then the corresponding response is not something we want to handle
     if (!this.requestsMap.has(reqidHex)) {
-      storedebug("reqid %s was unknown, dropping response", reqidHex)
+      coredebug("reqid %s was unknown, dropping response", reqidHex)
       return
     }
 
@@ -1031,6 +1054,7 @@ class CableCore extends EventEmitter {
     }
 
     const obj = cable.parseMessage(res)
+    coredebug("response obj", obj)
 
     // TODO (2023-03-23): handle decommissioning all data relating to a reqid whose request-response lifetime has ended
     //
