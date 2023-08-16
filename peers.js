@@ -26,7 +26,9 @@ class Swarm extends EventEmitter {
     this.blocked = []
     this.peers = new Map()
 
-    setInterval(this._attemptPrune.bind(this), TIME_BEFORE_DROP)
+    // TODO (2023-08-16): reinstate when 1) it's needed and 2) i figure out why having an interval'd function prevents
+    // the test suites from exiting properly
+    // setInterval(this._attemptPrune.bind(this), TIME_BEFORE_DROP)
   }
 
   _handleSocketData ({ address, data }) {

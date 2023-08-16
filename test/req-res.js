@@ -137,31 +137,49 @@ test("requesting chat posts and ultimately receiving a post response should work
     t.fail("instance 1 should not emit any requests")
   })
 
+  let pending = 0
+  const done = () => {
+    pending--
+    if (pending <= 0) {
+      t.end()
+    }
+  }
+  let responses = 0
   core[1].on("response", resBuf => {
+    responses++
     const msgType = cable.peekMessage(resBuf)
     const obj = cable.parseMessage(resBuf)
+
     switch (msgType) {
       case constants.HASH_RESPONSE:
+        t.equal(responses, 1, "hash response should be first response to arrive")
         t.equal(msgType, constants.HASH_RESPONSE, `emitted request should be of type hash response(was ${msgType})`)
         t.equal(obj.hashes.length, 1, "hash response should contain 1 hash")
         core[0].handleResponse(resBuf)
         break
       case constants.POST_RESPONSE:
-        t.equal(obj.posts.length, 1, "post response should contain 1 post")
-        core[0].handleResponse(resBuf, () => {
-          setTimeout(() => {
-          core[0].getChat(channel, 0, +(new Date()), limit, (err, posts) => {
-            t.error(err, "get chat should work")
-            t.ok(posts, "posts should be not null")
-            t.equal(posts.length, 1, "get chat should return a post")
-            const p = posts[0]
-            t.equal(p.channel, channel, "channel should be same as initial post")
-            t.equal(p.text, text, "text contents should be same as initial post")
-            t.deepEqual(p.publicKey, core[1].kp.publicKey.toString("hex"), "public key should be that of instance 1 (not instance 0)")
-            t.end()
+        pending++
+        if (responses === 2) {
+          t.equal(obj.posts.length, 1, "post response should contain 1 post")
+          core[0].handleResponse(resBuf, () => {
+            core[0].getChat(channel, 0, +(new Date()), limit, (err, posts) => {
+              t.error(err, "get chat should work")
+              t.ok(posts, "posts should be not null")
+              t.equal(posts.length, 1, "get chat should return a post")
+              const p = posts[0]
+              t.equal(p.channel, channel, "channel should be same as initial post")
+              t.equal(p.text, text, "text contents should be same as initial post")
+              t.deepEqual(p.publicKey, core[1].kp.publicKey.toString("hex"), "public key should be that of instance 1 (not instance 0)")
+              done()
+            })
           })
-          }, 200)
-        })
+        } else if (responses === 3) {
+          t.equal(obj.posts.length, 0, "post response should contain no posts as its the concluding post response (no more data is coming)")
+          // since we've concluded, let's now process the responses and make sure it's indexed in our database as expected
+          core[0].handleResponse(resBuf, () => {
+            done()
+          })
+        }
         break
     }
   })
@@ -266,7 +284,6 @@ test("channel state request should yield a hash response", t => {
         break
       case constants.POST_REQUEST:
         t.equal(requests, 2, "second request should be a post request")
-        t.pass("should be a post request")
         break
       default:
         t.fail("should never generate a request other than a channel state request or a post request")
@@ -274,6 +291,7 @@ test("channel state request should yield a hash response", t => {
     core[1].handleRequest(reqBuf)
   })
 
+  let handledFinalResponse = false
   let responses = 0
   core[1].on("response", resBuf => {
     const msgType = cable.peekMessage(resBuf)
@@ -284,37 +302,48 @@ test("channel state request should yield a hash response", t => {
         t.equal(responses, 1, "first should be a channel state response")
         break
       case constants.POST_RESPONSE:
-        t.equal(responses, 2, "second should be a post response")
+        switch (responses) {
+          case 2:
+            t.true(obj.posts.length > 0, "non-concluding post response should have non-zero amount of posts")
+            break
+          case 3:
+            t.equal(obj.posts.length, 0, "last response should be a post response with no posts (concluding)")
+          break
+        }
         break
       default:
         t.fail("should never generate a response other than a hash response or a post response")
     }
+
     core[0].handleResponse(resBuf, () => {
       // core[0] should have ingested and indexed the full set of channel state data, let's verify that!
-      if (responses === 2) {
-        new Promise((res, rej) => {
-          core[0].getChannelStateHashes(channel, (err, hashes) => {
-            t.error(err, "get channel state hashes should not err")
-            t.equal(hashes.length, 3, `core[0] should have 3 channel state hashes for ${channel} (1 topic, 1 post/info for core[1], 1 post/join for core[1]`)
-            hashes.forEach(hash => {
-              t.true(b4a.isBuffer(hash), "hash should be a buffer")
-              t.equal(hash.length, constants.HASH_SIZE, `hash size should be ${constants.HASH_SIZE}`)
+      if (responses === 3 && !handledFinalResponse) {
+        handledFinalResponse = true
+        setTimeout(() => {
+          new Promise((res, rej) => {
+            core[0].getChannelStateHashes(channel, (err, hashes) => {
+              t.error(err, "get channel state hashes should not err")
+              t.equal(hashes.length, 3, `core[0] should have 3 channel state hashes for ${channel} (1 topic, 1 post/info for core[1], 1 post/join for core[1]`)
+              hashes.forEach(hash => {
+                t.true(b4a.isBuffer(hash), "hash should be a buffer")
+                t.equal(hash.length, constants.HASH_SIZE, `hash size should be ${constants.HASH_SIZE}`)
+              })
+              res()
             })
-            res()
+          }).then(() => {
+            core[0].getTopic(channel, (err, returnedTopic) => {
+              t.equal(returnedTopic, topic, "indexed topic should be equal to the topic that was set")
+            })
+          }).then(() => {
+            core[0].getUsersInChannel(channel, (err, map) => {
+              const core1Pubkey = core[1].kp.publicKey.toString("hex")
+              t.true(map.has(core1Pubkey), "core[1]'s user should be in channel after core[0] state sync")
+              t.equal(map.get(core1Pubkey), name[1], "name of core[1] should be set correctly")
+              t.equal(map.size, 1, "only core[1] should be in channel")
+              t.end()
+            })
           })
-        }).then(() => {
-          core[0].getTopic(channel, (err, returnedTopic) => {
-            t.equal(returnedTopic, topic, "indexed topic should be equal to the topic that was set")
-          })
-        }).then(() => {
-          core[0].getUsersInChannel(channel, (err, map) => {
-            const core1Pubkey = core[1].kp.publicKey.toString("hex")
-            t.true(map.has(core1Pubkey), "core[1]'s user should be in channel after core[0] state sync")
-            t.equal(map.get(core1Pubkey), name[1], "name of core[1] should be set correctly")
-            t.equal(map.size, 1, "only core[1] should be in channel")
-            t.end()
-          })
-        })
+        }, 200)
       }
     })
   })
