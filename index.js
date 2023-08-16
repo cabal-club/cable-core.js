@@ -634,6 +634,11 @@ class CableCore extends EventEmitter {
     this._registerRequest(reqid, true, reqType, obj, buf)
   }
 
+  // keeping track of requests
+  // * live requests (future=1, time_end = 0)
+  // * in progress requests, waiting for their response
+  // * local requests which are to succeed any live request currently made on the same channel
+
   // register a request that originates from a remote node, sets origin to false
   _registerRemoteRequest(reqid, reqType, buf) {
     const obj = cable.parseMessage(buf)
@@ -671,24 +676,31 @@ class CableCore extends EventEmitter {
       let response
       switch (reqType) {
         case constants.CANCEL_REQUEST:
+          // first remove the request that was canceled
           this._removeRequest(obj.cancelid)
+          // then make sure the cancel request itself is not persisted, as it has been handled
+          this._removeRequest(obj.reqid)
           // note: there is no corresponding response for a cancel request
           return res(null)
         case constants.POST_REQUEST:
           // get posts corresponding to the requested hashes
           this.getData(obj.hashes, (err, posts) => {
             if (err) { return rej(err) }
+            const responses = []
             // hashes we could not find in our database are represented as null: filter those out
             const responsePosts = posts.filter(post => post !== null)
             response = cable.POST_RESPONSE.create(reqid, responsePosts)
-            return res([response])
+            responses.push(response)
+            coredebug("post response: prepare concluding post response for %O", reqid)
+            const finalResponse = cable.POST_RESPONSE.create(reqid, [])
+            responses.push(finalResponse)
+            this._removeRequest(reqid)
+            return res(responses)
           })
           break
         case constants.TIME_RANGE_REQUEST:
-          coredebug("create a response: get time range using params in %O", obj)
+          coredebug("create a response for channel time range request using params in %O", obj)
           // if obj.timeEnd === 0 => keep this request alive
-          // TODO (2023-04-26): if timeEnd !== 0 and we've gotten out all our hashes, send a hash response with
-          // hashes=[] to signal end of request + conclude it & remove request
           if (obj.timeEnd === 0) {
             const hasLimit = obj.limit !== 0
             this._addLiveStateRequest(obj.channel, obj.reqid, obj.limit, hasLimit)
@@ -700,7 +712,8 @@ class CableCore extends EventEmitter {
               const responses = []
               response = cable.HASH_RESPONSE.create(reqid, hashes)
               responses.push(response)
-              // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
+              // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: 
+              // conclude it by sending a hash response with hashes=[] to signal end of request & remove request
               if (obj.timeEnd > 0) {
                 coredebug("time-range-request: prepare concluding hash response for %O", reqid)
                 response = cable.HASH_RESPONSE.create(reqid, [])
