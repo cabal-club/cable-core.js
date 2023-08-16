@@ -99,8 +99,9 @@ module.exports = function (lvl, reverseIndex) {
 
     api: {
       getChannelTimeRange: function (channel, timestart, timeend, limit, cb) {
+        // level's "unlimited" value is -1, not 0
+        if (limit === 0) { limit = -1 }
         // get the hashes recorded in the specified time range
-        // TODO (2023-02-23): handle special case live streaming behaviour for timeend == 0
         ready(async function () {
           debug("api.getChannelTimeRange")
           if (timeend === 0) {
