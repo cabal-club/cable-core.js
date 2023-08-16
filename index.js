@@ -16,7 +16,7 @@ const constants = require("cable.js/constants.js")
 const util = require("./util.js")
 const CableStore = require("./store.js")
 const Swarm = require("./peers.js").Swarm
-// const Network = require("./network.js").Network
+
 // aliases
 const TEXT_POST = cable.TEXT_POST
 const DELETE_POST = cable.DELETE_POST
@@ -93,9 +93,23 @@ class CableCore extends EventEmitter {
     if (!opts.port) { opts.port = 13331 }
     // i.e. the network of connections with other cab[a]l[e] peers
     this.swarm = new Swarm(opts.network, "fake-key", opts.port)
+    this.swarm.makeContact()
     this.swarm.on("data", (data) => {
       this._handleIncomingMessage(data)
       coredebug("incoming swarm data", data)
+    })
+    // TODO (2023-08-14): dedupe and cancel previous requests for the same channel if a new request comes in; basically
+    // superceding requests
+    //
+    // make sure it doesn't conflict if multiple different peers create a request
+    //
+    this.swarm.on("new-peer", (peer) => {
+      coredebug("new peer, time to send them our current requests")
+      const localRequests = []
+      for (let [reqid, entry] of this.requestsMap) {
+        if (entry.origin) { localRequests.push(entry.binary) }
+      }
+      localRequests.forEach(req => { this.swarm.broadcast(req) })
     })
     // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
     const validKeypair = (
