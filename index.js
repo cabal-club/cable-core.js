@@ -25,6 +25,8 @@ const TOPIC_POST = cable.TOPIC_POST
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
 
+const REQID_TO_CHANNELS = "reqid-to-channels"
+
 // an abstraction that keeps track of all event listeners. reasoning behind it is that event listeners have historically been:
 // 1. many in cabal pursuits
 // 2. hard to keep track of, track down, and manage correctly (a source of leaks)
@@ -151,7 +153,7 @@ class CableCore extends EventEmitter {
     // tracks "live" requests: requests that have asked for future posts, as they are produced
     this.liveQueries = new Map()
     // expedient way to go from a reqid to the relevant channel name
-    this.liveQueries.set("reqid-to-channels", new Map())
+    this.liveQueries.set(REQID_TO_CHANNELS, new Map())
     this._defaultTTL = 0
 
     this.events.register("store", this.store, "channel-state-replacement", ({ channel, postType, hash }) => {
@@ -197,6 +199,7 @@ class CableCore extends EventEmitter {
     const reqidList = this._getLiveRequests(channel)
     reqidList.forEach(reqid => {
       const requestInfo = this.requestsMap.get(reqid.toString("hex"))
+      coredebug("requestInfo for reqid %O: %O", reqid, requestInfo)
       const reqType = requestInfo.obj.msgType
       if (reqType === constants.CHANNEL_STATE_REQUEST) {
         // channel state request only sends hash responses for:
@@ -240,7 +243,7 @@ class CableCore extends EventEmitter {
       const response = cable.HASH_RESPONSE.create(reqid, hashes)
       this.dispatchResponse(response)
       this._updateLiveStateRequest(channel, reqid, hashes.length)
-      livedebug("dispatch response with %d hashes %O", response, hashes.length)
+      livedebug("dispatch response with %d hashes %O", hashes.length, response)
     })
   }
 
@@ -839,9 +842,9 @@ class CableCore extends EventEmitter {
     livedebug("track %s", reqidHex)
 
     // a potentially rascally attempt to fuck shit up; abort
-    if (channel === "reqid-to-channels") { return } 
+    if (channel === REQID_TO_CHANNELS) { return } 
 
-    const reqidMap = this.liveQueries.get("reqid-to-channels")
+    const reqidMap = this.liveQueries.get(REQID_TO_CHANNELS)
     if (!reqidMap.has(reqidHex)) {
       reqidMap.set(reqidHex, channel)
     }
@@ -859,7 +862,6 @@ class CableCore extends EventEmitter {
   // returns a list of reqidHex, corresponding to live requests for the given channel
   _getLiveRequests(channel) {
     livedebug("get live request for %s", channel)
-    livedebug("live queries contents", this.liveQueries, this.liveQueries.get("reqid-to-channels"))
     const channelQueries = this.liveQueries.get(channel)
     // no such channel
     if (!channelQueries) { return [] }
@@ -886,30 +888,32 @@ class CableCore extends EventEmitter {
   }
 
   _cancelLiveStateRequest(reqidHex) {
-    const channel = this.liveQueries.get("reqid-to-channels").get(reqidHex)
+    livedebug("cancel live state request for reqid %s", reqidHex)
+    const channel = this.liveQueries.get(REQID_TO_CHANNELS).get(reqidHex)
     if (!channel) {
-      coredebug("cancel live request could not find channel for reqid %s", reqidHex)
+      livedebug("cancel live request could not find channel for reqid %s", reqidHex)
       return
     }
     let channelQueries = this.liveQueries.get(channel)
     if (!channelQueries) { 
-      coredebug("channel queries was empty for channel %s (reqid %s)", channel, reqidhex)
+      livedebug("channel queries was empty for channel %s (reqid %s)", channel, reqidhex)
       return
     }
     const index = channelQueries.findIndex(item => item.reqid === reqidHex)
     if (index < 0) {
-      coredebug("cancel live request could not find entry for reqid %s", reqidHex)
+      livedebug("cancel live request could not find entry for reqid %s", reqidHex)
       return 
     }
     // remove the entry tracking this particular req_id: delete 1 item at `index`
-    channelQueries = channelQueries.splice(1, index)
+    channelQueries.splice(index, 1)
+
     // there are no longer any live queries being tracked for `channel`, stop tracking it
     if (channelQueries.length === 0) {
       this.liveQueries.delete(channel)
     } else {
       this.liveQueries.set(channel, channelQueries)
     }
-    this.liveQueries.get("reqid-to-channels").delete(reqidHex)
+    this.liveQueries.get(REQID_TO_CHANNELS).delete(reqidHex)
   }
 
   _messageIsRequest (type) {
