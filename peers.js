@@ -1,7 +1,17 @@
 const EventEmitter = require("events").EventEmitter
 const debug = require("debug")("transport/swarm")
+const b4a = require("b4a")
 
 const TIME_BEFORE_DROP = 5 * 60 * 60 * 1000 // keep alive a peer for 5 minutes without having heard from them
+
+const HELLO = b4a.from("hello")
+
+class TransportShim extends EventEmitter {
+  constructor() {
+    super()
+  }
+  broadcast() {}
+}
 
 // differentiate between:
 // new/lost peer (authenticated and accepted)
@@ -9,7 +19,7 @@ const TIME_BEFORE_DROP = 5 * 60 * 60 * 1000 // keep alive a peer for 5 minutes w
 class Swarm extends EventEmitter {
   constructor(transport, key, port) {
     super()
-    console.log(transport)
+    if (!transport) { transport = TransportShim }
     this.transport = new transport(port)
     this.transport.on("data", this._handleSocketData.bind(this))
     this.key = key // used to derive topic which is used to discover peers for this particular cabal
@@ -24,6 +34,10 @@ class Swarm extends EventEmitter {
     if (!this.peers.has(address)) {
       this.emitPeerNew(address)
       this.peers.set(address, { } )
+    }
+    // hack to make sure peers on the same ip identify each other as new peers
+    if (b4a.equals(data, HELLO)) {
+      this.emitPeerNew(address)
     }
     this.peers.get(address).seen = +(new Date())
     this.emit("data", data)
@@ -40,15 +54,21 @@ class Swarm extends EventEmitter {
   }
 
   emitPeerNew(ident) {
+    debug("new peer", ident)
     this.emit("new-peer", {identity: ident})
   }
   emitPeerLost(ident) {
+    debug("lost peer", ident)
     this.emit("lost-peer", {identity: ident})
   }
   // broadcast a piece of data to all connected peers
   broadcast(data) {
     debug("broadcast data", data)    
     this.transport.broadcast(data)
+  }
+
+  makeContact() {
+    this.transport.broadcast(b4a.from("hello"))
   }
 
   // emitConnectionNew() {
