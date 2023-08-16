@@ -147,7 +147,7 @@ class CableCore extends EventEmitter {
     // tracks still ongoing requests 
     this.requestsMap = new Map()
     // tracks which hashes we have explicitly requested in a 'request for hash' request
-    this.requestedHashes = new Map()
+    this.requestedHashes = new Set()
     // tracks "live" requests: requests that have asked for future posts, as they are produced
     this.liveQueries = new Map()
     // expedient way to go from a reqid to the relevant channel name
@@ -240,7 +240,7 @@ class CableCore extends EventEmitter {
       const response = cable.HASH_RESPONSE.create(reqid, hashes)
       this.dispatchResponse(response)
       this._updateLiveStateRequest(channel, reqid, hashes.length)
-      livedebug("dispatch response %O", response)
+      livedebug("dispatch response with %d hashes %O", response, hashes.length)
     })
   }
 
@@ -404,7 +404,6 @@ class CableCore extends EventEmitter {
       })
       this.store.userInfoView.api.getLatestNameHashesAllUsers((err, latestNameHashes) => {
         if (err) return cb(err)
-        coredebug(latestNameHashes)
         this.resolveHashes(latestNameHashes, (err, posts) => {
           posts.forEach(post => {
             if (post.postType !== constants.INFO_POST) { return }
@@ -423,7 +422,6 @@ class CableCore extends EventEmitter {
     // first get the pubkeys currently in channel
     this.store.channelMembershipView.api.getUsersInChannel(channel, (err, pubkeys) => {
       if (err) return cb(err)
-      coredebug(pubkeys)
       const channelUsers = new Map()
       // filter all known users down to only users in the queried channel
       this.getUsers((err, users) => {
@@ -440,7 +438,6 @@ class CableCore extends EventEmitter {
   // resolves hashes into post objects. note: all post objects that are returned from cable-core will have their buffer
   // instances be converted to hex strings 
   resolveHashes(hashes, cb) {
-    coredebug("the hashes", hashes)
     this.getData(hashes, (err, bufs) => {
       const posts = []
       bufs.forEach((buf, index) => {
@@ -509,7 +506,6 @@ class CableCore extends EventEmitter {
       Promise.all([namePromise, statePromise]).then(results => {
         // collapse results into a single array, deduplicate via set and get the list of hashes
         const hashes = Array.from(new Set(results.flatMap(item => item))).filter(item => typeof item !== "undefined")
-        coredebug("all hashes %O", hashes)
         cb(null, hashes)
       })
     })
@@ -529,6 +525,7 @@ class CableCore extends EventEmitter {
   }
 
   _removeRequest(reqid) {
+    coredebug("_removeRequest: remove %O", reqid)
     const reqidHex = reqid.toString("hex")
     // cancel any potential ongoing live requests
     this._cancelLiveStateRequest(reqidHex)
@@ -547,6 +544,7 @@ class CableCore extends EventEmitter {
   // <-> getChat
   requestPosts(channel, start, end, ttl, limit) {
     const reqid = crypto.generateReqID()
+    coredebug("request posts for %s (reqid %s)", channel, reqid.toString("hex"))
     const req = cable.TIME_RANGE_REQUEST.create(reqid, ttl, channel, start, end, limit)
     this.dispatchRequest(req)
     return req
@@ -566,7 +564,8 @@ class CableCore extends EventEmitter {
       obj, // `obj` is the full JSON encoded cable message representing the request being mapped
       "resType": -1,
       "recipients": [],
-      "origin": false
+      "origin": false,
+      "binary": null
     }
 
     const reqType = obj.msgType
@@ -591,8 +590,7 @@ class CableCore extends EventEmitter {
     return entry
   }
 
-
-  _registerRequest(reqid, origin, type, obj) {
+  _registerRequest(reqid, origin, type, obj, buf) {
     if (this.requestsMap.has(reqid)) {
       coredebug(`request map already had reqid %O`, reqid)
       return
@@ -601,22 +599,50 @@ class CableCore extends EventEmitter {
     // entry.recipients.push(peer)
     const entry = this._reqEntryTemplate(obj)
     entry.origin = origin
+    entry.binary = buf
     this.requestsMap.set(reqid.toString("hex"), entry)
   }
 
   // register a request that is originating from the local node, sets origin to true
   _registerLocalRequest(reqid, reqType, buf) {
+    const reqidHex = reqid.toString("hex")
     const obj = cable.parseMessage(buf)
-    this._registerRequest(reqid, true, reqType, obj)
+    coredebug("register local %O", obj)
+    // before proceeding: investigate if we have prior a live request for the target channel.
+    // requests that can be considered live: channel time range with time_end = 0 or channel state with future = 1 
+    switch (reqType) {
+        case constants.TIME_RANGE_REQUEST:
+        case constants.CHANNEL_STATE_REQUEST:
+        coredebug("register local: had channel state or time range with target %s", obj.channel)
+        // find out if we already have such requests for this channel in flight and alive
+        const localLiveRequests = []
+        for (const entry of this.requestsMap.values()) {
+          // we only want to operate on our own requests for the given channel
+          if (entry.obj.msgType === reqType && entry.origin && (entry.obj.channel === obj.channel)) {
+            localLiveRequests.push(entry.obj.reqid.toString("hex"))
+          }
+        }
+        // if we have found any local live requests, this will send a request to cancel them
+        localLiveRequests.forEach(liveid => { 
+          coredebug("canceling prior live request %s since it has been superceded by %s", liveid, reqidHex)
+          this.cancelRequest(b4a.from(liveid, "hex")) 
+        })
+        break
+      default: 
+        // pass; no other requests can be considered 'live' as of writing
+    }
+    this._registerRequest(reqid, true, reqType, obj, buf)
   }
 
   // register a request that originates from a remote node, sets origin to false
   _registerRemoteRequest(reqid, reqType, buf) {
     const obj = cable.parseMessage(buf)
-    this._registerRequest(reqid, false, reqType, obj)
+    this._registerRequest(reqid, false, reqType, obj, buf)
   }
 
   /* methods that deal with responding to requests */
+  // TODO (2023-08-15): wherever we clearly conclude a received request - make sure it is removed from requestsMap /
+  // this._removeRequest(reqid) is called
   handleRequest(req, done) {
     if (!done) { done = util.noop }
     const reqType = cable.peekMessage(req)
@@ -714,10 +740,13 @@ class CableCore extends EventEmitter {
           })
           break
         case constants.CHANNEL_LIST_REQUEST:
+          coredebug("channel list request: (%O) start preparing response", reqid)
           this.store.channelMembershipView.api.getChannelNames(obj.offset, obj.limit, (err, channels) => {
             if (err) { return rej(err) }
             // get a list of channel names
             response = cable.CHANNEL_LIST_RESPONSE.create(reqid, channels)
+            coredebug("channel list request: (%O) response prepared, sending back %s", reqid, channels)
+            this._removeRequest(reqid)
             return res([response])
           })
           break
@@ -811,11 +840,13 @@ class CableCore extends EventEmitter {
     // track the live request, including how many updates it has left before it has finished being served
     const req = { reqid: reqidHex, updatesRemaining, hasLimit }
     arr.push(req)
+    this.liveQueries.set(channel, arr)
   }
 
   // returns a list of reqidHex, corresponding to live requests for the given channel
   _getLiveRequests(channel) {
     livedebug("get live request for %s", channel)
+    livedebug("live queries contents", this.liveQueries, this.liveQueries.get("reqid-to-channels"))
     const channelQueries = this.liveQueries.get(channel)
     // no such channel
     if (!channelQueries) { return [] }
@@ -848,6 +879,10 @@ class CableCore extends EventEmitter {
       return
     }
     let channelQueries = this.liveQueries.get(channel)
+    if (!channelQueries) { 
+      coredebug("channel queries was empty for channel %s (reqid %s)", channel, reqidhex)
+      return
+    }
     const index = channelQueries.findIndex(item => item.reqid === reqidHex)
     if (index < 0) {
       coredebug("cancel live request could not find entry for reqid %s", reqidHex)
@@ -983,13 +1018,16 @@ class CableCore extends EventEmitter {
   // returns an array of posts whose hashes have been verified to have been requested by us
   _processPostResponse(obj) {
     const requestedPosts = []
+    coredebug("post response length", obj.posts.length)
     obj.posts.forEach(post => {
       const hash = crypto.hash(post)
+      coredebug("post", cable.parsePost(post))
       // we wanted this post!
       if (this.requestedHashes.has(hash.toString("hex"))) {
         requestedPosts.push(post)
-        // clear hash from map
-        this.requestedHashes.delete(hash.toString("hex"))
+        // the hashes will be removed from the set requestedHashes later on, by _handleRequestedBufs, once the hashes
+        // are confirmed to have been stored. if we clear them now we'll risk causing additional unnecessary hash
+        // requests since they'll be regarded as missing if we query the blobs store for the hashes
       }
     })
     return requestedPosts
@@ -1050,13 +1088,13 @@ class CableCore extends EventEmitter {
     // check if message is a request or a response
     if (!this._messageIsResponse(resType)) {
       coredebug("incoming response (reqid %s) was not a response type, dropping", reqidHex)
-      return
+      return done()
     }
 
     // if we don't know about a reqid, then the corresponding response is not something we want to handle
     if (!this.requestsMap.has(reqidHex)) {
       coredebug("reqid %s was unknown, dropping response", reqidHex)
-      return
+      return done()
     }
 
     const entry = this.requestsMap.get(reqidHex)
@@ -1081,31 +1119,39 @@ class CableCore extends EventEmitter {
       if (resType === constants.POST_RESPONSE) {
         this._handleRequestedBufs(this._processPostResponse(obj), () => {
           // console.log("TODO: wow very great :)")
+          //
         })
       }
-      return
+      return done()
     }
  
     // process the response according to what type it was
     switch (resType) {
       case constants.HASH_RESPONSE:
+        coredebug("hash response length", obj.hashes.length)
         // hash response has signalled end of responses, deallocate reqid
         if (obj.hashes.length === 0) {
           this._removeRequest(reqid)
           return done()
         }
+        // TODO (2023-08-16): make sure this doesn't create any conflicts, where e.g. the peer we requested hashes from goes
+        // offline and then we never request them again during the session! one mechanism we could have is, if we know
+        // we haven't received any hashes in requestedHashes for a long period of time is fire off another post request
+        // for those hashes
+        //
+        // only want to query (and thereby request, if we lack them) hashes that are not already requested
+        const hashesToQuery = obj.hashes.filter(h => !this.requestedHashes.has(h.toString("hex")))
         // query data store and try to get the data for each of the returned hashes. 
-        this.store.blobs.api.getMany(obj.hashes, (err, bufs) => {
+        this.store.blobs.api.getMany(hashesToQuery, (err, bufs) => {
           // collect all the hashes we still don't have data for (represented by null in returned `bufs`) and create a
           // post request
           let wantedHashes = []
           bufs.forEach((buf, index) => {
             if (buf === null) {
               // we don't have the hash represented by hashes[index]: good! we want to request it.
-              const hash = obj.hashes[index]
+              const hash = hashesToQuery[index]
               wantedHashes.push(hash)
               // remember the requested hashes
-              this.requestedHashes.set(hash.toString("hex"), true)
             }
           })
           if (wantedHashes.length === 0) {
@@ -1122,6 +1168,8 @@ class CableCore extends EventEmitter {
                 temp.push(wantedHashes[i])
               }
             }
+            // track inflight hashes
+            wantedHashes.forEach(h => this.requestedHashes.add(h.toString("hex")))
             wantedHashes = temp // update wantedHashes to new set of values known to not be deleted
             // dispatch a `post request` for the missing hashes
             const newReqid = crypto.generateReqID()
@@ -1132,14 +1180,23 @@ class CableCore extends EventEmitter {
         })
         break
       case constants.POST_RESPONSE:
-        // TODO (2023-03-23): handle empty post response as a signal that "this concludes the lifetime of this req-res chain" 
-        // action: decommission the reqid
-        this._handleRequestedBufs(this._processPostResponse(obj), () => { 
+        // handle empty post response as a signal that "this concludes the lifetime of this req-res chain" 
+        if (obj.posts.length === 0) {
+          // action: decommission the reqid
+          coredebug("post response done, removing %O", reqid)
+          this._removeRequest(reqid)
           done()
-        }) 
+          return
+        } else {
+          this._handleRequestedBufs(this._processPostResponse(obj), () => { 
+            done()
+          })
+        }
         break
       case constants.CHANNEL_LIST_RESPONSE:
         this._indexNewChannels(obj.channels, done)
+        coredebug("received channel list response, removing request %O", reqid)
+        this._removeRequest(reqid)
         break
       default:
         throw new Error(`handle response: unknown response type ${resType}`)
