@@ -48,10 +48,8 @@ module.exports = function (lvl, reverseIndex) {
       unprocessedBatches++
       msgs.forEach(function (msg) {
         if (!sanitize(msg)) return
-        // TODO (2023-02-23): decide on if key should be binary form of hash, or hex encoded hash.
-        // benefits of binary: don't need to convert back and forth
-        // drawbacks: can't be used in string keys of other indices -> inconsistencies in handling across indices
-        const key = msg.hash
+        // use hex-encoded strings as keys to help deduplicate posts 
+        const key = msg.hash.toString("hex")
         const value = msg.buf
 
         pending++
@@ -71,7 +69,7 @@ module.exports = function (lvl, reverseIndex) {
 
       function done () {
         const getHash = (m) => m.key
-        const getKey = (m) => m.key
+        const getKey = (m) => m.key.toString("hex")
         reverseIndex.map(reverseIndex.transformOps(viewName, getHash, getKey, ops))
         debug("ops %O",  ops)
         debug("done. ops.length %d", ops.length)
@@ -93,7 +91,7 @@ module.exports = function (lvl, reverseIndex) {
         if (!opts) { opts = {} }
 */
         ready(function () {
-          lvl.get(hash, function (err, buf) {
+          lvl.get(hash.toString("hex"), function (err, buf) {
             if (err) { return cb(err, null) }
             if (typeof buf === "undefined") {
               return cb(null, null)
@@ -109,7 +107,7 @@ module.exports = function (lvl, reverseIndex) {
         const ops = []
 
         ready(function () {
-          lvl.getMany(hashes, function (err, buflist) {
+          lvl.getMany(hashes.map(h => h.toString("hex")), function (err, buflist) {
             if (err) { return cb(err, null) }
             return cb(null, buflist.map(b => {
               if (typeof b === "undefined") {
@@ -124,7 +122,7 @@ module.exports = function (lvl, reverseIndex) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
         ready(function () {
-          lvl.del(hash, function (err) {
+          lvl.del(hash.toString("hex"), function (err) {
             if (err) { return cb(err) }
             return cb(null)
           })

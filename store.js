@@ -546,6 +546,7 @@ class CableStore extends EventEmitter {
 
   _emitStoredPost(hash, buf, channel) {
     const obj = cable.parsePost(buf)
+    storedebug("store-post", { hash, timestamp: obj.timestamp, channel, postType: util.humanizePostType(obj.postType) })
     if (channel) {
       this.emit("store-post", { hash, timestamp: obj.timestamp, channel, postType: obj.postType })
     } else { // probably a post/info, which has no channel membership information
