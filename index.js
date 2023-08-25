@@ -341,6 +341,15 @@ class CableCore extends EventEmitter {
     return buf
   }
 
+  delMany(hashes, done) {
+    if (!done) { done = util.noop }
+    // TODO (2023-06-11): decide what do with links for post/delete (lacking channel info)
+    const links = this._links()
+    const buf = DELETE_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), hashes)
+    this.store.del(buf, done)
+    return buf
+  }
+
   /* methods to get data we already have locally */
   getChat(channel, start, end, limit, cb) {
     coredebug(channel, start, end, limit, cb)
@@ -1114,7 +1123,7 @@ class CableCore extends EventEmitter {
     }
 
     const obj = cable.parseMessage(res)
-    coredebug("response obj", obj)
+    coredebug("response %s, obj :%O", util.humanizeMessageType(obj.msgType), obj)
 
     // TODO (2023-03-23): handle decommissioning all data relating to a reqid whose request-response lifetime has ended
     //
