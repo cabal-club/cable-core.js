@@ -535,7 +535,7 @@ class CableStore extends EventEmitter {
       
         // emit 'store-post' for each channel indexes have been confirmed to be updated
         Promise.all(promises).then(() => {
-          channels.forEach(channel => {
+          new Set(channels).forEach(channel => {
             this._emitStoredPost(hash, buf, channel)
           })
           done()
@@ -546,11 +546,11 @@ class CableStore extends EventEmitter {
 
   _emitStoredPost(hash, buf, channel) {
     const obj = cable.parsePost(buf)
-    storedebug("store-post", { hash, timestamp: obj.timestamp, channel, postType: util.humanizePostType(obj.postType) })
+    storedebug("store-post", { obj, hash, timestamp: obj.timestamp, channel, postType: util.humanizePostType(obj.postType) })
     if (channel) {
-      this.emit("store-post", { hash, timestamp: obj.timestamp, channel, postType: obj.postType })
+      this.emit("store-post", { obj, hash, timestamp: obj.timestamp, channel, postType: obj.postType })
     } else { // probably a post/info, which has no channel membership information
-      this.emit("store-post", { hash, timestamp: obj.timestamp, channel: null, postType: obj.postType })
+      this.emit("store-post", { obj, hash, timestamp: obj.timestamp, channel: null, postType: obj.postType })
     }
   }
 
