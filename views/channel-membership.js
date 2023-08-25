@@ -116,10 +116,11 @@ module.exports = function (lvl) {
         ready(async function () {
           const iter = lvl.keys()
           const keys = await iter.all()
-          const names = keys.map(getChannelFromKey)
-          names.sort()
-          if (limit === 0) { limit = names.length }
-          cb(null, names.slice(offset, limit))
+          let channels = keys.map(getChannelFromKey)
+          channels = Array.from(new Set(channels))
+          channels.sort()
+          if (limit === 0) { limit = channels.length }
+          cb(null, channels.slice(offset, limit))
         })
       },
       clearMembership: function (channel, publicKey, cb) {
@@ -183,9 +184,10 @@ module.exports = function (lvl) {
           })
           const entries = await iter.all()
           debug("entries", entries)
-          const channels = entries.map(e => {
+          let channels = entries.map(e => {
             return getChannelFromKey(e[0])
           })
+          channels = Array.from(new Set(channels))
           channels.sort()
           cb(null, channels)
         })
