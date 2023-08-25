@@ -7,7 +7,6 @@ const EventEmitter = require('events').EventEmitter
 // external dependencies
 const b4a = require("b4a")
 const coredebug = require("debug")("core/")
-const eventdebug = require("debug")("core/event-manager")
 const livedebug = require("debug")("core/live")
 // internal dependencies
 const cable = require("cable.js")
@@ -15,6 +14,7 @@ const crypto = require("cable.js/cryptography.js")
 const constants = require("cable.js/constants.js")
 const util = require("./util.js")
 const CableStore = require("./store.js")
+const EventsManager = require("./events-manager.js")
 const Swarm = require("./peers.js").Swarm
 
 // aliases
@@ -30,62 +30,6 @@ const REQID_TO_CHANNELS = "reqid-to-channels"
 // an abstraction that keeps track of all event listeners. reasoning behind it is that event listeners have historically been:
 // 1. many in cabal pursuits
 // 2. hard to keep track of, track down, and manage correctly (a source of leaks)
-class EventsManager {
-  // TODO (2023-04-24): return a singleton instance?
-  
-  constructor (opts) {
-    if (!opts) { opts = {} }
-    // stores the following:
-    // this.sources["store:<event>"] = { listener: eventListener, source: eventSource, eventName: eventName }
-    this.sources = new Map()
-  }
-
-  _id(className, eventName) {
-    return `${className}:${eventName}`
-  }
-
-  // register() argument example:
-  //
-  //                  {v eventSource}                          {v eventListener     }
-  // register("store", this.store, "channel-state-replacement", () => {/* do stuff */})
-  //         {^ className}        {^ eventName               }
-  //
-  register(className, eventSource, eventName, eventListener) {
-    const id = this._id(className, eventName)
-    if (this.sources.has(id)) { return }
-    eventdebug("register new listener %s", id)
-    this.sources.set(id, { source: eventSource, listener: eventListener })
-    eventSource.on(eventName, eventListener)
-  }
-
-  // removes all event listeners registered on className
-  deregisterAll(className) {
-    eventdebug("deregister all events on %s", className)
-    const subset = []
-    for (const key of this.sources.keys()) {
-      if (key.startsWith(className)) {
-        subset.push(key)
-      }
-    }
-
-    subset.forEach(id => {
-      const index = id.indexOf(":")
-      const className = id.slice(0, index)
-      const eventName = id.slice(index+1)
-      this.deregister(className, eventName)
-    })
-  }
-
-  deregister(className, eventName) {
-    const id = this._id(className, eventName)
-    if (!this.sources.has(id)) { return }
-    const { source, listener } = this.sources.get(id)
-    eventdebug("deregister listener %s", id)
-    source.removeEventListener(eventName, listener)
-    this.sources.delete(id)
-  }
-}
-
 class CableCore extends EventEmitter {
   constructor(opts) {
     super()
@@ -111,6 +55,8 @@ class CableCore extends EventEmitter {
       for (let [reqid, entry] of this.requestsMap) {
         if (entry.origin) { localRequests.push(entry.binary) }
       }
+      
+      localRequests.forEach(req => { coredebug("requesting", util.humanizeMessageType(cable.peekMessage(req)), req) })
       localRequests.forEach(req => { this.swarm.broadcast(req) })
     })
     // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
@@ -164,32 +110,77 @@ class CableCore extends EventEmitter {
       this._sendLiveHashResponse(channel, postType, [hash], -1)
     })
 
-    this.events.register("store", this.store, "store-post", ({ channel, timestamp, hash, postType }) => {
+    this.events.register("store", this.store, "store-post", ({ obj, channel, timestamp, hash, postType }) => {
       livedebug("store post evt, post type: %i", postType)
       this._sendLiveHashResponse(channel, postType, [hash], timestamp)
+      // TODO (2023-08-18): how to know when:
+      // * a new user joined?
+      // * a new channel was added?
+    
+      const publicKey = obj.publicKey.toString("hex")
+      // emit contextual events depending on what type of post was stored
+      switch (postType) {
+        case constants.TEXT_POST:
+          this._emitChat("add", { channel, publicKey, hash: hash.toString("hex"), post: obj })
+          break
+        case constants.DELETE_POST:
+          this._emitChat("remove", { channel, publicKey, hash: hash.toString("hex") })
+          break
+        case constants.INFO_POST:
+          if (obj.key === "name") {
+            this._emitUsers("name-changed", {publicKey, name: obj.value})
+          } else {
+            coredebug("store-post: unknown key for post/info (key: %s)", obj.key)
+          }
+          break
+        case constants.TOPIC_POST:
+          this._emitChannels("topic", { channel, topic: obj.topic, publicKey })
+          break
+        case constants.JOIN_POST:
+          this._emitChannels("join", { channel, publicKey })
+          break
+        case constants.LEAVE_POST:
+          this._emitChannels("leave", { channel, publicKey })
+          break
+        default:
+          coredebug("store-post: unknown post type &d", postType)
+      }
     })
 
     this.events.register("core", this, "live-request-ended", (reqidHex) => {
       livedebug("live query concluded for %s", reqidHex)
       this._sendConcludingHashResponse(b4a.from(reqidHex, "hex"))
     })
-
-    /* event sources */
-    // posts events:
-    //  add - emit(channel, post, hash)
-    //  remove - emit(channel, hash)
-    // channels events:
-    //  add - emit(channel)
-    //  join - emit(channel, pubkey)
-    //  leave - emit(channel, pubkey)
-    //  topic - emit(channel, topic)
-    //  archive - emit(channel)
-    // network events:
-    //  connection 
-    //  join - emit(peer)
-    //  leave - emit(peer)
-    //  data - emit(data, {address, data})
   }
+
+  _emitUsers(eventName, obj) {
+    this.emit(`users/${eventName}`, obj)
+  }
+  _emitChannels(eventName, obj) {
+    this.emit(`channels/${eventName}`, obj)
+  }
+  _emitChat(eventName, obj) {
+    this.emit(`chat/${eventName}`, obj)
+  }
+
+  /* event sources */
+  // users events:
+  //  name-changed -  emit(pubkey, name)
+  //  new-user -      emit(pubkey, [joinedChannels?])
+  // chat events:
+  //  add - emit(channel, post, hash)
+  //  remove - emit(channel, hash)
+  // channels events:
+  //  add - emit(channel)
+  //  join - emit(channel, pubkey)
+  //  leave - emit(channel, pubkey)
+  //  topic - emit(channel, topic)
+  //  archive - emit(channel)
+  // network events:
+  //  connection 
+  //  join - emit(peer)
+  //  leave - emit(peer)
+  //  data - emit(data, {address, data})
 
   // this function is part of "live query" behaviour of the channel state request (when future = 1) 
   // and the channel time range request (when timeEnd = 0)
@@ -1211,7 +1202,10 @@ class CableCore extends EventEmitter {
         }
         break
       case constants.CHANNEL_LIST_RESPONSE:
-        this._indexNewChannels(obj.channels, done)
+        this._indexNewChannels(obj.channels, (err) => {
+          this._emitChannels("add", { channels: obj.channels })
+          done(err)
+        })
         coredebug("received channel list response, removing request %O", reqid)
         this._removeRequest(reqid)
         break
@@ -1229,4 +1223,4 @@ class CableCore extends EventEmitter {
   }
 }
 
-module.exports = { CableCore, CableStore }
+module.exports = { CableCore, CableStore, EventsManager }
