@@ -280,6 +280,26 @@ class CableCore extends EventEmitter {
     })
   }
 
+  getReverseLinks(hashes, done) {
+    if (!done) { return }
+    const promises = []
+    const rlinks = new Map()
+    for (const hash of hashes) {
+      promises.push(new Promise((res, rej) => {
+        console.error(this.store.linksView)
+        this.store.linksView.api.getReverseLinks(hash, (err, retLinks) => {
+          if (retLinks) {
+            rlinks.set(hash, retLinks.map(h => b4a.toString(h, "hex")))
+            res()
+          }
+        })
+      }))
+    }
+    Promise.all(promises).then(() => {
+      done(null,  rlinks)
+    })
+  }
+
 	// post/text
 	postText(channel, text, done) {
     if (!done) { done = util.noop }
@@ -441,7 +461,7 @@ class CableCore extends EventEmitter {
   // resolves hashes into post objects. note: all post objects that are returned from cable-core will have their buffer
   // instances be converted to hex strings 
   resolveHashes(hashes, cb) {
-    this.getData(hashes, (err, bufs) => {
+    this._getData(hashes, (err, bufs) => {
       const posts = []
       bufs.forEach((buf, index) => {
         if (buf !== null) { 
@@ -463,7 +483,7 @@ class CableCore extends EventEmitter {
     })
   }
 
-  getData(hashes, cb) {
+  _getData(hashes, cb) {
     this.store.blobs.api.getMany(hashes, (err, bufs) => {
       if (err) { return cb(err) }
       coredebug("getData bufs %O", bufs)
@@ -687,7 +707,7 @@ class CableCore extends EventEmitter {
           return res(null)
         case constants.POST_REQUEST:
           // get posts corresponding to the requested hashes
-          this.getData(obj.hashes, (err, posts) => {
+          this._getData(obj.hashes, (err, posts) => {
             if (err) { return rej(err) }
             const responses = []
             // hashes we could not find in our database are represented as null: filter those out
