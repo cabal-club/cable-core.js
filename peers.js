@@ -2,8 +2,7 @@ const EventEmitter = require("events").EventEmitter
 const debug = require("debug")("transport/swarm")
 const b4a = require("b4a")
 
-const TIME_BEFORE_DROP = 5 * 60 * 60 * 1000 // keep alive a peer for 5 minutes without having heard from them
-
+// const TIME_BEFORE_DROP = 5 * 60 * 60 * 1000 // keep alive a peer for 5 minutes without having heard from them
 const HELLO = b4a.from("hello")
 
 class TransportShim extends EventEmitter {

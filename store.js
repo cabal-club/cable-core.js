@@ -5,7 +5,6 @@
 // node core dependencies
 const EventEmitter = require('events').EventEmitter
 // external database dependencies
-const { Level } = require("level")
 const { MemoryLevel } = require("memory-level")
 // external dependencies
 const storedebug = require("debug")("core/store")
@@ -59,15 +58,15 @@ class CableStore extends EventEmitter {
   // persist any of their messages in said channel? the core concern is that channel state request requires sending the
   // latest post/info of **ex-members** which means that over time responses to a channel-state request will just grow
   // and grow in size
-  constructor(opts) {
+  constructor(level, opts) {
     super()
 
+    const datadir = "data"
     if (!opts) { opts = { temp: true } }
 
-    this._db = new Level("data")
-    if (opts.temp) {
-      this._db = new MemoryLevel("data")
-    }
+    if (!level) { level = MemoryLevel }
+
+    this._db = new level(datadir)
 
     // reverseMapView maps which views have stored a particular hash. using this view we can removes those entries in
     // other views if needed e.g.  when a delete happens, when a peer has been blocked and their contents removed, or we are truncating the local database to save space

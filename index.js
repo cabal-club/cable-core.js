@@ -31,7 +31,7 @@ const REQID_TO_CHANNELS = "reqid-to-channels"
 // 1. many in cabal pursuits
 // 2. hard to keep track of, track down, and manage correctly (a source of leaks)
 class CableCore extends EventEmitter {
-  constructor(opts) {
+  constructor(level, opts) {
     super()
     if (!opts) { opts = {} }
     if (!opts.storage) {}
@@ -77,7 +77,7 @@ class CableCore extends EventEmitter {
 
     this.events = new EventsManager()
 
-    this.store = new CableStore()
+    this.store = new CableStore(level)
     /* used as: 
      * store a join message:
      * store.join(buf) 
