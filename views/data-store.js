@@ -103,11 +103,12 @@ module.exports = function (lvl, reverseIndex) {
       // tries to get a list of hashes. if a a hash, with index `i`, is not found, then the corresponding index `i` in the
       // returned results will be set to null
       getMany: function (hashes, cb) {
-        debug("api.getMany")
+        const hexHashes = hashes.map(h => h.toString("hex"))
+        debug("api.getMany %O", hexHashes)
         const ops = []
 
         ready(function () {
-          lvl.getMany(hashes.map(h => h.toString("hex")), function (err, buflist) {
+          lvl.getMany(hexHashes, function (err, buflist) {
             if (err) { return cb(err, null) }
             return cb(null, buflist.map(b => {
               if (typeof b === "undefined") {

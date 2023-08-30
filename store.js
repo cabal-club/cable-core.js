@@ -223,9 +223,13 @@ class CableStore extends EventEmitter {
     const prom = new Promise((res, rej) => {
       this.blobs.api.getMany(obj.hashes, (err, bufs) => {
         for (let i = 0; i < bufs.length; i++) {
-          if (!bufs[i]) { continue }
+          if (!bufs[i]) { 
+            storedebug("can't find buf corresponding to hash", obj.hashes[i])
+            continue 
+          }
           const post = cable.parsePost(bufs[i])
           if (!b4a.equals(post.publicKey, obj.publicKey)) {
+            storedebug("del (err): hashes to delete %O post author was %O, delete author was %O", obj.hashes, post.publicKey, obj.publicKey)
             return rej(new Error("post/delete author and author of hashes to delete did not match"))
           }
         }
