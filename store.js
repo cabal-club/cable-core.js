@@ -546,7 +546,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
     // channel state view keeps track of info posts that set the name
     if (obj.key === "name") {
-      // if we're setting a post/info:name via core.setNick() we are not passed a channel. so to do
+      // if we're setting a post/info:name via core.setName() we are not passed a channel. so to do
       // this correctly, for how the channel state index looks like right now, we need to get a list of channels that the
       // user is in and post the update to each of those channels
       this.channelMembershipView.api.getHistoricMembership(obj.publicKey, (err, channels) => {

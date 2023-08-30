@@ -11,7 +11,7 @@ const { promisify } = require("util")
 let getJoinedChannels = promisify(core.getJoinedChannels).bind(core)
 let del = promisify(core.del).bind(core)
 
-core.setNick("boop")
+core.setName("boop")
 const buf = core.join("testing")
 getJoinedChannels().then(channels => {
   // should print ["testing"]

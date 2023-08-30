@@ -310,7 +310,7 @@ class CableCore extends EventEmitter {
   }
 
 	// post/info key=name
-	setNick(name, done) {
+	setName(name, done) {
     if (!done) { done = util.noop }
     // TODO (2023-06-11): decide what to do wrt context for post/info
     const links = this._links()

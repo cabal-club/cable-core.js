@@ -509,7 +509,7 @@ test("channel state request: start with empty database. store post/topic, post/j
             core[1].setTopic(channel, `topic: welcome!`, () => { res() })
             break
           case 2:
-            core[1].setNick("sweet-vine", () => { res() })
+            core[1].setName("sweet-vine", () => { res() })
             break
           default:
             t.fail("test should only produce channel state-related messages (topic/join/info)")
@@ -557,7 +557,7 @@ test("channel state request: start with empty database. store post/topic, post/j
             core[1].setTopic(unrelatedChannel, `topic: welcome!`, () => { res() })
             break
           case 2:
-            core[1].setNick("sweet-vine", () => { res() })
+            core[1].setName("sweet-vine", () => { res() })
             break
         }
       })

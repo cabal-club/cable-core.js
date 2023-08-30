@@ -44,7 +44,7 @@ test("multiple users setting a nicknames should work", t => {
 
   cores.forEach((core, index) => {
     p = new Promise((res, rej) => {
-      buf = core.setNick(values[index], res)
+      buf = core.setName(values[index], res)
       bufs.push(buf)
     })
     promises.push(p)

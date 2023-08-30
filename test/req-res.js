@@ -358,10 +358,10 @@ test("channel state request should yield a hash response", t => {
   p = new Promise((res, rej) => { core[1].setTopic(channel, topic, () => { res() }) })
   promises.push(p)
   // set name of core[0]
-  p = new Promise((res, rej) => { core[0].setNick(name[0], () => { res() }) })
+  p = new Promise((res, rej) => { core[0].setName(name[0], () => { res() }) })
   promises.push(p)
   // set name of core[1]
-  p = new Promise((res, rej) => { core[1].setNick(name[1], () => { res() }) })
+  p = new Promise((res, rej) => { core[1].setName(name[1], () => { res() }) })
   promises.push(p)
   Promise.all(promises).then(() => {
     promises = []
