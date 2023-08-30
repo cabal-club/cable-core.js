@@ -38,7 +38,8 @@ class CableCore extends EventEmitter {
     if (!opts.network) { /*opts.network = Network*/ }
     if (!opts.port) { opts.port = 13331 }
     // i.e. the network of connections with other cab[a]l[e] peers
-    this.swarm = new Swarm(opts.network, "fake-key", opts.port)
+    coredebug("incoming opts", opts)
+    this.swarm = new Swarm("fake-key", opts)
     this.swarm.makeContact()
     this.swarm.on("data", (data) => {
       this._handleIncomingMessage(data)

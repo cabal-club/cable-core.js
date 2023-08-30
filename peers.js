@@ -16,10 +16,11 @@ class TransportShim extends EventEmitter {
 // new/lost peer (authenticated and accepted)
 // new/lost connection (before becoming a peer, could be rejected)
 class Swarm extends EventEmitter {
-  constructor(transport, key, port) {
+  constructor(key, opts) {
     super()
-    if (!transport) { transport = TransportShim }
-    this.transport = new transport(port)
+    let transport = opts.network
+    if (!opts.network) { transport = TransportShim }
+    this.transport = new transport(opts)
     this.transport.on("data", this._handleSocketData.bind(this))
     this.key = key // used to derive topic which is used to discover peers for this particular cabal
     this.blocked = []
