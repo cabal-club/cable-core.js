@@ -7,6 +7,7 @@ const b4a = require("b4a")
 const viewName = "channel-membership"
 const debug = require("debug")(`core/${viewName}`)
 const constants = require("cable.js/constants.js")
+const util = require("../util.js")
 
 function noop () {}
 
@@ -75,7 +76,7 @@ module.exports = function (lvl) {
           })
           return
         }
-        const key = `${msg.channel}!${msg.publicKey.toString("hex")}`
+        const key = `${msg.channel}!${util.hex(msg.publicKey)}`
         let value
         let variableKey = ""
         switch (msg.postType) {
@@ -126,7 +127,7 @@ module.exports = function (lvl) {
       clearMembership: function (channel, publicKey, cb) {
         if (!cb) { cb = noop }
         ready(function () {
-          lvl.del(`${channel}!${publicKey.toString("hex")}`, (err) => {
+          lvl.del(`${channel}!${util.hex(publicKey)}`, (err) => {
             if (err && err.notFound ) { return cb(null) }
             if (err ) { return cb(err) }
             cb(null)
@@ -135,7 +136,7 @@ module.exports = function (lvl) {
       },
       isInChannel: function (channel, publicKey, cb) {
         ready(function () {
-          lvl.get(`${channel}!${publicKey.toString("hex")}`, (err, value) => {
+          lvl.get(`${channel}!${util.hex(publicKey)}`, (err, value) => {
             if (err && err.notFound ) { return cb(null, false) }
             if (err ) { return cb(err) }
             cb(null, parseInt(value) === 1)
@@ -174,13 +175,13 @@ module.exports = function (lvl) {
         ready(async function () {
           debug("api.getHistoricMembership")
           debug({
-            gt: `!!${publicKey.toString("hex")}`,
-            lt: `~!${publicKey.toString("hex")}`
+            gt: `!!${util.hex(publicKey)}`,
+            lt: `~!${util.hex(publicKey)}`
           })
           const iter = lvl.iterator({
             reverse: true,
-            gt: `!!${publicKey.toString("hex")}`,
-            lt: `~!${publicKey.toString("hex")}`
+            gt: `!!${util.hex(publicKey)}`,
+            lt: `~!${util.hex(publicKey)}`
           })
           const entries = await iter.all()
           debug("entries", entries)
@@ -223,8 +224,8 @@ module.exports = function (lvl) {
           debug("api.getJoinedChannels")
           const iter = lvl.iterator({
             reverse: true,
-            gt: `!!${publicKey.toString("hex")}`,
-            lt: `~!${publicKey.toString("hex")}`
+            gt: `!!${util.hex(publicKey)}`,
+            lt: `~!${util.hex(publicKey)}`
           })
           const entries = await iter.all()
           const joined = new Set()

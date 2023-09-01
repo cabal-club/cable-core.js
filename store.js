@@ -421,7 +421,7 @@ class CableStore extends EventEmitter {
   }
 
   _reindexChannelMembership (channel, publicKey, sendHash, done) {
-    storedebug("reindex channel membership in %s for %s", channel, publicKey.toString("hex"))
+    storedebug("reindex channel membership in %s for %s", channel, util.hex(publicKey))
     this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
       storedebug("membership hash %O err %O", hash, err)
       // the only membership record for the given channel was deleted: clear membership information regarding channel

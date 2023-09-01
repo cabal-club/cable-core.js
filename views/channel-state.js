@@ -53,10 +53,10 @@ module.exports = function (lvl, reverseIndex) {
         switch (msg.postType) {
           case constants.JOIN_POST:
           case constants.LEAVE_POST:
-            key = `member!${msg.channel}!${ts}!${msg.publicKey.toString("hex")}`
+            key = `member!${msg.channel}!${ts}!${util.hex(msg.publicKey)}`
             break
           case constants.INFO_POST:
-            key = `name!${msg.channel}!${ts}!${msg.publicKey.toString("hex")}`
+            key = `name!${msg.channel}!${ts}!${util.hex(msg.publicKey)}`
             break
           case constants.TOPIC_POST:
             key = `topic!${msg.channel}!${ts}`
@@ -69,7 +69,7 @@ module.exports = function (lvl, reverseIndex) {
         const hash = msg.hash
         // column `seen!<hash> => <hash>` makes sure using a mono-ts does not create multiple keys when lazily indexing
         // potentially (but not necessarily) new messages
-        const seenKey = `seen!${hash.toString("hex")}`
+        const seenKey = `seen!${util.hex(hash)}`
 
         pending++
         lvl.get(seenKey, function (err) {
@@ -149,7 +149,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(async function () {
           debug("api.getLatestNameHash")
           const iter = lvl.values({
-            lt: `name!${channel}!${util.timestamp()}!${publicKey.toString("hex")}`,
+            lt: `name!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
             gt: "name!!",
             reverse: true,
             limit: 1
@@ -166,12 +166,12 @@ module.exports = function (lvl, reverseIndex) {
         ready(async function () {
           debug("api.getLatestMembership")
           debug("%O", {
-            lt: `member!${channel}!${util.timestamp()}!${publicKey.toString("hex")}`,
+            lt: `member!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
             reverse: true,
             limit: 1
           })
           const iter = lvl.values({
-            lt: `member!${channel}!${util.timestamp()}!${publicKey.toString("hex")}`,
+            lt: `member!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
             // gt:
             reverse: true,
             limit: 1

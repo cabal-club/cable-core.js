@@ -40,12 +40,12 @@ module.exports = function (lvl) {
 
   // takes a buf, returns a string
   const formatLinkKey = (hash) => {
-    return `links!0!${hash.toString("hex")}`
+    return `links!0!${util.hex(hash)}`
   }
 
   // takes a buf, returns a string
   const formatReverseLinkKey = (hash) => {
-    return `links!1!${hash.toString("hex")}`
+    return `links!1!${util.hex(hash)}`
   }
 
   const formatHeadsKey = (channel) => { 
@@ -58,7 +58,7 @@ module.exports = function (lvl) {
 
   // takes a list of bufs, returns a string representation of the list
   const formatLinkList = (links) => {
-    return links.map(link => { return link.toString("hex") }).join(SEPARATOR)
+    return links.map(link => { return util.hex(link) }).join(SEPARATOR)
   }
 
   // appends hashesToAppend to hashlistString. checks each hash to make sure it is not already part of the list
@@ -70,7 +70,7 @@ module.exports = function (lvl) {
     const verifiedNewHashes = []
     for (hash of hashesToAppend) {
       // TODO (2023-06-01): decide if we pass hashesToAppend as a list of buf or a list of hex-encoded strings
-      const hashString = hash.toString("hex")
+      const hashString = util.hex(hash)
       if (!stringHashesSet.has(hashString)) {
         verifiedNewHashes.push(hashString)
       }
@@ -118,7 +118,7 @@ module.exports = function (lvl) {
             // process the list of buf links to a stringified form that we can work with easily on next retrieval
             liststring = formatLinkList(msg.links)
           } else {
-            debug("hash %s already had values set:\n\tvalues already had %s\n\tincoming links to set %s", msg.hash.toString("hex"), val, msg.links.map(h => h.toString("hex")))
+            debug("hash %s already had values set:\n\tvalues already had %s\n\tincoming links to set %s", util.hex(msg.hash), val, msg.links.map(h => util.hex(h)))
             // we need to process the already stored value to make sure we only add new entries
             liststring = appendHashes(msg.links, val)
             // note: this will probably not happen? the only time we ought to associate a post hash with its linked
@@ -143,13 +143,13 @@ module.exports = function (lvl) {
         // duplicate keys, we negate those ops and try to merge their values together and add a new `put` op to the list
         pending++
         lvl.getMany(reverseKeys, (err, values) => {
-          const hashHex = msg.hash.toString("hex")
+          const hashHex = util.hex(msg.hash)
           let reverseKeyValue
           if (err) { return debug("error on .getMany for reverse keys %O", err) }
           for (let i = 0; i < reverseKeys.length; i++) {
             // the corresponding reverse key record did not exist, we can put msg.hash as is
             if (typeof values[i] === "undefined") {
-              reverseKeyValue = msg.hash.toString("hex")
+              reverseKeyValue = util.hex(msg.hash)
             } else {
               // use appendHashes() to make sure msg.hash isn't already part of the list in values[i]
               reverseKeyValue = appendHashes([msg.hash], values[i])
@@ -337,7 +337,7 @@ module.exports = function (lvl) {
               // go through the new set of heads and make sure it does not contain anything from rmHeads
               rmHeads.forEach(hash => {
                 // operate on hexencoded strings to make comparisons trivial
-                const hexHash = hash.toString("hex")
+                const hexHash = util.hex(hash)
                 const index = stringHeads.indexOf(hexHash)
                 // we had an rmHead match, remove it from heads candidates
                 if (index >= 0) {

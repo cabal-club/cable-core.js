@@ -44,8 +44,8 @@ module.exports = function (lvl) {
         const keyIsBuffer = b4a.isBuffer(key)
         return {
           view: name, 
-          viewkey: keyIsBuffer ? key.toString("hex") : key,
-          hash: getHash(m).toString("hex")
+          viewkey: keyIsBuffer ? util.hex(key) : key,
+          hash: util.hex(getHash(m))
         }
       })
     },
@@ -94,11 +94,11 @@ module.exports = function (lvl) {
       // returns a Map() which maps view names to a list of keys in that view, where each key has been recorded to reference the queried
       // hash
       getUses: function (hash, cb) {
-        debug("api.getUses for %O", hash.toString("hex"))
+        debug("api.getUses for %O", util.hex(hash))
         ready(async function () {
           const iter = lvl.values({
-            gt: `${hash.toString("hex")}!!`,
-            lt: `${hash.toString("hex")}!~`
+            gt: `${util.hex(hash)}!!`,
+            lt: `${util.hex(hash)}!~`
           })
           const values = await iter.all()
           const usesMap = new Map()
@@ -120,8 +120,8 @@ module.exports = function (lvl) {
         if (typeof cb === "undefined") { cb = noop }
         ready(async function () {
           const iter = lvl.keys({
-            gt: `${hash.toString("hex")}!!`,
-            lt: `${hash.toString("hex")}!~`
+            gt: `${util.hex(hash)}!!`,
+            lt: `${util.hex(hash)}!~`
           })
           // get all the keys we've stored in reverse map
           const keys = await iter.all()

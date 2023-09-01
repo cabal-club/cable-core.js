@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+const b4a = require("b4a")
+
 // returns a timestamp in UNIX Time form
 function timestamp () {
   return +(new Date())
@@ -91,11 +93,17 @@ function humanizePostType(posttype) {
   }
 }
 
+function hex (input) {
+  if (typeof input === "string") { return input }
+  return b4a.toString(input, "hex")
+}
+
 
 module.exports = {
   timestamp,
   monotonicTimestamp, 
   noop: function() {},
   humanizeMessageType,
-  humanizePostType
+  humanizePostType,
+  hex
 }

@@ -61,6 +61,7 @@ class CableCore extends EventEmitter {
       localRequests.forEach(req => { this.swarm.broadcast(req) })
     })
     // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
+    // TODO (2023-09-01): also persist keypair in e.g. cable-client/cli
     const validKeypair = (
       opts.kp && opts.kp.publicKey && opts.kp.secretKey && 
       b4a.isBuffer(opts.kp.publicKey) && 
@@ -118,14 +119,14 @@ class CableCore extends EventEmitter {
       // * a new user joined?
       // * a new channel was added?
     
-      const publicKey = obj.publicKey.toString("hex")
+      const publicKey = util.hex(obj.publicKey)
       // emit contextual events depending on what type of post was stored
       switch (postType) {
         case constants.TEXT_POST:
-          this._emitChat("add", { channel, publicKey, hash: hash.toString("hex"), post: obj })
+          this._emitChat("add", { channel, publicKey, hash: util.hex(hash), post: obj })
           break
         case constants.DELETE_POST:
-          this._emitChat("remove", { channel, publicKey, hash: hash.toString("hex") })
+          this._emitChat("remove", { channel, publicKey, hash: util.hex(hash) })
           break
         case constants.INFO_POST:
           if (obj.key === "name") {
@@ -190,7 +191,7 @@ class CableCore extends EventEmitter {
   _sendLiveHashResponse(channel, postType, hashes, timestamp) {
     const reqidList = this._getLiveRequests(channel)
     reqidList.forEach(reqid => {
-      const requestInfo = this.requestsMap.get(reqid.toString("hex"))
+      const requestInfo = this.requestsMap.get(util.hex(reqid))
       coredebug("requestInfo for reqid %O: %O", reqid, requestInfo)
       const reqType = requestInfo.obj.msgType
       if (reqType === constants.CHANNEL_STATE_REQUEST) {
@@ -290,7 +291,7 @@ class CableCore extends EventEmitter {
         console.error(this.store.linksView)
         this.store.linksView.api.getReverseLinks(hash, (err, retLinks) => {
           if (retLinks) {
-            rlinks.set(hash, retLinks.map(h => b4a.toString(h, "hex")))
+            rlinks.set(hash, retLinks.map(h => util.hex(h)))
             res()
           }
         })
@@ -423,7 +424,7 @@ class CableCore extends EventEmitter {
       const users = new Map()
       // set name equivalent to be hex of public key initially
       publicKeys.forEach(publicKey => {
-        const hex = publicKey.toString("hex") 
+        const hex = util.hex(publicKey) 
         users.set(hex, hex)
       })
       this.store.userInfoView.api.getLatestNameHashesAllUsers((err, latestNameHashes) => {
@@ -433,7 +434,7 @@ class CableCore extends EventEmitter {
             if (post.postType !== constants.INFO_POST) { return }
             if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
             // public key had a post/info:name -> use it
-            users.set(post.publicKey.toString("hex"), post.value)
+            users.set(post.publicKey, post.value)
           })
           cb(null, users)
         })
@@ -470,11 +471,11 @@ class CableCore extends EventEmitter {
           // deviating from spec behaviour!
           // 1. add a 'hash' key to each resolved hash.
           // this allows downstream clients to refer to a particular post and act on it
-          post["postHash"] = hashes[index].toString("hex")
+          post["postHash"] = util.hex(hashes[index])
           // 2. convert to hex string instead of buffer instance
-          post.links = post.links.map(l => l.toString("hex"))
-          post.publicKey = post.publicKey.toString("hex")
-          post.signature = post.signature.toString("hex")
+          post.links = post.links.map(l => util.hex(l))
+          post.publicKey = util.hex(post.publicKey)
+          post.signature = util.hex(post.signature)
           posts.push(post) 
         } else {
           posts.push(null)
@@ -550,7 +551,7 @@ class CableCore extends EventEmitter {
 
   _removeRequest(reqid) {
     coredebug("_removeRequest: remove %O", reqid)
-    const reqidHex = reqid.toString("hex")
+    const reqidHex = util.hex(reqid)
     // cancel any potential ongoing live requests
     this._cancelLiveStateRequest(reqidHex)
     // forget the targeted request id locally
@@ -568,7 +569,7 @@ class CableCore extends EventEmitter {
   // <-> getChat
   requestPosts(channel, start, end, ttl, limit) {
     const reqid = crypto.generateReqID()
-    coredebug("request posts for %s (reqid %s)", channel, reqid.toString("hex"))
+    coredebug("request posts for %s (reqid %s)", channel, util.hex(reqid))
     const req = cable.TIME_RANGE_REQUEST.create(reqid, ttl, channel, start, end, limit)
     this.dispatchRequest(req)
     return req
@@ -624,12 +625,12 @@ class CableCore extends EventEmitter {
     const entry = this._reqEntryTemplate(obj)
     entry.origin = origin
     entry.binary = buf
-    this.requestsMap.set(reqid.toString("hex"), entry)
+    this.requestsMap.set(util.hex(reqid), entry)
   }
 
   // register a request that is originating from the local node, sets origin to true
   _registerLocalRequest(reqid, reqType, buf) {
-    const reqidHex = reqid.toString("hex")
+    const reqidHex = util.hex(reqid)
     const obj = cable.parseMessage(buf)
     coredebug("register local %O", obj)
     // before proceeding: investigate if we have prior a live request for the target channel.
@@ -643,7 +644,7 @@ class CableCore extends EventEmitter {
         for (const entry of this.requestsMap.values()) {
           // we only want to operate on our own requests for the given channel
           if (entry.obj.msgType === reqType && entry.origin && (entry.obj.channel === obj.channel)) {
-            localLiveRequests.push(entry.obj.reqid.toString("hex"))
+            localLiveRequests.push(util.hex(entry.obj.reqid))
           }
         }
         // if we have found any local live requests, this will send a request to cancel them
@@ -676,7 +677,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     const reqType = cable.peekMessage(req)
     const reqid = cable.peekReqid(req)
-    const reqidHex = reqid.toString("hex")
+    const reqidHex = util.hex(reqid)
 
     // check if message is a request or a response
     if (!this._messageIsRequest(reqType)) {
@@ -685,7 +686,7 @@ class CableCore extends EventEmitter {
     }
 
     // deduplicate the request: if we already know about it, we don't need to process it any further
-    if (this.requestsMap.has(reqid.toString("hex"))) {
+    if (this.requestsMap.has(util.hex(reqid))) {
       coredebug("we already know about reqid %O - returning early", reqid)
       return done()
     }
@@ -859,7 +860,7 @@ class CableCore extends EventEmitter {
     // older than the timeStart of a live channel time range request)
     
     // TODO (2023-03-31): use _addLiveRequest when processing an incoming TIME_RANGE_REQUEST + CHANNEL_STATE_REQUEST
-    const reqidHex = reqid.toString("hex")
+    const reqidHex = util.hex(reqid)
     livedebug("track %s", reqidHex)
 
     // a potentially rascally attempt to fuck shit up; abort
@@ -893,7 +894,7 @@ class CableCore extends EventEmitter {
     const channelQueries = this.liveQueries.get(channel)
     // no such channel
     if (!channelQueries) { return }
-    const index = channelQueries.findIndex(item => item.reqid === reqid.toString("hex"))
+    const index = channelQueries.findIndex(item => item.reqid === util.hex(reqid))
     const entry = channelQueries[index]
     // no live query with `reqid`
     if (!entry) { return }
@@ -1061,7 +1062,7 @@ class CableCore extends EventEmitter {
       const hash = crypto.hash(post)
       coredebug("post", cable.parsePost(post))
       // we wanted this post!
-      if (this.requestedHashes.has(hash.toString("hex"))) {
+      if (this.requestedHashes.has(util.hex(hash))) {
         requestedPosts.push(post)
         // the hashes will be removed from the set requestedHashes later on, by _handleRequestedBufs, once the hashes
         // are confirmed to have been stored. if we clear them now we'll risk causing additional unnecessary hash
@@ -1073,7 +1074,7 @@ class CableCore extends EventEmitter {
 
   // useful for tests
   _isReqidKnown (reqid) {
-    return this.requestsMap.has(reqid.toString("hex"))
+    return this.requestsMap.has(util.hex(reqid))
   }
 
   _handleRequestedBufs(bufs, done) {
@@ -1105,7 +1106,7 @@ class CableCore extends EventEmitter {
       p = new Promise((res, rej) => {
         // remove handled hashes from requestedHashes
         hashes.forEach(hash => {
-          this.requestedHashes.delete(hash.toString("hex")) 
+          this.requestedHashes.delete(util.hex(hash)) 
         })
         res()
       })
@@ -1121,7 +1122,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     const resType = cable.peekMessage(res)
     const reqid = cable.peekReqid(res)
-    const reqidHex = reqid.toString("hex")
+    const reqidHex = util.hex(reqid)
 
     // check if message is a request or a response
     if (!this._messageIsResponse(resType)) {
@@ -1178,7 +1179,7 @@ class CableCore extends EventEmitter {
         // for those hashes
         //
         // only want to query (and thereby request, if we lack them) hashes that are not already requested
-        const hashesToQuery = obj.hashes.filter(h => !this.requestedHashes.has(h.toString("hex")))
+        const hashesToQuery = obj.hashes.filter(h => !this.requestedHashes.has(util.hex(h)))
         // query data store and try to get the data for each of the returned hashes. 
         this.store.blobs.api.getMany(hashesToQuery, (err, bufs) => {
           // collect all the hashes we still don't have data for (represented by null in returned `bufs`) and create a
@@ -1207,7 +1208,7 @@ class CableCore extends EventEmitter {
               }
             }
             // track inflight hashes
-            wantedHashes.forEach(h => this.requestedHashes.add(h.toString("hex")))
+            wantedHashes.forEach(h => this.requestedHashes.add(util.hex(h)))
             wantedHashes = temp // update wantedHashes to new set of values known to not be deleted
             // dispatch a `post request` for the missing hashes
             const newReqid = crypto.generateReqID()
