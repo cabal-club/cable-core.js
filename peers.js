@@ -10,6 +10,7 @@ class TransportShim extends EventEmitter {
     super()
   }
   broadcast() {}
+  makeContact() {}
 }
 
 // differentiate between:
@@ -18,10 +19,22 @@ class TransportShim extends EventEmitter {
 class Swarm extends EventEmitter {
   constructor(key, opts) {
     super()
-    let transport = opts.network
-    if (!opts.network) { transport = TransportShim }
-    this.transport = new transport(opts)
-    this.transport.on("data", this._handleSocketData.bind(this))
+    this.transports = []
+    let networks = []
+    if (!opts.network) {
+      networks.push(TransportShim)
+    } else if (Array.isArray(opts.network)) {
+      networks = opts.network
+    } else if (typeof opts.network === "object") {
+      networks.push(opts.network)
+    }
+
+    networks.forEach(network => {
+      const transport = new network(opts)
+      transport.on("data", this._handleSocketData.bind(this))
+      this.transports.push(transport)
+    })
+
     this.key = key // used to derive topic which is used to discover peers for this particular cabal
     this.blocked = []
     this.peers = new Map()
@@ -66,11 +79,11 @@ class Swarm extends EventEmitter {
   // broadcast a piece of data to all connected peers
   broadcast(data) {
     debug("broadcast data", data)    
-    this.transport.broadcast(data)
+    this.transports.forEach(t => t.broadcast(data))
   }
 
   makeContact() {
-    this.transport.broadcast(b4a.from("hello"))
+    this.transports.forEach(t => t.broadcast(b4a.from("hello")))
   }
 
   // emitConnectionNew() {
