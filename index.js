@@ -63,15 +63,15 @@ class CableCore extends EventEmitter {
     // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
     // TODO (2023-09-01): also persist keypair in e.g. cable-client/cli
     const validKeypair = (
-      opts.kp && opts.kp.publicKey && opts.kp.secretKey && 
-      b4a.isBuffer(opts.kp.publicKey) && 
-      opts.kp.publicKey.length === constants.PUBLICKEY_SIZE && 
-      b4a.isBuffer(opts.kp.secretKey) && 
-      opts.kp.secretKey.length === constants.SECRETKEY_SIZE
+      opts.keypair && opts.keypair.publicKey && opts.keypair.secretKey && 
+      b4a.isBuffer(opts.keypair.publicKey) && 
+      opts.keypair.publicKey.length === constants.PUBLICKEY_SIZE && 
+      b4a.isBuffer(opts.keypair.secretKey) && 
+      opts.keypair.secretKey.length === constants.SECRETKEY_SIZE
     )
     if (validKeypair) {
-      this.kp = opts.kp
-      coredebug("using opts.kp as keypair")
+      this.kp = opts.keypair
+      coredebug("using opts.keypair as keypair")
     } else {
       this.kp = crypto.generateKeypair()
       coredebug("generated new keypair")
@@ -288,7 +288,6 @@ class CableCore extends EventEmitter {
     const rlinks = new Map()
     for (const hash of hashes) {
       promises.push(new Promise((res, rej) => {
-        console.error(this.store.linksView)
         this.store.linksView.api.getReverseLinks(hash, (err, retLinks) => {
           if (retLinks) {
             rlinks.set(hash, retLinks.map(h => util.hex(h)))
