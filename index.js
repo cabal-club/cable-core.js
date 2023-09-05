@@ -8,7 +8,7 @@ const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const coredebug = require("debug")("core/")
 const livedebug = require("debug")("core/live")
-// internal dependencies
+// internal dependencies (deps made by us :)
 const cable = require("cable.js")
 const crypto = require("cable.js/cryptography.js")
 const constants = require("cable.js/constants.js")
@@ -27,6 +27,8 @@ const LEAVE_POST = cable.LEAVE_POST
 
 const REQID_TO_CHANNELS = "reqid-to-channels"
 
+// TODO (2023-09-05): consider abstracting live requests handling into an explicit live requests handler in a separate file
+
 // an abstraction that keeps track of all event listeners. reasoning behind it is that event listeners have historically been:
 // 1. many in cabal pursuits
 // 2. hard to keep track of, track down, and manage correctly (a source of leaks)
@@ -34,13 +36,12 @@ class CableCore extends EventEmitter {
   constructor(level, opts) {
     super()
     if (!opts) { opts = {} }
-    if (!opts.storage) {}
-    if (!opts.network) { /*opts.network = Network*/ }
+    if (!opts.storage) { coredebug("no storage passed in")}
+    if (!opts.network) { coredebug("no network transports passed in; will use transport shim"}
     if (!opts.port) { opts.port = 13331 }
-    // i.e. the network of connections with other cab[a]l[e] peers
     coredebug("incoming opts", opts)
-    this.swarm = new Swarm("fake-key", opts)
-    this.swarm.makeContact()
+    // i.e. the network of connections with other cab[a]l[e] peers
+    this.swarm = new Swarm(opts.key, opts)
     this.swarm.on("data", (data) => {
       this._handleIncomingMessage(data)
       coredebug("incoming swarm data", data)
@@ -57,7 +58,10 @@ class CableCore extends EventEmitter {
         if (entry.origin) { localRequests.push(entry.binary) }
       }
       
-      localRequests.forEach(req => { coredebug("requesting", util.humanizeMessageType(cable.peekMessage(req)), req) })
+      localRequests.forEach(req => { 
+        const obj = cable.parseMessage(req)
+        coredebug("requesting %s with reqid %O (%O)", util.humanizeMessageType(cable.peekMessage(req)), obj.reqid, req) 
+      })
       localRequests.forEach(req => { this.swarm.broadcast(req) })
     })
     // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
@@ -615,7 +619,7 @@ class CableCore extends EventEmitter {
   }
 
   _registerRequest(reqid, origin, type, obj, buf) {
-    if (this.requestsMap.has(reqid)) {
+    if (this._isReqidKnown(reqid)) {
       coredebug(`request map already had reqid %O`, reqid)
       return
     }
@@ -685,7 +689,7 @@ class CableCore extends EventEmitter {
     }
 
     // deduplicate the request: if we already know about it, we don't need to process it any further
-    if (this.requestsMap.has(util.hex(reqid))) {
+    if (this._isReqidKnown(reqid)) {
       coredebug("we already know about reqid %O - returning early", reqid)
       return done()
     }
@@ -732,22 +736,24 @@ class CableCore extends EventEmitter {
           // get post hashes for a certain channel & time range
           this.store.getChannelTimeRange(obj.channel, obj.timeStart, obj.timeEnd, obj.limit, (err, hashes) => {
             if (err) { return rej(err) }
+            const responses = []
             if (hashes && hashes.length > 0) {
-              const responses = []
               response = cable.HASH_RESPONSE.create(reqid, hashes)
               responses.push(response)
-              // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: 
-              // conclude it by sending a hash response with hashes=[] to signal end of request & remove request
-              if (obj.timeEnd > 0) {
-                coredebug("time-range-request: prepare concluding hash response for %O", reqid)
-                response = cable.HASH_RESPONSE.create(reqid, [])
-                responses.push(response)
-                this._removeRequest(reqid)
-              }
-              return res(responses)
-            } else {
+            }
+            // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: 
+            // conclude it by sending a hash response with hashes=[] to signal end of request & remove request
+            if (obj.timeEnd > 0) {
+              coredebug("time-range-request: prepare concluding hash response for %O", reqid)
+              response = cable.HASH_RESPONSE.create(reqid, [])
+              responses.push(response)
+              this._removeRequest(reqid)
+            }
+            // no hashes to return but also want to keep this alive -> not returning anything
+            if (hashes.length === 0 && obj.timeEnd === 0) {
               return res(null)
             }
+            return res(responses)
           })
           break
         case constants.CHANNEL_STATE_REQUEST:
@@ -759,21 +765,23 @@ class CableCore extends EventEmitter {
           // get channel state hashes
           this.getChannelStateHashes(obj.channel, (err, hashes) => {
             if (err) { return rej(err) }
+            const responses = []
             if (hashes && hashes.length > 0) {
-              const responses = []
               response = cable.HASH_RESPONSE.create(reqid, hashes)
               responses.push(response)
-              // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
-              if (obj.future === 0) {
-                coredebug("channel-state-request: prepare concluding hash response for %O", reqid)
-                response = cable.HASH_RESPONSE.create(reqid, [])
-                responses.push(response)
-                this._removeRequest(reqid)
-              }
-              return res(responses)
-            } else {
+            }
+            // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
+            if (obj.future === 0) {
+              coredebug("channel-state-request: prepare concluding hash response for %O", reqid)
+              response = cable.HASH_RESPONSE.create(reqid, [])
+              responses.push(response)
+              this._removeRequest(reqid)
+            }
+            // nothing to return, but also don't want to close the live channel state request
+            if (hashes.length === 0 && obj.future === 1) {
               return res(null)
             }
+            return res(responses)
           })
           break
         case constants.CHANNEL_LIST_REQUEST:
@@ -804,7 +812,6 @@ class CableCore extends EventEmitter {
   }
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
-  // TODO (2023-08-09): hook up response / requests to swarm/peers logic
   dispatchResponse(buf) {
     this.emit("response", buf)
     this.swarm.broadcast(buf)
@@ -1071,7 +1078,7 @@ class CableCore extends EventEmitter {
     return requestedPosts
   }
 
-  // useful for tests
+  // reqid is a buffer, returns a boolean. used by tests and also to prevent mishaps in this file :)
   _isReqidKnown (reqid) {
     return this.requestsMap.has(util.hex(reqid))
   }
@@ -1130,7 +1137,7 @@ class CableCore extends EventEmitter {
     }
 
     // if we don't know about a reqid, then the corresponding response is not something we want to handle
-    if (!this.requestsMap.has(reqidHex)) {
+    if (!this._isReqidKnown(reqid)) {
       coredebug("reqid %s was unknown, dropping response", reqidHex)
       return done()
     }
@@ -1156,8 +1163,7 @@ class CableCore extends EventEmitter {
       // however: we could inspect the payload of a POST_RESPONSE to see if it contains posts for any hashes we are waiting for..
       if (resType === constants.POST_RESPONSE) {
         this._handleRequestedBufs(this._processPostResponse(obj), () => {
-          // console.log("TODO: wow very great :)")
-          //
+          // TODO (2023-09-05): call done here instead; will it affect anything?
         })
       }
       return done()
@@ -1188,8 +1194,8 @@ class CableCore extends EventEmitter {
             if (buf === null) {
               // we don't have the hash represented by hashes[index]: good! we want to request it.
               const hash = hashesToQuery[index]
-              wantedHashes.push(hash)
               // remember the requested hashes
+              wantedHashes.push(hash)
             }
           })
           if (wantedHashes.length === 0) {

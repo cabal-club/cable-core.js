@@ -1,9 +1,9 @@
 const EventEmitter = require("events").EventEmitter
 const debug = require("debug")("transport/swarm")
 const b4a = require("b4a")
+const varint = require("varint")
 
 // const TIME_BEFORE_DROP = 5 * 60 * 60 * 1000 // keep alive a peer for 5 minutes without having heard from them
-const HELLO = b4a.from("hello")
 
 class TransportShim extends EventEmitter {
   constructor() {
@@ -32,6 +32,7 @@ class Swarm extends EventEmitter {
     networks.forEach(network => {
       const transport = new network(opts)
       transport.on("data", this._handleSocketData.bind(this))
+      transport.on("peer-connected", () => { this.emit("new-peer") } )
       this.transports.push(transport)
     })
 
@@ -45,17 +46,17 @@ class Swarm extends EventEmitter {
   }
 
   _handleSocketData ({ address, data }) {
-    debug("received socket data", data)
+    debug("received socket data %O from address [%s]", data, address)
     if (!this.peers.has(address)) {
       this.emitPeerNew(address)
       this.peers.set(address, { } )
     }
-    // hack to make sure peers on the same ip identify each other as new peers
-    if (b4a.equals(data, HELLO)) {
-      this.emitPeerNew(address)
-    }
+
+    const len = b4a.from(varint.encode(data.length))
+    const msgLenData = b4a.concat([len, data])
+    // debug("recieved from", msg.address)
     this.peers.get(address).seen = +(new Date())
-    this.emit("data", data)
+    this.emit("data", msgLenData)
   }
 
   _attemptPrune() {
