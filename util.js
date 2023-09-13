@@ -84,10 +84,6 @@ function humanizePostType(posttype) {
       return "post/join"
     case 5:
       return "post/leave"
-    case 6:
-      return "channel list request"
-    case 7:
-      return "channel list response"
     default:
       return "unknown"
   }

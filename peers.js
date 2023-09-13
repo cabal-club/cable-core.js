@@ -48,7 +48,7 @@ class Swarm extends EventEmitter {
   _handleSocketData ({ address, data }) {
     debug("received socket data %O from address [%s]", data, address)
     if (!this.peers.has(address)) {
-      this.emitPeerNew(address)
+      // this.emitPeerNew(address)
       this.peers.set(address, { } )
     }
 

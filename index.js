@@ -36,8 +36,8 @@ class CableCore extends EventEmitter {
   constructor(level, opts) {
     super()
     if (!opts) { opts = {} }
-    if (!opts.storage) { coredebug("no storage passed in")}
-    if (!opts.network) { coredebug("no network transports passed in; will use transport shim"}
+    if (!opts.storage) { coredebug("no storage passed in") }
+    if (!opts.network) { coredebug("no network transports passed in; will use transport shim") }
     if (!opts.port) { opts.port = 13331 }
     coredebug("incoming opts", opts)
     // i.e. the network of connections with other cab[a]l[e] peers
@@ -108,29 +108,18 @@ class CableCore extends EventEmitter {
     this.liveQueries.set(REQID_TO_CHANNELS, new Map())
     this._defaultTTL = 0
 
-    this.events.register("store", this.store, "channel-state-replacement", ({ channel, postType, hash }) => {
-      livedebug("channel-state-replacement evt (channel: %s, postType %i, hash %O)", channel, postType, hash)
-      // set timestamp to -1 because we don't have it when producing a channel-state-replacement, 
-      // and timestamp only matters for correctly sending hash responses for channel time range requests 
-      // (i.e. not applicable for channel state requests)
-      this._sendLiveHashResponse(channel, postType, [hash], -1)
-    })
-
-    this.events.register("store", this.store, "store-post", ({ obj, channel, timestamp, hash, postType }) => {
-      livedebug("store post evt, post type: %i", postType)
-      this._sendLiveHashResponse(channel, postType, [hash], timestamp)
+    const _emitStoredPost = (obj, hash) => {
       // TODO (2023-08-18): how to know when:
       // * a new user joined?
       // * a new channel was added?
-    
       const publicKey = util.hex(obj.publicKey)
       // emit contextual events depending on what type of post was stored
-      switch (postType) {
+      switch (obj.postType) {
         case constants.TEXT_POST:
-          this._emitChat("add", { channel, publicKey, hash: util.hex(hash), post: obj })
+          this._emitChat("add", { channel: obj.channel, publicKey, hash: util.hex(hash), post: obj })
           break
         case constants.DELETE_POST:
-          this._emitChat("remove", { channel, publicKey, hash: util.hex(hash) })
+          this._emitChat("remove", { channel: obj.channel, publicKey, hash: util.hex(hash) })
           break
         case constants.INFO_POST:
           if (obj.key === "name") {
@@ -140,17 +129,42 @@ class CableCore extends EventEmitter {
           }
           break
         case constants.TOPIC_POST:
-          this._emitChannels("topic", { channel, topic: obj.topic, publicKey })
+          this._emitChannels("topic", { channel: obj.channel, topic: obj.topic, publicKey })
           break
         case constants.JOIN_POST:
-          this._emitChannels("join", { channel, publicKey })
+          this._emitChannels("join", { channel: obj.channel, publicKey })
           break
         case constants.LEAVE_POST:
-          this._emitChannels("leave", { channel, publicKey })
+          this._emitChannels("leave", { channel: obj.channel, publicKey })
           break
         default:
-          coredebug("store-post: unknown post type &d", postType)
+          coredebug("store-post: unknown post type &d", obj.postType)
       }
+    }
+
+    this.events.register("store", this.store, "channel-state-replacement", ({ channel, postType, hash }) => {
+      livedebug("channel-state-replacement evt (channel: %s, postType %i, hash %O)", channel, postType, hash)
+      // set timestamp to -1 because we don't have it when producing a channel-state-replacement, 
+      // and timestamp only matters for correctly sending hash responses for channel time range requests 
+      // (i.e. not applicable for channel state requests)
+      this._sendLiveHashResponse(channel, postType, [hash], -1)
+      // TODO (2023-09-07): also emit the newly reindexed post?
+      this.resolveHashes([hash], (err, results) => {
+        const obj = results[0]
+        if (obj === null) { 
+          coredebug("channel-state-replacement: tried to fetch post using %O; nothing in store", hash)
+          return 
+        }
+        _emitStoredPost(obj, hash)
+      })
+
+    })
+
+    this.events.register("store", this.store, "store-post", ({ obj, channel, timestamp, hash, postType }) => {
+      livedebug("store post evt, post type: %i", postType)
+      this._sendLiveHashResponse(channel, postType, [hash], timestamp)
+     
+      _emitStoredPost(obj, hash)
     })
 
     this.events.register("core", this, "live-request-ended", (reqidHex) => {
@@ -308,6 +322,7 @@ class CableCore extends EventEmitter {
 	// post/text
 	postText(channel, text, done) {
     if (!done) { done = util.noop }
+    // TODO (2023-09-06): current behaviour links to e.g. post/join and not only post/text
     const links = this._links(channel)
     const buf = TEXT_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp(), text)
     this.store.text(buf, () => { this._updateNewestHeads(channel, buf, done) })
@@ -378,7 +393,6 @@ class CableCore extends EventEmitter {
   /* methods to get data we already have locally */
   getChat(channel, start, end, limit, cb) {
     coredebug(channel, start, end, limit, cb)
-    // TODO (2023-03-07): future work here to augment with links-based retrieval & causal sort
     this.store.getChannelTimeRange(channel, start, end, limit, (err, hashes) => {
       if (err) { return cb(err) }
       this.resolveHashes(hashes, cb)
@@ -433,7 +447,8 @@ class CableCore extends EventEmitter {
       this.store.userInfoView.api.getLatestNameHashesAllUsers((err, latestNameHashes) => {
         if (err) return cb(err)
         this.resolveHashes(latestNameHashes, (err, posts) => {
-          posts.forEach(post => {
+          // TODO (2023-09-06): handle post/info deletion and storing null?
+          posts.filter(post => post !== null).forEach(post => {
             if (post.postType !== constants.INFO_POST) { return }
             if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
             // public key had a post/info:name -> use it
@@ -727,6 +742,8 @@ class CableCore extends EventEmitter {
           })
           break
         case constants.TIME_RANGE_REQUEST:
+          // potentially index a new channel we didn't know about as a result of someone making this request
+          this._indexNewChannels([obj.channel])
           coredebug("create a response for channel time range request using params in %O", obj)
           // if obj.timeEnd === 0 => keep this request alive
           if (obj.timeEnd === 0) {
@@ -757,6 +774,8 @@ class CableCore extends EventEmitter {
           })
           break
         case constants.CHANNEL_STATE_REQUEST:
+          // potentially index a new channel we didn't know about as a result of someone making this request
+          this._indexNewChannels([obj.channel])
           // if obj.future === 1 => keep this request alive
           if (obj.future === 1) {
             // it has no implicit limit && updatesRemaining does not apply
@@ -1239,7 +1258,6 @@ class CableCore extends EventEmitter {
         break
       case constants.CHANNEL_LIST_RESPONSE:
         this._indexNewChannels(obj.channels, (err) => {
-          this._emitChannels("add", { channels: obj.channels })
           done(err)
         })
         coredebug("received channel list response, removing request %O", reqid)
@@ -1253,9 +1271,20 @@ class CableCore extends EventEmitter {
   // indexes channel names received as part of a channel list request/response cycle.
   // as we receive a list of channel names, and not a set of join/leave posts we use a sentinel to keep track of these
   // inserted channels while maintaining the overall key scheme in channel-membership.js
+  //
+  // (also sneakily used to insert channels we learn of when receiving channel time range request / channel state
+  // requests :)
   _indexNewChannels(channels, done) {
-    const arr = channels.map(channel => { return { publicKey: "sentinel", channel }})
-    this.store.channelMembershipView.map(arr, done)
+    if (!done) { done = util.noop }
+    this.getChannels((err, knownChannels) => {
+      const newChannels = channels.filter(ch => !knownChannels.includes(ch))
+      const arr = newChannels.map(channel => { return { publicKey: "sentinel", channel }})
+      if (arr.length === 0) { return done() }
+      this.store.channelMembershipView.map(arr, () => {
+        this._emitChannels("add", { channels: newChannels })
+        done()
+      })
+    })
   }
 }
 
