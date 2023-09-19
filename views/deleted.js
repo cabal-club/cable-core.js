@@ -5,7 +5,7 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "deleted"
-const debug = require("debug")(`core/${viewName}`)
+const debug = require("debug")(`core:${viewName}`)
 const constants = require("cable.js/constants.js")
 const util = require("../util.js")
 

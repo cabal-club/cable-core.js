@@ -7,7 +7,7 @@ const EventEmitter = require('events').EventEmitter
 // external database dependencies
 const { MemoryLevel } = require("memory-level")
 // external dependencies
-const storedebug = require("debug")("core/store")
+const storedebug = require("debug")("core:store")
 const b4a = require("b4a")
 // internal dependencies
 const cable = require("cable.js")

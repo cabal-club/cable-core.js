@@ -6,8 +6,8 @@
 const EventEmitter = require('events').EventEmitter
 // external dependencies
 const b4a = require("b4a")
-const coredebug = require("debug")("core/")
-const livedebug = require("debug")("core/live")
+const coredebug = require("debug")("core:core")
+const livedebug = require("debug")("core:live")
 // internal dependencies (deps made by us :)
 const cable = require("cable.js")
 const crypto = require("cable.js/cryptography.js")

@@ -1,4 +1,4 @@
-const debug = require("debug")("core/event-manager")
+const debug = require("debug")("core:event-manager")
 class EventsManager {
   // TODO (2023-04-24): return a singleton instance?
   

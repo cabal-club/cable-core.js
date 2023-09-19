@@ -6,7 +6,7 @@ const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const { hex } = require("../util.js")
 const viewName = "data-store"
-const debug = require("debug")(`core/${viewName}`)
+const debug = require("debug")(`core:${viewName}`)
 
 function noop () {}
 
