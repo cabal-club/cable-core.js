@@ -61,12 +61,12 @@ class CableStore extends EventEmitter {
   constructor(level, opts) {
     super()
 
-    const datadir = "data"
+    const storage = opts.storage || "data"
     if (!opts) { opts = { temp: true } }
 
     if (!level) { level = MemoryLevel }
 
-    this._db = new level(datadir)
+    this._db = new level(storage)
 
     // reverseMapView maps which views have stored a particular hash. using this view we can removes those entries in
     // other views if needed e.g.  when a delete happens, when a peer has been blocked and their contents removed, or we are truncating the local database to save space

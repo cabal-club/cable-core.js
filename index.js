@@ -39,7 +39,7 @@ class CableCore extends EventEmitter {
     if (!opts.storage) { coredebug("no storage passed in") }
     if (!opts.network) { coredebug("no network transports passed in; will use transport shim") }
     if (!opts.port) { opts.port = 13331 }
-    coredebug("incoming opts", opts)
+    coredebug("opts", opts)
     // i.e. the network of connections with other cab[a]l[e] peers
     this.swarm = new Swarm(opts.key, opts)
     this.swarm.on("data", (data) => {
@@ -83,7 +83,7 @@ class CableCore extends EventEmitter {
 
     this.events = new EventsManager()
 
-    this.store = new CableStore(level)
+    this.store = new CableStore(level, { storage: opts.storage})
     /* used as: 
      * store a join message:
      * store.join(buf) 
