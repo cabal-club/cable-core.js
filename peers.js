@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 the cabal-club authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const EventEmitter = require("events").EventEmitter
 const debug = require("debug")("transport/swarm")
 const b4a = require("b4a")
