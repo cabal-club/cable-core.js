@@ -5,10 +5,10 @@
 // node core dependencies
 const EventEmitter = require('events').EventEmitter
 // external database dependencies
-const { Level } = require("level")
 const { MemoryLevel } = require("memory-level")
 // external dependencies
-const storedebug = require("debug")("core/store")
+const storedebug = require("debug")("core:store")
+const b4a = require("b4a")
 // internal dependencies
 const cable = require("cable.js")
 const crypto = require("cable.js/cryptography.js")
@@ -58,15 +58,15 @@ class CableStore extends EventEmitter {
   // persist any of their messages in said channel? the core concern is that channel state request requires sending the
   // latest post/info of **ex-members** which means that over time responses to a channel-state request will just grow
   // and grow in size
-  constructor(opts) {
+  constructor(level, opts) {
     super()
 
+    const storage = opts.storage || "data"
     if (!opts) { opts = { temp: true } }
 
-    this._db = new Level("data")
-    if (opts.temp) {
-      this._db = new MemoryLevel("data")
-    }
+    if (!level) { level = MemoryLevel }
+
+    this._db = new level(storage)
 
     // reverseMapView maps which views have stored a particular hash. using this view we can removes those entries in
     // other views if needed e.g.  when a delete happens, when a peer has been blocked and their contents removed, or we are truncating the local database to save space
@@ -215,19 +215,42 @@ class CableStore extends EventEmitter {
 
     // the hash of the post/delete message
     const hash = crypto.hash(buf)
-    // note: obj.hash is hash of the deleted post (not of the post/delete!)
+    // note: obj.hashes is hash of the deleted post (not of the post/delete!)
     const obj = DELETE_POST.toJSON(buf)
-    
-    // persist the post/delete buffer
+
+    // verify that each hash requested to be deleted is in fact authorized (delete author and post author are the same)
+    // throw an error (and refuse to store this post/delete) if any of the hashes are authored by someone else
     const prom = new Promise((res, rej) => {
-      this._storeNewPost(buf, hash, res)
+      this.blobs.api.getMany(obj.hashes, (err, bufs) => {
+        for (let i = 0; i < bufs.length; i++) {
+          if (!bufs[i]) { 
+            storedebug("can't find buf corresponding to hash", obj.hashes[i])
+            continue 
+          }
+          const post = cable.parsePost(bufs[i])
+          if (!b4a.equals(post.publicKey, obj.publicKey)) {
+            storedebug("del (err): hashes to delete %O post author was %O, delete author was %O", obj.hashes, post.publicKey, obj.publicKey)
+            return rej(new Error("post/delete author and author of hashes to delete did not match"))
+          }
+        }
+        res()
+      })
     })
 
     prom.then(() => {
+      // persist the post/delete buffer
+      return new Promise((res, rej) => {
+        this._storeNewPost(buf, hash, res)
+      })
+    })
+    .then(() => {
       let processed = 0
       // create a self-contained loop of deletions, where each related batch of deletions is performed in unison
       obj.hashes.forEach(hashToDelete => {
-        deleteHash(hashToDelete, () => {
+        deleteHash(hashToDelete, (err) => {
+          if (err) {
+            return done(err)
+          }
           processed++
           // signal done when all hashes to delete have been processed
           if (processed >= obj.hashes.length) {
@@ -236,6 +259,11 @@ class CableStore extends EventEmitter {
         })
       })
     })
+    // there was some kind of error, e.g. the delete post tried to delete someone else's post
+    .catch((err) => {
+      storedebug("error!", err)
+      done(err)
+    })
 
     const deleteHash = (hashToDelete, finished) => {
       const promises = []
@@ -243,7 +271,7 @@ class CableStore extends EventEmitter {
       this.blobs.api.get(hashToDelete, async (err, retrievedBuf) => {
         if (err) {
           storedebug("delete err'd", err)
-          return finished()
+          return finished(err)
         }
         const post = cable.parsePost(retrievedBuf)
         storedebug("post to delete %O", post)
@@ -393,7 +421,7 @@ class CableStore extends EventEmitter {
   }
 
   _reindexChannelMembership (channel, publicKey, sendHash, done) {
-    storedebug("reindex channel membership in %s for %s", channel, publicKey.toString("hex"))
+    storedebug("reindex channel membership in %s for %s", channel, util.hex(publicKey))
     this.channelStateView.api.getLatestMembershipHash(channel, publicKey, (err, hash) => {
       storedebug("membership hash %O err %O", hash, err)
       // the only membership record for the given channel was deleted: clear membership information regarding channel
@@ -518,13 +546,12 @@ class CableStore extends EventEmitter {
     promises.push(p)
     // channel state view keeps track of info posts that set the name
     if (obj.key === "name") {
-      // if we're setting a post/info:name via core.setNick() we are not passed a channel. so to do
+      // if we're setting a post/info:name via core.setName() we are not passed a channel. so to do
       // this correctly, for how the channel state index looks like right now, we need to get a list of channels that the
       // user is in and post the update to each of those channels
       this.channelMembershipView.api.getHistoricMembership(obj.publicKey, (err, channels) => {
         const channelStateMessages = []
         channels.forEach(channel => {
-          storedebug("info: each channel %s", channel)
           channelStateMessages.push({...obj, hash, channel})
         })
         storedebug(channelStateMessages)
@@ -535,7 +562,7 @@ class CableStore extends EventEmitter {
       
         // emit 'store-post' for each channel indexes have been confirmed to be updated
         Promise.all(promises).then(() => {
-          channels.forEach(channel => {
+          new Set(channels).forEach(channel => {
             this._emitStoredPost(hash, buf, channel)
           })
           done()
@@ -546,10 +573,11 @@ class CableStore extends EventEmitter {
 
   _emitStoredPost(hash, buf, channel) {
     const obj = cable.parsePost(buf)
+    storedebug("store-post", { obj, hash, timestamp: obj.timestamp, channel, postType: util.humanizePostType(obj.postType) })
     if (channel) {
-      this.emit("store-post", { hash, timestamp: obj.timestamp, channel, postType: obj.postType })
+      this.emit("store-post", { obj, hash, timestamp: obj.timestamp, channel, postType: obj.postType })
     } else { // probably a post/info, which has no channel membership information
-      this.emit("store-post", { hash, timestamp: obj.timestamp, channel: null, postType: obj.postType })
+      this.emit("store-post", { obj, hash, timestamp: obj.timestamp, channel: null, postType: obj.postType })
     }
   }
 

@@ -249,7 +249,7 @@ test("implicitly joined channel (by setting topic) should be possible to leave",
 test("setting a nick should persist post in store", t => {
   const core = new CableCore()
   const value = "cabler"
-  const buf = core.setNick(value)
+  const buf = core.setName(value)
   assertBufType(t, buf, constants.INFO_POST)
 
   const obj = cable.parsePost(buf)

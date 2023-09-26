@@ -5,8 +5,9 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "deleted"
-const debug = require("debug")(`core/${viewName}`)
+const debug = require("debug")(`core:${viewName}`)
 const constants = require("cable.js/constants.js")
+const util = require("../util.js")
 
 function noop () {}
 
@@ -55,7 +56,7 @@ module.exports = function (lvl) {
         pending++
         lvl.get(key, function (err) {
           if (err && err.notFound) {
-            if (!seen[value]) events.emit('add', hash.toString("hex"))
+            if (!seen[value]) events.emit('add', util.hex(hash))
             ops.push({
               type: 'put',
               key,

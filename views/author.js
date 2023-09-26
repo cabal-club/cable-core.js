@@ -5,7 +5,7 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "author"
-const debug = require("debug")(`core/${viewName}`)
+const debug = require("debug")(`core:${viewName}`)
 const constants = require("cable.js/constants.js")
 const util = require("../util.js")
 const monotonicTimestamp = util.monotonicTimestamp()
@@ -50,7 +50,7 @@ module.exports = function (lvl, reverseIndex) {
 
         const ts = monotonicTimestamp(msg.timestamp)
         // <pubkey>!<post_type-id>!<mono-ts> -> <hash>
-        const key = `${msg.publicKey.toString("hex")}!${msg.postType}!${ts}`
+        const key = `${util.hex(msg.publicKey)}!${msg.postType}!${ts}`
         const hash = msg.hash
 
         // make sure we find unhandled cases, because they are likely to be either bugs or new functionality that needs
@@ -103,8 +103,6 @@ module.exports = function (lvl, reverseIndex) {
         ready(async function () {
           debug("api.getUniquePublicKeys")
           const iter = lvl.keys()
-            // gt: `${publicKey.toString("hex")}!!`,
-            // lt: `${publicKey.toString("hex")}!~`
           const viewkeys = await iter.all()
           const keys = viewkeys.map(key => {
             const index = key.indexOf("!")
@@ -121,8 +119,8 @@ module.exports = function (lvl, reverseIndex) {
           debug("api.getAllHashesByAuthor")
           const iter = lvl.values({
             reverse: true,
-            gt: `${publicKey.toString("hex")}!!`,
-            lt: `${publicKey.toString("hex")}!~`
+            gt: `${util.hex(publicKey)}!!`,
+            lt: `${util.hex(publicKey)}!~`
           })
           const hashes = await iter.all()
           cb(null, hashes) 
@@ -134,8 +132,8 @@ module.exports = function (lvl, reverseIndex) {
           debug("api.getAllHashesByAuthorAndType")
           const iter = lvl.values({
             reverse: true,
-            gt: `${publicKey.toString("hex")}!${postType}!!`,
-            lt: `${publicKey.toString("hex")}!${postType}!~`
+            gt: `${util.hex(publicKey)}!${postType}!!`,
+            lt: `${util.hex(publicKey)}!${postType}!~`
           })
           const hashes = await iter.all()
           cb(null, hashes) // only return one hash

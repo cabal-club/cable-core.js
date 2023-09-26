@@ -5,8 +5,9 @@
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "user-info"
-const debug = require("debug")(`core/${viewName}`)
+const debug = require("debug")(`core:${viewName}`)
 const constants = require("cable.js/constants.js")
+const util = require("../util.js")
 
 function noop () {}
 
@@ -48,7 +49,7 @@ module.exports = function (lvl, reverseIndex) {
 
         // TODO (2023-03-07): values stored under this scheme (i.e. not the info!latest!<key> scheme) are currently unused. 
         // but could be used in preference to the latest scheme and reduce need for reindexing this when deletes happen
-        const key = `info!${msg.key}!${msg.publicKey.toString("hex")}!${msg.timestamp}`
+        const key = `info!${msg.key}!${util.hex(msg.publicKey)}!${msg.timestamp}`
         const hash = msg.hash
 
         // this switch case makes sure we find unhandled cases, because they are likely to be either bugs or new
@@ -79,7 +80,7 @@ module.exports = function (lvl, reverseIndex) {
           // latest value (in case of deletion), and to do so we simply re-put the record, overwriting the old
           ops.push({
             type: 'put',
-            key: `latest!info!${msg.key}!${msg.publicKey.toString("hex")}`,
+            key: `latest!info!${msg.key}!${util.hex(msg.publicKey)}`,
             value: hash
           })
           if (!--pending) done()
@@ -118,7 +119,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           // TODO (2023-03-07): consider converting to using a range query with limit: 1 instead
           debug("api.getLatestNameHash")
-          lvl.get(`latest!info!name!${publicKey.toString("hex")}`, (err, hash) => {
+          lvl.get(`latest!info!name!${util.hex(publicKey)}`, (err, hash) => {
             if (err) { return cb(err, null) }
             return cb(null, hash)
           })
@@ -130,7 +131,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           debug("api.getLatestNameHashMany")
           const keys = pubkeys.map(publicKey => {
-            return `latest!info!name!${publicKey.toString("hex")}`
+            return `latest!info!name!${util.hex(publicKey)}`
           })
           debug(keys)
           lvl.getMany(keys, (err, hashes) => {
@@ -147,7 +148,7 @@ module.exports = function (lvl, reverseIndex) {
         // remove the name record for this public key
         ready(function () {
           debug("api.clearNameHash")
-          lvl.del(`latest!info!name!${publicKey.toString("hex")}`, (err) => {
+          lvl.del(`latest!info!name!${util.hex(publicKey)}`, (err) => {
             if (err) { return cb(er) }
             return cb(null)
           })

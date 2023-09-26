@@ -459,7 +459,7 @@ test("channel state request + delete request: start with empty database, send ha
       // create a quick and dirty delete request :) (core[0] doesn't have the post but using them to create the delete
       // should work anyway)
       t.ok(latestPostedHash, "latest hash should not be empty")
-      const deleteBuf = core[0].del(latestPostedHash)
+      const deleteBuf = core[1].del(latestPostedHash)
       // store a irrelevant (for this test / channel state request) post, for testing a bit of
       // redundancy wrt correct behaviour & handling
       core[1].postText(channel, "hello hello this is just some garbageo", () => {
@@ -509,7 +509,7 @@ test("channel state request: start with empty database. store post/topic, post/j
             core[1].setTopic(channel, `topic: welcome!`, () => { res() })
             break
           case 2:
-            core[1].setNick("sweet-vine", () => { res() })
+            core[1].setName("sweet-vine", () => { res() })
             break
           default:
             t.fail("test should only produce channel state-related messages (topic/join/info)")
@@ -557,7 +557,7 @@ test("channel state request: start with empty database. store post/topic, post/j
             core[1].setTopic(unrelatedChannel, `topic: welcome!`, () => { res() })
             break
           case 2:
-            core[1].setNick("sweet-vine", () => { res() })
+            core[1].setName("sweet-vine", () => { res() })
             break
         }
       })

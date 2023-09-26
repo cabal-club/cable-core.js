@@ -44,7 +44,7 @@ test("multiple users setting a nicknames should work", t => {
 
   cores.forEach((core, index) => {
     p = new Promise((res, rej) => {
-      buf = core.setNick(values[index], res)
+      buf = core.setName(values[index], res)
       bufs.push(buf)
     })
     promises.push(p)
@@ -222,7 +222,7 @@ test("indexing external cable post should work as expected", t => {
       t.end()
     }
   }
-  const keys = cores.map(core => { return core.kp.publicKey })
+  const keys = cores.map(core => { return core.kp.publicKey.toString("hex") })
   t.notDeepEqual(keys[0], keys[1], "public keys should be different for the two cores")
 
   // core 0 creates a text/post
@@ -236,7 +236,7 @@ test("indexing external cable post should work as expected", t => {
           t.equal(chat.length, 1, "chat should have 1 message")
           t.equal(chat[0].channel, channel)
           t.equal(chat[0].text, text)
-          t.deepEqual(chat[0].publicKey, keys[0], `author of message should be core 0's public key (${keys[0].toString("hex")})`)
+          t.deepEqual(chat[0].publicKey, keys[0], `author of message should be core 0's public key (${keys[0]})`)
           done()
         })
       })

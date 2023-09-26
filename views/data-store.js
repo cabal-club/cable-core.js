@@ -4,8 +4,9 @@
 
 const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
+const { hex } = require("../util.js")
 const viewName = "data-store"
-const debug = require("debug")(`core/${viewName}`)
+const debug = require("debug")(`core:${viewName}`)
 
 function noop () {}
 
@@ -48,10 +49,8 @@ module.exports = function (lvl, reverseIndex) {
       unprocessedBatches++
       msgs.forEach(function (msg) {
         if (!sanitize(msg)) return
-        // TODO (2023-02-23): decide on if key should be binary form of hash, or hex encoded hash.
-        // benefits of binary: don't need to convert back and forth
-        // drawbacks: can't be used in string keys of other indices -> inconsistencies in handling across indices
-        const key = msg.hash
+        // use hex-encoded strings as keys to help deduplicate posts 
+        const key = hex(msg.hash)
         const value = msg.buf
 
         pending++
@@ -71,7 +70,7 @@ module.exports = function (lvl, reverseIndex) {
 
       function done () {
         const getHash = (m) => m.key
-        const getKey = (m) => m.key
+        const getKey = (m) => hex(m.key)
         reverseIndex.map(reverseIndex.transformOps(viewName, getHash, getKey, ops))
         debug("ops %O",  ops)
         debug("done. ops.length %d", ops.length)
@@ -93,7 +92,7 @@ module.exports = function (lvl, reverseIndex) {
         if (!opts) { opts = {} }
 */
         ready(function () {
-          lvl.get(hash, function (err, buf) {
+          lvl.get(hex(hash), function (err, buf) {
             if (err) { return cb(err, null) }
             if (typeof buf === "undefined") {
               return cb(null, null)
@@ -105,11 +104,12 @@ module.exports = function (lvl, reverseIndex) {
       // tries to get a list of hashes. if a a hash, with index `i`, is not found, then the corresponding index `i` in the
       // returned results will be set to null
       getMany: function (hashes, cb) {
-        debug("api.getMany")
+        const hexHashes = hashes.map(hex)
+        debug("api.getMany %O", hexHashes)
         const ops = []
 
         ready(function () {
-          lvl.getMany(hashes, function (err, buflist) {
+          lvl.getMany(hexHashes, function (err, buflist) {
             if (err) { return cb(err, null) }
             return cb(null, buflist.map(b => {
               if (typeof b === "undefined") {
@@ -124,7 +124,7 @@ module.exports = function (lvl, reverseIndex) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
         ready(function () {
-          lvl.del(hash, function (err) {
+          lvl.del(hex(hash), function (err) {
             if (err) { return cb(err) }
             return cb(null)
           })
@@ -134,7 +134,7 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     storeState: function (state, cb) {
-      state = state.toString('base64')
+      state = b4a.toString(state, 'base64')
       lvl.put('state', state, cb)
     },
 
