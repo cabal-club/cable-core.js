@@ -24,7 +24,7 @@ languages to follow. (Interested? See cable's [spec](https://github.com/cabal-cl
 **Non-responsibilities**:
 
 * Does not handle serializing & deserializing cable's binary buffers ([cable.js](https://github.com/cabal-club/cable.js) does that)
-* Does not fully take care of all concerns required for a client application (cable-client.js will service that)
+* Does not fully take care of all concerns required for a client application ([cable-client.js](https://github.com/cabal-club/cable-client.js) services that)
 * Networking primitives (up & coming)
 
 ## Example
