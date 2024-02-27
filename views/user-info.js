@@ -14,7 +14,6 @@ function noop () {}
 // takes a (sub)level instance
 module.exports = function (lvl, reverseIndex) {
   const events = new EventEmitter()
-
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
   // there are pending transactions in the pipeline
   let queue = []
@@ -96,8 +95,8 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
-      // return latest post/info name-setting hash for all recorded pubkeys
-      getLatestNameHashesAllUsers: function (cb) {
+      // return latest post/info hash for all recorded pubkeys
+      getLatestInfoHashAllUsers: function (cb) {
         ready(async function () {
           debug("api.getUsers")
           const iter = lvl.values({
@@ -109,11 +108,11 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes)
         })
       },
-      // return latest post/info name-setting hash for specified publicKey
-      getLatestNameHash: function (publicKey, cb) {
+      // return latest post/info hash for specified publicKey
+      getLatestInfoHash: function (publicKey, cb) {
         ready(function () {
           // TODO (2023-03-07): consider converting to using a range query with limit: 1 instead
-          debug("api.getLatestNameHash")
+          debug("api.getLatestInfoHash")
           lvl.get(`latest!${util.hex(publicKey)}`, (err, hash) => {
             if (err) { return cb(err, null) }
             return cb(null, hash)
@@ -121,10 +120,10 @@ module.exports = function (lvl, reverseIndex) {
         })
       },
       // this function is needed to fulfilling channel state requests, in terms of getting the latest name hashes
-      getLatestNameHashMany: function (pubkeys, cb) {
+      getLatestInfoHashMany: function (pubkeys, cb) {
         // return latest post/info hash for many pubkeys
         ready(function () {
-          debug("api.getLatestNameHashMany")
+          debug("api.getLatestInfoHashMany")
           const keys = pubkeys.map(publicKey => {
             return `latest!${util.hex(publicKey)}`
           })
@@ -138,11 +137,11 @@ module.exports = function (lvl, reverseIndex) {
           })
         })
       },
-      clearName: function (publicKey, cb) {
+      clearInfo: function (publicKey, cb) {
         if (!cb) { cb = noop }
         // remove the name record for this public key
         ready(function () {
-          debug("api.clearNameHash")
+          debug("api.clearInfoHash")
           lvl.del(`latest!${util.hex(publicKey)}`, (err) => {
             if (err) { return cb(er) }
             return cb(null)

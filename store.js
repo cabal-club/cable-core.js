@@ -393,11 +393,11 @@ class CableStore extends EventEmitter {
   }
 
   _reindexInfoName (channel, publicKey, sendHash, done) {
-    this.channelStateView.api.getLatestNameHash(channel, publicKey, (err, hash) => {
+    this.channelStateView.api.getLatestInfoHash(channel, publicKey, (err, hash) => {
       storedebug("latest name err", err)
       storedebug("latest name hash", hash)
       if (err && err.notFound) {
-        this.userInfoView.api.clearName(publicKey)
+        this.userInfoView.api.clearInfo(publicKey)
         sendHash(null)
         return done()
       }

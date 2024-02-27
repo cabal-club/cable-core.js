@@ -401,7 +401,7 @@ class CableCore extends EventEmitter {
 
   // gets the local user's most recently set nickname
   getNick(cb) {
-    this.store.userInfoView.api.getLatestNameHash(this.kp.publicKey, (err, hash) => {
+    this.store.userInfoView.api.getLatestInfoHash(this.kp.publicKey, (err, hash) => {
       if (err) { return cb(err) }
       this.resolveHashes([hash], (err, results) => {
         if (err) { return cb(err) }
@@ -444,7 +444,7 @@ class CableCore extends EventEmitter {
         const hex = util.hex(publicKey) 
         users.set(hex, hex)
       })
-      this.store.userInfoView.api.getLatestNameHashesAllUsers((err, latestNameHashes) => {
+      this.store.userInfoView.api.getLatestInfoHashAllUsers((err, latestNameHashes) => {
         if (err) return cb(err)
         this.resolveHashes(latestNameHashes, (err, posts) => {
           // TODO (2023-09-06): handle post/info deletion and storing null?
@@ -532,7 +532,7 @@ class CableCore extends EventEmitter {
     this.store.channelMembershipView.api.getHistoricUsers(channel, (err, pubkeys) => {
       // get the latest nickname for each user that has been a member of channel
       const namePromise = new Promise((res, reject) => {
-        this.store.userInfoView.api.getLatestNameHashMany(pubkeys, (err, nameHashes) => {
+        this.store.userInfoView.api.getLatestInfoHashMany(pubkeys, (err, nameHashes) => {
           if (err) return reject(err)
           res(nameHashes)
         })

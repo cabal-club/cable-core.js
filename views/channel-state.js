@@ -143,11 +143,11 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes)
         })
       },
-      // TODO (2023-04-20): remove this file's getLatestNameHash function when user-info.js has a latestNameHash operating without latest key
-      getLatestNameHash: function (channel, publicKey, cb) {
+      // TODO (2023-04-20): remove this file's getLatestInfoHash function when user-info.js has a latestNameHash operating without latest key
+      getLatestInfoHash: function (channel, publicKey, cb) {
         // return latest post/info hash for pubkey
         ready(async function () {
-          debug("api.getLatestNameHash")
+          debug("api.getLatestInfoHash")
           const iter = lvl.values({
             lt: `name!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
             gt: "name!!",
