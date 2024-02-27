@@ -46,20 +46,20 @@ module.exports = function (lvl, reverseIndex) {
       unprocessedBatches++
       msgs.forEach(function (msg) {
         if (!sanitize(msg)) return
-
-        // TODO (2023-03-07): values stored under this scheme (i.e. not the info!latest!<key> scheme) are currently unused. 
-        // but could be used in preference to the latest scheme and reduce need for reindexing this when deletes happen
-        const key = `info!${msg.key}!${util.hex(msg.publicKey)}!${msg.timestamp}`
+        const key = `latest!${util.hex(msg.publicKey)}`
         const hash = msg.hash
 
         // this switch case makes sure we find unhandled cases, because they are likely to be either bugs or new
         // functionality that needs to be handled in other parts of the codebase
         switch (msg.key) {
+          case "accept-role": 
+            // pass
+            break
           case "name": 
             // pass
             break
           default:
-            throw new Error(`${viewName}: unhandled key type (${msg.key})`)
+            throw new Error(`${viewName}: unhandled post/info key (${msg.key})`)
             break
         }
 
@@ -67,22 +67,17 @@ module.exports = function (lvl, reverseIndex) {
         lvl.get(key, function (err) {
           if (err && err.notFound) {
             if (!seen[hash]) events.emit('add', hash)
+            // keeps track of the latest key:value pair made by any user, let's us easily get the latest value
+            //
+            // note: need to track & remove these keys via the reverse hash map in case of delete
+            // note 2: this operation resides outside the conditionals above since we occasionally want to reindex the
+            // latest value (in case of deletion), and to do so we simply re-put the record, overwriting the old
             ops.push({
               type: 'put',
               key,
               value: hash
             })
           }
-          // keeps track of the latest key:value pair made by any user, let's us easily get the latest value
-          //
-          // note: need to track & remove these keys via the reverse hash map in case of delete
-          // note 2: this operation resides outside the conditionals above since we occasionally want to reindex the
-          // latest value (in case of deletion), and to do so we simply re-put the record, overwriting the old
-          ops.push({
-            type: 'put',
-            key: `latest!info!${msg.key}!${util.hex(msg.publicKey)}`,
-            value: hash
-          })
           if (!--pending) done()
         })
       })
@@ -106,8 +101,8 @@ module.exports = function (lvl, reverseIndex) {
         ready(async function () {
           debug("api.getUsers")
           const iter = lvl.values({
-            gt: `latest!info!name!!`,
-            lt: `latest!info!name!~`
+            gt: `latest!`,
+            lt: `latest!~`
           })
           const hashes = await iter.all()
           debug(hashes)
@@ -119,7 +114,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           // TODO (2023-03-07): consider converting to using a range query with limit: 1 instead
           debug("api.getLatestNameHash")
-          lvl.get(`latest!info!name!${util.hex(publicKey)}`, (err, hash) => {
+          lvl.get(`latest!${util.hex(publicKey)}`, (err, hash) => {
             if (err) { return cb(err, null) }
             return cb(null, hash)
           })
@@ -131,7 +126,7 @@ module.exports = function (lvl, reverseIndex) {
         ready(function () {
           debug("api.getLatestNameHashMany")
           const keys = pubkeys.map(publicKey => {
-            return `latest!info!name!${util.hex(publicKey)}`
+            return `latest!${util.hex(publicKey)}`
           })
           debug(keys)
           lvl.getMany(keys, (err, hashes) => {
@@ -148,7 +143,7 @@ module.exports = function (lvl, reverseIndex) {
         // remove the name record for this public key
         ready(function () {
           debug("api.clearNameHash")
-          lvl.del(`latest!info!name!${util.hex(publicKey)}`, (err) => {
+          lvl.del(`latest!${util.hex(publicKey)}`, (err) => {
             if (err) { return cb(er) }
             return cb(null)
           })
