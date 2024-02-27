@@ -58,10 +58,8 @@ test("multiple users setting a nicknames should work", t => {
       assertBufType(t, buf, constants.INFO_POST)
       const obj = cable.parsePost(buf)
       const key = "name"
-      t.ok(obj.key, `${index}: key property should exist`)
-      t.ok(obj.value, `${index}: value property should exist`)
-      t.equal(obj.key, key, `${index}: info property 'key' should be '${key}`)
-      t.equal(obj.value, values[index], `${index}: info property 'value' should be '${values[index]}`)
+      t.true(obj.info.has(key), `post info should have key 'name'`)
+      t.equal(obj.info.get(key), values[index], `expected post info value for key 'name' to be correct`)
     })
 
     // each core indexes the other's message
@@ -82,8 +80,8 @@ test("multiple users setting a nicknames should work", t => {
         core.getUsers((err, users) => {
           t.error(err, `${index}: get users should work`)
           t.ok(users, `${index}: ret value should be ok`)
-          t.equal(users.get(cores[0].kp.publicKey.toString("hex")), values[0], `${index}: user name of user #0 should be correct`)
-          t.equal(users.get(cores[1].kp.publicKey.toString("hex")), values[1], `${index}: user name of user #1 should be correct`)
+          t.equal(users.get(cores[0].kp.publicKey.toString("hex")).name, values[0], `${index}: user name of user #0 should be correct`)
+          t.equal(users.get(cores[1].kp.publicKey.toString("hex")).name, values[1], `${index}: user name of user #1 should be correct`)
           res()
         })
       })

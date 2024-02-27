@@ -338,7 +338,7 @@ test("channel state request should yield a hash response", t => {
             core[0].getUsersInChannel(channel, (err, map) => {
               const core1Pubkey = core[1].kp.publicKey.toString("hex")
               t.true(map.has(core1Pubkey), "core[1]'s user should be in channel after core[0] state sync")
-              t.equal(map.get(core1Pubkey), name[1], "name of core[1] should be set correctly")
+              t.equal(map.get(core1Pubkey).name, name[1], "name of core[1] should be set correctly")
               t.equal(map.size, 1, "only core[1] should be in channel")
               t.end()
             })
@@ -392,7 +392,7 @@ test("channel state request should yield a hash response", t => {
   })
   .then(() => {
     // initial state has been verified, time to do initiate the request-response cycle to sync channel state!
-    core[0].requestState(channel, 0, 100, 0)
+    core[0].requestState(channel, 0, 1)
   })
 })
 

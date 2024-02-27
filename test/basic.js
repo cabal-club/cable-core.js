@@ -254,14 +254,12 @@ test("setting a nick should persist post in store", t => {
 
   const obj = cable.parsePost(buf)
   const key = "name"
-  t.ok(obj.key, "key property should exist")
-  t.ok(obj.value, "value property should exist")
-  t.equal(obj.key, key, `info property 'key' should be '${key}`)
-  t.equal(obj.value, value, `info property 'value' should be '${value}`)
+  t.true(obj.info.has(key), "should have info key 'name' set")
+  t.equal(obj.info.get(key), value, "value for info 'name' should be correct")
 
   testPostType(t, core, buf, constants.INFO_POST, () => {
-    core.getNick((err, nick) => {
-      t.error(err, "getNick should work")
+    core.getName((err, nick) => {
+      t.error(err, "getName should work")
       t.equal(nick, value, `the set nickname should be ${value}`)
       t.end()
     })

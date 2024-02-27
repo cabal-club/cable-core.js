@@ -39,6 +39,7 @@ module.exports = function (lvl, reverseIndex) {
   return {
     map: function (msgs, next) {
       debug("view.map")
+      debug("incoming msgs %O", msgs)
       let seen = {}
       let ops = []
       let pending = 0
@@ -48,19 +49,12 @@ module.exports = function (lvl, reverseIndex) {
         const key = `latest!${util.hex(msg.publicKey)}`
         const hash = msg.hash
 
-        // this switch case makes sure we find unhandled cases, because they are likely to be either bugs or new
-        // functionality that needs to be handled in other parts of the codebase
-        switch (msg.key) {
-          case "accept-role": 
-            // pass
-            break
-          case "name": 
-            // pass
-            break
-          default:
-            throw new Error(`${viewName}: unhandled post/info key (${msg.key})`)
-            break
-        }
+        // // this switch case makes sure we find unhandled cases, because they are likely to be either bugs or new
+        // if (msg.info.has("name") || msg.info.has("accept-role")) {
+        //   // pass
+        // } else {
+        //   throw new Error(`${viewName}: unhandled post/info key (${msg.key})`)
+        // }
 
         pending++
         lvl.get(key, function (err) {

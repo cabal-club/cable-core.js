@@ -334,7 +334,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     // TODO (2023-06-11): decide what to do wrt context for post/info
     const links = this._links()
-    const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), "name", name)
+    const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), [["name", name]])
     this.store.info(buf, done)
     return buf
   }
@@ -400,13 +400,17 @@ class CableCore extends EventEmitter {
   }
 
   // gets the local user's most recently set nickname
-  getNick(cb) {
+  getName(cb) {
     this.store.userInfoView.api.getLatestInfoHash(this.kp.publicKey, (err, hash) => {
       if (err) { return cb(err) }
       this.resolveHashes([hash], (err, results) => {
         if (err) { return cb(err) }
         const obj = results[0]
-        cb(null, obj.value)
+        let name = constants.INFO_DEFAULT_NAME
+        if (obj.info.has("name")) {
+          name = obj.info.get("name")
+        }
+        cb(null, name)
       })
     })
   }
@@ -450,9 +454,17 @@ class CableCore extends EventEmitter {
           // TODO (2023-09-06): handle post/info deletion and storing null?
           posts.filter(post => post !== null).forEach(post => {
             if (post.postType !== constants.INFO_POST) { return }
-            if (post.key !== "name") { throw new Error("core:getUsers - expected name hash") }
+            // prepare default values 
+            let nameValue = constants.INFO_DEFAULT_NAME
+            let acceptRoleValue = constants.INFO_DEFAULT_ACCEPT_ROLE
+            if (post.info.has("name")) {
+              nameValue = post.info.get("name")
+            }
+            if (post.info.has("accept-role")) {
+              acceptRoleValue = post.info.get("accept-role")
+            }
+            users.set(post.publicKey, { name: nameValue, acceptRole: acceptRoleValue })
             // public key had a post/info:name -> use it
-            users.set(post.publicKey, post.value)
           })
           cb(null, users)
         })

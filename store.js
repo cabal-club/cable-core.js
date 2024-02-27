@@ -545,30 +545,29 @@ class CableStore extends EventEmitter {
     })
     promises.push(p)
     // channel state view keeps track of info posts that set the name
-    if (obj.key === "name") {
-      // if we're setting a post/info:name via core.setName() we are not passed a channel. so to do
-      // this correctly, for how the channel state index looks like right now, we need to get a list of channels that the
-      // user is in and post the update to each of those channels
-      this.channelMembershipView.api.getHistoricMembership(obj.publicKey, (err, channels) => {
-        const channelStateMessages = []
-        channels.forEach(channel => {
-          channelStateMessages.push({...obj, hash, channel})
-        })
-        storedebug(channelStateMessages)
-        p = new Promise((res, rej) => {
-          this.channelStateView.map(channelStateMessages, res)
-        })
-        promises.push(p)
-      
-        // emit 'store-post' for each channel indexes have been confirmed to be updated
-        Promise.all(promises).then(() => {
-          new Set(channels).forEach(channel => {
-            this._emitStoredPost(hash, buf, channel)
-          })
-          done()
-        })
+
+    // when we're setting a post/info we are not passed a channel. so to index this post correctly, for how the channel
+    // state index looks like right now, we need to get a list of channels that the user is in and post the update to
+    // each of those channels
+    this.channelMembershipView.api.getHistoricMembership(obj.publicKey, (err, channels) => {
+      const channelStateMessages = []
+      channels.forEach(channel => {
+        channelStateMessages.push({...obj, hash, channel})
       })
-    }
+      storedebug(channelStateMessages)
+      p = new Promise((res, rej) => {
+        this.channelStateView.map(channelStateMessages, res)
+      })
+      promises.push(p)
+
+      // emit 'store-post' for each channel indexes have been confirmed to be updated
+      Promise.all(promises).then(() => {
+        new Set(channels).forEach(channel => {
+          this._emitStoredPost(hash, buf, channel)
+        })
+        done()
+      })
+    })
   }
 
   _emitStoredPost(hash, buf, channel) {
