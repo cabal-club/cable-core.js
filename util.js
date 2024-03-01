@@ -94,6 +94,24 @@ function hex (input) {
   return b4a.toString(input, "hex")
 }
 
+/* used by moderation tests and functionality */
+function getRole(map, role) {
+  const keys = new Set()
+  for (let [recipient, roleObj] of map) {
+    if (roleObj.role === role) { keys.add(recipient); }
+  }
+  return keys
+}
+
+function getSmallestValidTime (tracker, cabal, author) {
+  const trackerTime = tracker.getRoleValidSince(author)
+  const cabalTime = cabal.getRoleValidSince(author)
+  if (trackerTime === -1 || trackerTime > cabalTime) { 
+    return cabalTime
+  }
+  return trackerTime
+}
+
 
 module.exports = {
   timestamp,
@@ -101,5 +119,7 @@ module.exports = {
   noop: function() {},
   humanizeMessageType,
   humanizePostType,
-  hex
+  hex,
+  getRole,
+  getSmallestValidTime
 }
