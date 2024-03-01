@@ -2,6 +2,18 @@ const util = require("./util.js")
 const b4a = require("b4a")
 const constants = require("cable.js/constants.js")
 
+/* this file contains classes that help compute and keep track of:
+ * - moderation actions, i.e. post/{block, unblock, moderation}: class ModerationSystem
+ * - moderation roles, i.e. post/role: class ModerationRoles
+ *
+ * this file, together with the views/roles.js and views/actions.js, implements the cable moderation specification:
+ * https://github.com/cabal-club/cable/blob/main/moderation.md
+ *
+ * it has a thorough set of tests:
+ * - test/mod-actions.js 
+ * - test/mod-roles.js  
+ * - test/mod-integration.js (this last of which combines actions and roles into how the moderation system fundamentally should operate)
+*/
 
 const HIDDEN_FLAG   = 0b001
 const BLOCKED_FLAG  = 0b010
@@ -156,6 +168,9 @@ class ModerationRoles {
   //
   // `analyze` returns a map with channels as keys and as values a map. the values maps each public key with an assigned role to
   // that role. each role is represented by { role: int constant, since: timestamp since role was regarded valid }
+  //
+  // analyze() *always* starts from scratch using what it assumes is the full state of deduplicated role operations in
+  // `operations` (as derived from querying views/roles.js)
   analyze(operations) {
     // shared across all role trackers to help track which recipients have been assigned some kind of role by the local user
     const localAssignedKeys = new Set()
