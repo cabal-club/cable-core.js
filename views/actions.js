@@ -187,7 +187,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
       const keyedPosts = new Map()
 
       debug("incoming posts %O", posts)
-      posts.forEach(function (post) {
+      posts.forEach((post) => {
         const entries = []
         let droppingUser = false
         switch (post.action) {

@@ -53,7 +53,7 @@ module.exports = function (lvl) {
       let pending = 0
       unprocessedBatches++
       debug(msgs)
-      msgs.forEach(function (msg) {
+      msgs.forEach((msg) => {
         if (!sanitize(msg)) return
         // key scheme
         // <hash>!<mono-ts> => "<viewname><separator><viewkey>"
@@ -63,7 +63,7 @@ module.exports = function (lvl) {
         const value = `${msg.view}!${msg.viewkey}`
 
         pending++
-        lvl.get(key, function (err) {
+        lvl.get(key, (err) => {
           if (err && err.notFound) {
             ops.push({
               type: 'put',
@@ -124,7 +124,7 @@ module.exports = function (lvl) {
             return { type: "del", key }
           })
           // remove keys from index
-          lvl.batch(ops, function (err) {
+          lvl.batch(ops, (err) => {
             if (err) { return cb(err) }
             return cb(null)
           })

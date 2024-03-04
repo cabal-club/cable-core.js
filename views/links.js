@@ -107,7 +107,7 @@ module.exports = function (lvl) {
         // set the forward link (if we have entries for the key already, appendHashes() takes care of ensuring that we
         // only add new information to the list)
         pending++
-        lvl.get(linkKey, function (err, val) {
+        lvl.get(linkKey, (err, val) => {
           let liststring
           // first time we've seen this link so we can stuff it right into the database.
           if (err && err.notFound) {

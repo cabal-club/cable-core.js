@@ -41,14 +41,14 @@ module.exports = function (lvl, reverseIndex) {
       let ops = []
       let pending = 0
       unprocessedBatches++
-      msgs.forEach(function (msg) {
+      msgs.forEach((msg) => {
         if (!sanitize(msg)) return
         // use hex-encoded strings as keys to help deduplicate posts 
         const key = hex(msg.hash)
         const value = msg.buf
 
         pending++
-        lvl.get(key, function (err) {
+        lvl.get(key, (err) => {
           if (err && err.notFound) {
             ops.push({
               type: 'put',
@@ -84,8 +84,8 @@ module.exports = function (lvl, reverseIndex) {
         }
         if (!opts) { opts = {} }
 */
-        ready(function () {
-          lvl.get(hex(hash), function (err, buf) {
+        ready(() => {
+          lvl.get(hex(hash), (err, buf) => {
             if (err) { return cb(err, null) }
             if (typeof buf === "undefined") {
               return cb(null, null)
@@ -101,8 +101,8 @@ module.exports = function (lvl, reverseIndex) {
         debug("api.getMany %O", hexHashes)
         const ops = []
 
-        ready(function () {
-          lvl.getMany(hexHashes, function (err, buflist) {
+        ready(() => {
+          lvl.getMany(hexHashes, (err, buflist) => {
             if (err) { return cb(err, null) }
             return cb(null, buflist.map(b => {
               if (typeof b === "undefined") {
@@ -116,8 +116,8 @@ module.exports = function (lvl, reverseIndex) {
       del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
-        ready(function () {
-          lvl.del(hex(hash), function (err) {
+        ready(() => {
+          lvl.del(hex(hash), (err) => {
             if (err) { return cb(err) }
             return cb(null)
           })

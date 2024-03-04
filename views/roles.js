@@ -35,7 +35,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
       let ops = []
       let pending = 0
       unprocessedBatches++
-      msgs.forEach(function (msg) {
+      msgs.forEach((msg) => {
         if (!sanitize(msg)) return
 
         const ts = monotonicTimestamp(msg.timestamp)
@@ -57,7 +57,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
         keys.forEach(item => {
           const {key} = item
           pending++
-          lvl.get(key, function (err) {
+          lvl.get(key, (err) => {
             // NOTE (2024-01-25): only stores on entry per key (does not overwrite) currently
             if (err && err.notFound) {
               ops.push({

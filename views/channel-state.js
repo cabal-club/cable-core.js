@@ -41,7 +41,7 @@ module.exports = function (lvl, reverseIndex) {
       let ops = []
       let pending = 0
       unprocessedBatches++
-      msgs.forEach(function (msg) {
+      msgs.forEach((msg) => {
         if (!sanitize(msg)) return
 
         let key
@@ -69,7 +69,7 @@ module.exports = function (lvl, reverseIndex) {
         const seenKey = `seen!${util.hex(hash)}`
 
         pending++
-        lvl.get(seenKey, function (err) {
+        lvl.get(seenKey, (err) => {
           if (err && err.notFound) {
             // remember this hash as having been processed
             ops.push({
@@ -209,8 +209,8 @@ module.exports = function (lvl, reverseIndex) {
           debug("api.del received a key that was undefined, returning early")
           return cb(new Error("undefined key"))
         }
-        ready(function () {
-          lvl.del(key, function (err) {
+        ready(() => {
+          lvl.del(key, (err) => {
             if (err) { return cb(err) }
             return cb(null)
           })

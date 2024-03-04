@@ -36,12 +36,12 @@ module.exports = function (lvl, reverseIndex) {
   }
 
   return {
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
       let ops = []
       let pending = 0
       unprocessedBatches++
-      msgs.forEach(function (msg) {
+      msgs.forEach((msg) => {
         if (!sanitize(msg)) return
 
         const ts = monotonicTimestamp(msg.timestamp)
@@ -66,7 +66,7 @@ module.exports = function (lvl, reverseIndex) {
         }
 
         pending++
-        lvl.get(key, function (err) {
+        lvl.get(key, (err) => {
           if (err && err.notFound) {
             ops.push({
               type: 'put',

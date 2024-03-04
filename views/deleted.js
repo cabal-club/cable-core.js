@@ -41,7 +41,7 @@ module.exports = function (lvl) {
       let ops = []
       let pending = 0
       unprocessedBatches++
-      msgs.forEach(function (hash) {
+      msgs.forEach((hash) => {
         if (!sanitize(hash)) return
 
         /* key scheme
@@ -51,7 +51,7 @@ module.exports = function (lvl) {
         const value = 1
 
         pending++
-        lvl.get(key, function (err) {
+        lvl.get(key, (err) => {
           if (err && err.notFound) {
             ops.push({
               type: 'put',
@@ -77,7 +77,7 @@ module.exports = function (lvl) {
       isDeleted (hash, cb) {
         // checks if a hash has been deleted. if true then the hash has been deleted and must not be persisted or
         // resynced
-        ready(function () {
+        ready(() => {
           lvl.get(hash, (err, value) => {
             if (err && err.notFound) { return cb(null, false) }
             if (err) { return cb(err) }
@@ -89,7 +89,7 @@ module.exports = function (lvl) {
       isDeletedMany (hashes, cb) {
         // returns an object mapping the queried hashes to a boolean. if corresponding boolean is true then the hash has
         // been deleted and must not be persisted or resynced
-        ready(function () {
+        ready(() => {
           lvl.getMany(hashes, (err, values) => {
             if (err) { return cb(err) }
             const result = {}
@@ -108,8 +108,8 @@ module.exports = function (lvl) {
       del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
-        ready(function () {
-          lvl.del(hash, function (err) {
+        ready(() => {
+          lvl.del(hash, (err) => {
             if (err) { return cb(err) }
             return cb(null)
           })

@@ -41,7 +41,7 @@ module.exports = function (lvl, reverseIndex) {
       let ops = []
       let pending = 0
       unprocessedBatches++
-      msgs.forEach(function (msg) {
+      msgs.forEach((msg) => {
         if (!sanitize(msg)) return
 
         /* key scheme
@@ -67,7 +67,7 @@ module.exports = function (lvl, reverseIndex) {
         const value = msg.hash
 
         pending++
-        lvl.get(key, function (err) {
+        lvl.get(key, (err) => {
           if (err && err.notFound) {
             ops.push({
               type: 'put',
@@ -120,8 +120,8 @@ module.exports = function (lvl, reverseIndex) {
       del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
-        ready(function () {
-          lvl.del(hash, function (err) {
+        ready(() => {
+          lvl.del(hash, (err) => {
             if (err) { return cb(err) }
             return cb(null)
           })

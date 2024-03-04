@@ -56,7 +56,7 @@ module.exports = function (lvl) {
       const sorted = msgs.sort((a, b) => {
         return parseInt(a.timestamp) - parseInt(b.timestamp)
       })
-      sorted.forEach(function (msg) {
+      sorted.forEach((msg) => {
         if (!sanitize(msg)) return
 
         // key schema
@@ -123,7 +123,7 @@ module.exports = function (lvl) {
       },
       clearMembership (channel, publicKey, cb) {
         if (!cb) { cb = noop }
-        ready(function () {
+        ready(() => {
           lvl.del(`${channel}!${util.hex(publicKey)}`, (err) => {
             if (err && err.notFound ) { return cb(null) }
             if (err ) { return cb(err) }
@@ -132,7 +132,7 @@ module.exports = function (lvl) {
         })
       },
       isInChannel (channel, publicKey, cb) {
-        ready(function () {
+        ready(() => {
           lvl.get(`${channel}!${util.hex(publicKey)}`, (err, value) => {
             if (err && err.notFound ) { return cb(null, false) }
             if (err ) { return cb(err) }
