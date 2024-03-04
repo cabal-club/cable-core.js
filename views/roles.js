@@ -1,4 +1,3 @@
-const EventEmitter = require('events').EventEmitter
 const viewName = "mod:roles"
 const debug = require("debug")(`core:${viewName}`)
 const util = require("cable-core/util.js")
@@ -8,8 +7,6 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl/*, reverseIndex*/) {
-  const events = new EventEmitter()
-
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
   // there are pending transactions in the pipeline
   let queue = []
@@ -35,7 +32,6 @@ module.exports = function (lvl/*, reverseIndex*/) {
   return {
     map (msgs, next) {
       debug("view.map")
-      let seen = {}
       let ops = []
       let pending = 0
       unprocessedBatches++
@@ -64,7 +60,6 @@ module.exports = function (lvl/*, reverseIndex*/) {
           lvl.get(key, function (err) {
             // NOTE (2024-01-25): only stores on entry per key (does not overwrite) currently
             if (err && err.notFound) {
-              if (!seen[hash]) events.emit('add', hash)
               ops.push({
                 type: 'put',
                 key,
@@ -172,8 +167,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
           if (err) { return cb(err) }
           return cb(null)
         })
-      },
-      events: events
+      }
     }
   }
 }

@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "channel-membership"
 const debug = require("debug")(`core:${viewName}`)
@@ -24,8 +23,6 @@ function getPublicKeyFromKey (e) {
 
 // takes a (sub)level instance
 module.exports = function (lvl) {
-  const events = new EventEmitter()
-
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
   // there are pending transactions in the pipeline
   let queue = []
@@ -239,8 +236,7 @@ module.exports = function (lvl) {
           const uniqueChannels = Array.from(joined).sort()
           cb(null, uniqueChannels)
         })
-      },
-      events: events
+      }
     }
   }
 }

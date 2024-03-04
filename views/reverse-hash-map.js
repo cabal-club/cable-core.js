@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "reverse-hash-map"
 const debug = require("debug")(`core:${viewName}`)
@@ -13,8 +12,6 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl) {
-  const events = new EventEmitter()
-
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
   // there are pending transactions in the pipeline
   let queue = []
@@ -52,7 +49,6 @@ module.exports = function (lvl) {
     map (msgs, next) {
       debug("view.map")
 
-      let seen = {}
       let ops = []
       let pending = 0
       unprocessedBatches++
@@ -69,7 +65,6 @@ module.exports = function (lvl) {
         pending++
         lvl.get(key, function (err) {
           if (err && err.notFound) {
-            if (!seen[key]) events.emit('add', key)
             ops.push({
               type: 'put',
               key,
@@ -134,8 +129,7 @@ module.exports = function (lvl) {
             return cb(null)
           })
         })
-      },
-      events: events
+      }
     }
   }
 }

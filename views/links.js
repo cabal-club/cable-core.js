@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const EventEmitter = require('events').EventEmitter
 const b4a = require("b4a")
 const viewName = "links"
 const debug = require("debug")(`core:${viewName}`)
@@ -14,8 +13,6 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl) {
-  const events = new EventEmitter()
-
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
   // there are pending transactions in the pipeline
   let queue = []
@@ -215,7 +212,6 @@ module.exports = function (lvl) {
     },
 
     api: {
-      events: events,
       // check if any of a list of hashes are heads (unlinked hashes). returns a list of the hashes that were
       // heads
       checkIfHeads(hashlist, cb) {
