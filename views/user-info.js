@@ -14,39 +14,17 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl, reverseIndex) {
+  const ready = new util.Ready(viewName)
   const events = new EventEmitter()
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
 
   return {
-    map: function (msgs, next) {
+    map: (msgs, next) => {
       debug("view.map")
       debug("incoming msgs %O", msgs)
-      let seen = {}
       let ops = []
       let pending = 0
-      unprocessedBatches++
-      msgs.forEach(function (msg) {
-        if (!sanitize(msg)) return
+      ready.increment()
+      msgs.forEach((msg) => {
         const hash = msg.hash
 
         const keys = []
@@ -55,7 +33,7 @@ module.exports = function (lvl, reverseIndex) {
 
         keys.forEach(key => {
           pending++
-          lvl.get(key, function (err, val) {
+          lvl.get(key, (err, val) => {
             switch (key.split("!")[0]) {
               case "latest":
                 if (err && err.notFound) {
@@ -123,14 +101,14 @@ module.exports = function (lvl, reverseIndex) {
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
     api: {
-      getRoleOptOutAllUsers: function (cb) {
-        ready(async function () {
+      getRoleOptOutAllUsers (cb) {
+        ready.call(async function () {
           debug("api.getRoleOptOutAllUsers")
           const iter = lvl.keys({
             gt: `${KEY_ROLE_OPT_OUT}!`,
@@ -143,8 +121,8 @@ module.exports = function (lvl, reverseIndex) {
         })
       },
       // return latest post/info hash for all recorded pubkeys
-      getLatestInfoHashAllUsers: function (cb) {
-        ready(async function () {
+      getLatestInfoHashAllUsers (cb) {
+        ready.call(async function () {
           debug("api.getUsers")
           const iter = lvl.values({
             gt: `latest!`,
@@ -156,8 +134,8 @@ module.exports = function (lvl, reverseIndex) {
         })
       },
       // return latest post/info hash for specified publicKey
-      getLatestInfoHash: function (publicKey, cb) {
-        ready(function () {
+      getLatestInfoHash (publicKey, cb) {
+        ready.call(() => {
           // TODO (2023-03-07): consider converting to using a range query with limit: 1 instead
           debug("api.getLatestInfoHash")
           lvl.get(`latest!${util.hex(publicKey)}`, (err, hash) => {
@@ -167,9 +145,9 @@ module.exports = function (lvl, reverseIndex) {
         })
       },
       // this function is needed to fulfilling channel state requests, in terms of getting the latest name hashes
-      getLatestInfoHashMany: function (pubkeys, cb) {
+      getLatestInfoHashMany (pubkeys, cb) {
         // return latest post/info hash for many pubkeys
-        ready(function () {
+        ready.call(() => {
           debug("api.getLatestInfoHashMany")
           const keys = pubkeys.map(publicKey => {
             return `latest!${util.hex(publicKey)}`
@@ -184,10 +162,10 @@ module.exports = function (lvl, reverseIndex) {
           })
         })
       },
-      clearInfo: function (publicKey, cb) {
+      clearInfo (publicKey, cb) {
         if (!cb) { cb = noop }
         // remove the name record for this public key
-        ready(function () {
+        ready.call(() => {
           debug("api.clearInfoHash")
           lvl.del(`latest!${util.hex(publicKey)}`, (err) => {
             if (err) { return cb(er) }
@@ -199,10 +177,3 @@ module.exports = function (lvl, reverseIndex) {
     }
   }
 }
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
-}
-

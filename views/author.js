@@ -13,34 +13,14 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl, reverseIndex) {
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   return {
     map (msgs, next) {
       debug("view.map")
       let ops = []
       let pending = 0
-      unprocessedBatches++
+      ready.increment()
       msgs.forEach((msg) => {
         const ts = monotonicTimestamp(msg.timestamp)
         // <pubkey>!<post_type-id>!<mono-ts> -> <hash>
@@ -84,8 +64,8 @@ module.exports = function (lvl, reverseIndex) {
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
@@ -93,7 +73,7 @@ module.exports = function (lvl, reverseIndex) {
       // returns a list of all known public keys
       getUniquePublicKeys (cb) {
         if (!cb) return
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getUniquePublicKeys")
           const iter = lvl.keys()
           const viewkeys = await iter.all()
@@ -108,7 +88,7 @@ module.exports = function (lvl, reverseIndex) {
       },
       getAllHashesByAuthor (publicKey, cb) {
         // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllHashesByAuthor")
           const iter = lvl.values({
             reverse: true,
@@ -121,7 +101,7 @@ module.exports = function (lvl, reverseIndex) {
       },
       getAllHashesByAuthorAndType (publicKey, postType, cb) {
         // get all post hashes made by publicKey for the specified postType
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllHashesByAuthorAndType")
           const iter = lvl.values({
             reverse: true,
@@ -135,7 +115,7 @@ module.exports = function (lvl, reverseIndex) {
       del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
-        ready(() => {
+        ready.call(() => {
           lvl.del(hash, (err) => {
             if (err) { return cb(err) }
             return cb(null)

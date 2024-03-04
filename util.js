@@ -113,6 +113,39 @@ function getSmallestValidTime (tracker, cabal, author) {
 }
 
 
+
+class Ready {
+  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
+  // there are pending transactions in the pipeline
+  queue = []
+  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
+  unprocessedBatches = 0
+
+  constructor(viewName) {
+    this.debug = require("debug")(`core:${viewName}:ready`)
+  }
+
+  increment() {
+    this.unprocessedBatches++
+  }
+  decrement() {
+    this.unprocessedBatches--
+  }
+  
+  call (cb) {
+    this.debug("ready called")
+    this.debug("unprocessedBatches %d", this.unprocessedBatches)
+    if (!cb) cb = function () {}
+    // we can process the queue
+    if (this.unprocessedBatches <= 0) {
+      for (let fn of this.queue) { fn() }
+      this.queue = []
+      return cb()
+    }
+    this.queue.push(cb)
+  }
+}
+
 module.exports = {
   timestamp,
   monotonicTimestamp, 
@@ -121,5 +154,6 @@ module.exports = {
   humanizePostType,
   hex,
   getRole,
-  getSmallestValidTime
+  getSmallestValidTime, 
+  Ready
 }

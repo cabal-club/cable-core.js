@@ -13,27 +13,7 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl) {
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = util.noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   // takes a buf, returns a string
   const formatLinkKey = (hash) => {
@@ -84,7 +64,7 @@ module.exports = function (lvl) {
       debug("view.map")
       let ops = []
       let pending = 0
-      unprocessedBatches++
+      ready.increment()
       debug("msgs %O", msgs.length)
       msgs.forEach(msg => {
         // no links 
@@ -205,8 +185,8 @@ module.exports = function (lvl) {
           })
         }
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
@@ -215,7 +195,7 @@ module.exports = function (lvl) {
       // heads
       checkIfHeads(hashlist, cb) {
         if (!cb) { return }
-        ready(() => {
+        ready.call(() => {
           const reverseLinkLookups = hashlist.map(formatReverseLinkKey)
           lvl.getMany(reverseLinkLookups, (err, values) => {
             // TODO (2023-06-09): wonder if this can happen for getMany; if so, all the hashes were heads
@@ -235,7 +215,7 @@ module.exports = function (lvl) {
       // returns a Map with <channel|context> -> [list of heads as buf encoded hashes]
       getAllKnownHeads(cb) {
         if (!cb) { return }
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllKnownHeads")
           const iter = lvl.iterator({
             gt: `heads!!`,
@@ -263,7 +243,7 @@ module.exports = function (lvl) {
       getHeads(channel, cb) {
         debug("api.getHeads for %s", channel)
         if (!cb) { return }
-        ready(() => {
+        ready.call(() => {
           lvl.get(formatHeadsKey(channel), (err, liststring) => {
             // there was no key / no heads for that channel
             if (err && err.notFound) {
@@ -281,7 +261,7 @@ module.exports = function (lvl) {
       setNewHeads(channel, hashlist, cb) {
         debug("api.setNewHeads for %s to %O", channel, hashlist)
         if (!cb) { cb = util.noop }
-        ready(() => {
+        ready.call(() => {
           debug("setNewHeads post ready")
           const liststring = formatLinkList(hashlist)
           lvl.put(formatHeadsKey(channel), liststring, (err) => {
@@ -304,7 +284,7 @@ module.exports = function (lvl) {
       pushHeadsChanges(channel, addHeads, rmHeads, cb) {
         debug("api.pushHeadsChanges for %s; add heads %O, remove heads %O", channel, addHeads, rmHeads)
         if (!cb) { cb = util.noop }
-        ready(() => {
+        ready.call(() => {
           lvl.get(formatHeadsKey(channel), (err, val) => {
             // the heads key wasn't set, let's set it and return
             if (err && err.notFound) {
@@ -352,7 +332,7 @@ module.exports = function (lvl) {
       // get the links linked to from <hash>. returns a list of buf-encoded hashes
       getLinks(hash, cb) {
         debug("api.getLinks for %O", hash)
-        ready(() => {
+        ready.call(() => {
           lvl.get(formatLinkKey(hash), (err, val) => {
             if (!cb) { return }
             if (err) { return cb(err, []) }
@@ -364,7 +344,7 @@ module.exports = function (lvl) {
       // get the links linking to <hash>. returns a list of buf-encoded hashes
       getReverseLinks(hash, cb) {
         debug("api.getReverseLinks for %O", hash)
-        ready(() => {
+        ready.call(() => {
           lvl.get(formatReverseLinkKey(hash), (err, val) => {
             if (!cb) { return }
             if (err) { return cb(err, []) }

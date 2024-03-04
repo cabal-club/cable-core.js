@@ -142,27 +142,7 @@ function getComparator(key) {
 // local user precedence
 module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
   const events = new EventEmitter()
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   const conditionallyEmitApplyEvt = (key, post) => {
     switch (key.split("!")[0]) {
@@ -181,7 +161,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
       let seen = {}
       let ops = []
       let pending = 0
-      unprocessedBatches++
+      ready.increment()
 
       // we preprocess incoming posts into a map of arrays, each array identified by the key they intend to write to
       const keyedPosts = new Map()
@@ -335,8 +315,8 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
         debug("ops applied %O", ops.filter(op => op.key.startsWith(PREFIX_APPLIED)))
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
@@ -344,7 +324,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
     // * support for deleting / dropping a hash and all the associated keys (basically turning on reverseIndex bits)
     api: {
       getAllApplied (cb) {
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllApplied")
           const iter = lvl.values({
             reverse: true,
@@ -358,7 +338,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
         })
       },
       getAllRelevantSince (tsSince, cb) {
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllRelevantSince")
           // we use "time!<context>!<ts>" to index "relevant!"-index keys by timestamp. 
           const iter = lvl.values({
@@ -375,7 +355,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
         })
       },
       getRelevantbyContextsSince (tsSince, validContexts, cb) {
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllRelevantSince")
           // we use "time!<context>!<ts>" to index "relevant!"-index keys by timestamp. 
           //

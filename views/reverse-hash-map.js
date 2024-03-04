@@ -12,27 +12,7 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl) {
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   return {
     transformOps(name, getHash, getKey, msgs) {
@@ -51,7 +31,7 @@ module.exports = function (lvl) {
 
       let ops = []
       let pending = 0
-      unprocessedBatches++
+      ready.increment()
       debug(msgs)
       msgs.forEach((msg) => {
         // key scheme
@@ -79,8 +59,8 @@ module.exports = function (lvl) {
         debug("ops %O",  ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
@@ -89,7 +69,7 @@ module.exports = function (lvl) {
       // hash
       getUses (hash, cb) {
         debug("api.getUses for %O", util.hex(hash))
-        ready(async function () {
+        ready.call(async function () {
           const iter = lvl.values({
             gt: `${util.hex(hash)}!!`,
             lt: `${util.hex(hash)}!~`
@@ -112,7 +92,7 @@ module.exports = function (lvl) {
       del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
-        ready(async function () {
+        ready.call(async function () {
           const iter = lvl.keys({
             gt: `${util.hex(hash)}!!`,
             lt: `${util.hex(hash)}!~`

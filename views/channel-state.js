@@ -13,34 +13,14 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl, reverseIndex) {
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   return {
     map (msgs, next) {
       debug("view.map")
       let ops = []
       let pending = 0
-      unprocessedBatches++
+      ready.increment()
       msgs.forEach((msg) => {
         let key
 
@@ -96,15 +76,15 @@ module.exports = function (lvl, reverseIndex) {
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
     api: {
       getLatestState (channel, cb) {
         // return the latest topic set on channel + latest name and membership change for each known pubkey in channel
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getLatestState")
           const opts = { reverse: true, limit: 1}
           const ts = `${util.timestamp()}`
@@ -140,7 +120,7 @@ module.exports = function (lvl, reverseIndex) {
       // TODO (2023-04-20): remove this file's getLatestInfoHash function when user-info.js has a latestNameHash operating without latest key
       getLatestInfoHash (channel, publicKey, cb) {
         // return latest post/info hash for pubkey
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getLatestInfoHash")
           const iter = lvl.values({
             lt: `name!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
@@ -157,7 +137,7 @@ module.exports = function (lvl, reverseIndex) {
       },
       getLatestMembershipHash (channel, publicKey, cb) {
         // return latest post/join or post/leave hash authored by publicKey in channel
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getLatestMembership")
           debug("%O", {
             lt: `member!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
@@ -180,7 +160,7 @@ module.exports = function (lvl, reverseIndex) {
       },
       getLatestTopicHash (channel, cb) {
         // return latest post/topic hash
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getLatestTopicHash")
           debug("%O", {
             lt: `topic!${channel}!${util.timestamp()}`,
@@ -207,7 +187,7 @@ module.exports = function (lvl, reverseIndex) {
           debug("api.del received a key that was undefined, returning early")
           return cb(new Error("undefined key"))
         }
-        ready(() => {
+        ready.call(() => {
           lvl.del(key, (err) => {
             if (err) { return cb(err) }
             return cb(null)

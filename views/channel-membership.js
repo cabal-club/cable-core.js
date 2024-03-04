@@ -23,27 +23,7 @@ function getPublicKeyFromKey (e) {
 
 // takes a (sub)level instance
 module.exports = function (lvl) {
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   return {
     // TODO (2023-03-08): either change the key layout or, before calling map, get a map of <pubkey:channel> ->
@@ -52,7 +32,7 @@ module.exports = function (lvl) {
     map (msgs, next) {
       debug("view.map")
       let ops = []
-      unprocessedBatches++
+      ready.increment()
       const sorted = msgs.sort((a, b) => {
         return parseInt(a.timestamp) - parseInt(b.timestamp)
       })
@@ -102,14 +82,14 @@ module.exports = function (lvl) {
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
     api: {
       getChannelNames (offset, limit, cb) {
-        ready(async function () {
+        ready.call(async function () {
           const iter = lvl.keys()
           const keys = await iter.all()
           let channels = keys.map(getChannelFromKey)
@@ -121,7 +101,7 @@ module.exports = function (lvl) {
       },
       clearMembership (channel, publicKey, cb) {
         if (!cb) { cb = noop }
-        ready(() => {
+        ready.call(() => {
           lvl.del(`${channel}!${util.hex(publicKey)}`, (err) => {
             if (err && err.notFound ) { return cb(null) }
             if (err ) { return cb(err) }
@@ -130,7 +110,7 @@ module.exports = function (lvl) {
         })
       },
       isInChannel (channel, publicKey, cb) {
-        ready(() => {
+        ready.call(() => {
           lvl.get(`${channel}!${util.hex(publicKey)}`, (err, value) => {
             if (err && err.notFound ) { return cb(null, false) }
             if (err ) { return cb(err) }
@@ -141,7 +121,7 @@ module.exports = function (lvl) {
       getHistoricUsers (channel, cb) {
         // return set of channel names that pubkey is in according to our local knowledge
         // also includes channels that have been joined previously but are marked as left
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getHistoricUsers")
           const iter = lvl.iterator({
             reverse: true,
@@ -167,7 +147,7 @@ module.exports = function (lvl) {
         // 
         // TODO (2023-03-07): write test to confirm this yields expected result for multiple channels with multiple
         // users
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getHistoricMembership")
           debug({
             gt: `!!${util.hex(publicKey)}`,
@@ -190,7 +170,7 @@ module.exports = function (lvl) {
       },
       getUsersInChannel (channel, cb) {
         if (!cb) { cb = noop }
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getUsersInChannel")
           const iter = lvl.iterator({
             gt: `${channel}!!`,
@@ -215,7 +195,7 @@ module.exports = function (lvl) {
         // return set of channel names that pubkey is in according to our local knowledge
         // TODO (2023-03-07): write test to confirm this yields expected result for multiple channels with multiple
         // users
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getJoinedChannels")
           const iter = lvl.iterator({
             reverse: true,

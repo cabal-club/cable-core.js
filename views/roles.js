@@ -7,34 +7,14 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl/*, reverseIndex*/) {
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   return {
     map (msgs, next) {
       debug("view.map")
       let ops = []
       let pending = 0
-      unprocessedBatches++
+      ready.increment()
       msgs.forEach((msg) => {
         const ts = monotonicTimestamp(msg.timestamp)
 
@@ -77,8 +57,8 @@ module.exports = function (lvl/*, reverseIndex*/) {
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
@@ -92,7 +72,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
       // second level: only set rows authored *after* they were recognized as admins (not necessary but would be useful + less data to manage)
       // third level: add method for removing records from latest due to them having lost their admin role
       getRelevantRoleHashes (cb) {
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getRelevantRoleHashes")
           const iter = lvl.values({
             reverse: true,
@@ -105,7 +85,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
       },
       getLatestByAuthor (publicKey, cb) {
         // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllHashesByAuthor")
           const iter = lvl.values({
             reverse: true,
@@ -118,7 +98,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
       },
       getAllSinceTime (ts, cb) {
         // returns all hashes authored since ts
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllSinceTime")
           const iter = lvl.values({
             reverse: true,
@@ -131,7 +111,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
       },
       getAllByAuthorSinceTime (publicKey, ts, cb) {
         // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getAllByAuthorSinceTime")
           const iter = lvl.iterator({
             reverse: true,
@@ -149,7 +129,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
       },
       // demote admin removes all rows associated with them from table `latest`
       demoteAdmin (publicKey, cb) {
-        ready(async function () {
+        ready.call(async function () {
           debug("api.demoteAdmin")
           if (typeof cb === "undefined") { cb = noop }
           // get all keys authored by publicKey to table `latest`

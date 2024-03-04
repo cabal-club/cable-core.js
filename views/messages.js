@@ -13,34 +13,14 @@ function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl, reverseIndex) {
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new util.Ready(viewName)
 
   return {
     map (msgs, next) {
       debug("view.map")
       let ops = []
       let pending = 0
-      unprocessedBatches++
+      ready.increment()
       msgs.forEach((msg) => {
         /* key scheme
           <mono-ts>!text!<channel> -> <hash>
@@ -85,8 +65,8 @@ module.exports = function (lvl, reverseIndex) {
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
@@ -95,7 +75,7 @@ module.exports = function (lvl, reverseIndex) {
         // level's "unlimited" value is -1, not 0
         if (limit === 0) { limit = -1 }
         // get the hashes recorded in the specified time range
-        ready(async function () {
+        ready.call(async function () {
           debug("api.getChannelTimeRange")
           if (timeend === 0) {
             timeend = util.timestamp()
@@ -118,7 +98,7 @@ module.exports = function (lvl, reverseIndex) {
       del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
-        ready(() => {
+        ready.call(() => {
           lvl.del(hash, (err) => {
             if (err) { return cb(err) }
             return cb(null)

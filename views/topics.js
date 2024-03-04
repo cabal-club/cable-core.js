@@ -7,51 +7,29 @@ const b4a = require("b4a")
 const viewName = "topics"
 const debug = require("debug")(`core:${viewName}`)
 const constants = require("cable.js/constants.js")
+const { Ready } = require("../util.js")
 
 function noop () {}
 
 // takes a (sub)level instance
 module.exports = function (lvl) {
   const events = new EventEmitter()
-
-  // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
-  // there are pending transactions in the pipeline
-  let queue = []
-  // when unprocessedBatches is at 0 our index has finished processing pending transactions => ok to process queue
-  let unprocessedBatches = 0
-
-  // we are ready when:
-  // * our underlying level store has opened => lvl.on("ready") -- this is implicit: see done()
-  // * we have no pending transactions from initial indexing 
-  const ready = (cb) => {
-    debug("ready called")
-    debug("unprocessedBatches %d", unprocessedBatches)
-    if (!cb) cb = noop
-    // we can process the queue
-    if (unprocessedBatches <= 0) {
-      for (let fn of queue) { fn() }
-      queue = []
-      return cb()
-    }
-    queue.push(cb)
-  }
+  const ready = new Ready(viewName)
 
   return {
     // TODO (2023-03-08): either change the key layout or, before calling map, get a map of <channel> -> timestamp of
     // the latest topic message and pass to this index, so that we can make sure we only ever set the newest topic
     // message as the latest topic
-    map: function (msgs, next) {
+    map: (msgs, next) => {
       debug("view.map")
       let ops = []
-      unprocessedBatches++
+      ready.increment()
       debug("msgs %O", msgs.length)
       // make sure messages are sorted, as we'll be overwriting older topics set on the same channel
       const sorted = msgs.sort((a, b) => {
         return parseInt(a.timestamp) - parseInt(b.timestamp)
       })
-      sorted.forEach(function (msg) {
-        if (!sanitize(msg)) return
-
+      sorted.forEach((msg) => {
         // key schema
         // <channel> -> <topic>
         const key = msg.channel
@@ -75,32 +53,32 @@ module.exports = function (lvl) {
         debug("ops %O", ops)
         debug("done. ops.length %d", ops.length)
         lvl.batch(ops, next)
-        unprocessedBatches--
-        ready()
+        ready.decrement()
+        ready.call()
       }
     },
 
     api: {
       // returns an object mapping each channel name to the latest topic
-      getAllChannelTopics: function (cb) {
-        ready(async function () {
+      getAllChannelTopics (cb) {
+        ready.call(async function () {
           const iter = lvl.entries()
           const entries = await iter.all()
           debug("all topics", entries)
           cb(null, entries)
         })
       },
-      clearTopic: function (channel, cb) {
+      clearTopic (channel, cb) {
         if (!cb) cb = noop
-        ready(function () {
+        ready.call(() => {
           lvl.del(channel, (err) => {
             if (err) { return cb(err) }
             cb(null)
           })
         })
       },
-      getTopic: function (channel, cb) {
-        ready(function () {
+      getTopic (channel, cb) {
+        ready.call(() => {
           debug("get topic", channel)
           lvl.get(channel, (err, value) => {
             if (err && err.notFound ) { return cb(null, null) }
@@ -113,10 +91,3 @@ module.exports = function (lvl) {
     }
   }
 }
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
-}
-
