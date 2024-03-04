@@ -25,6 +25,9 @@ const createMessagesView = require("./views/messages.js")
 const createDeletedView = require("./views/deleted.js")
 const createReverseMapView = require("./views/reverse-hash-map.js")
 const createLinksView = require("./views/links.js")
+// roles and actions are moderation views
+const createRolesView = require("./views/roles.js")
+const createActionsView = require("./views/actions.js")
 // aliases
 const TEXT_POST = cable.TEXT_POST
 const DELETE_POST = cable.DELETE_POST
@@ -67,6 +70,9 @@ class CableStore extends EventEmitter {
     if (!level) { level = MemoryLevel }
 
     this._db = new level(storage)
+    // we have many views using the same parent level instance -> extend the amount of event listeners to cover for that
+    // and squelch any "event listener leak" output
+    this._db.setMaxListeners(12) // one for each view
 
     // reverseMapView maps which views have stored a particular hash. using this view we can removes those entries in
     // other views if needed e.g.  when a delete happens, when a peer has been blocked and their contents removed, or we are truncating the local database to save space
@@ -84,6 +90,8 @@ class CableStore extends EventEmitter {
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }), this.reverseMapView)
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
     this.linksView = createLinksView(this._db.sublevel("links", { valueEncoding: "json" }))
+    this.actionsView = createActionsView(this._db.sublevel("actions", { valueEncoding: "utf8" }))
+    this.rolesView = createRolesView(this._db.sublevel("roles", { valueEncoding: "binary" }))
 
     // used primarily when processing an accepted delete request to delete entries in other views with the results from a reverse hash map query.
     // however all views have been added to this map for sake of completeness
