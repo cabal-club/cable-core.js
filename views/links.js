@@ -82,7 +82,7 @@ module.exports = function (lvl) {
   }
 
   return {
-    map: function (msgs, next) {
+    map (msgs, next) {
       if (!next) { next = util.noop }
       debug("view.map")
       let ops = []

@@ -39,7 +39,7 @@ module.exports = function (lvl, reverseIndex) {
   }
 
   return {
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
       let ops = []
       let pending = 0
@@ -108,7 +108,7 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
-      getLatestState: function (channel, cb) {
+      getLatestState (channel, cb) {
         // return the latest topic set on channel + latest name and membership change for each known pubkey in channel
         ready(async function () {
           debug("api.getLatestState")
@@ -144,7 +144,7 @@ module.exports = function (lvl, reverseIndex) {
         })
       },
       // TODO (2023-04-20): remove this file's getLatestInfoHash function when user-info.js has a latestNameHash operating without latest key
-      getLatestInfoHash: function (channel, publicKey, cb) {
+      getLatestInfoHash (channel, publicKey, cb) {
         // return latest post/info hash for pubkey
         ready(async function () {
           debug("api.getLatestInfoHash")
@@ -161,7 +161,7 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes[0])
         })
       },
-      getLatestMembershipHash: function (channel, publicKey, cb) {
+      getLatestMembershipHash (channel, publicKey, cb) {
         // return latest post/join or post/leave hash authored by publicKey in channel
         ready(async function () {
           debug("api.getLatestMembership")
@@ -184,7 +184,7 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes[0])
         })
       },
-      getLatestTopicHash: function (channel, cb) {
+      getLatestTopicHash (channel, cb) {
         // return latest post/topic hash
         ready(async function () {
           debug("api.getLatestTopicHash")
@@ -206,7 +206,7 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes[0])
         })
       },
-      del: function (key, cb) {
+      del (key, cb) {
         debug("api.del on key %O", key)
         if (typeof cb === "undefined") { cb = noop }
         if (key === "undefined" || typeof key === "undefined") {  

@@ -37,10 +37,8 @@ module.exports = function (lvl, reverseIndex) {
   }
 
   return {
-    maxBatch: 100,
-
     // TODO (2023-02-23): rethink usage of `view.map` given that kappa-views are not a necessary part of the dependencies atm
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
 
       let seen = {}
@@ -81,7 +79,7 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
-      get: function (hash, cb) {
+      get (hash, cb) {
         debug("api.get")
         /* what we can do if we want to introduce opts:
 
@@ -103,7 +101,7 @@ module.exports = function (lvl, reverseIndex) {
       },
       // tries to get a list of hashes. if a a hash, with index `i`, is not found, then the corresponding index `i` in the
       // returned results will be set to null
-      getMany: function (hashes, cb) {
+      getMany (hashes, cb) {
         const hexHashes = hashes.map(hex)
         debug("api.getMany %O", hexHashes)
         const ops = []
@@ -120,7 +118,7 @@ module.exports = function (lvl, reverseIndex) {
           })
         })
       },
-      del: function (hash, cb) {
+      del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
         ready(function () {
@@ -131,20 +129,7 @@ module.exports = function (lvl, reverseIndex) {
         })
       },
       events: events
-    },
-
-    storeState: function (state, cb) {
-      state = b4a.toString(state, 'base64')
-      lvl.put('state', state, cb)
-    },
-
-    fetchState: function (cb) {
-      lvl.get('state', function (err, state) {
-        if (err && err.notFound) cb()
-        else if (err) cb(err)
-        else cb(null, b4a.from(state, 'base64'))
-      })
-    },
+    }
   }
 }
 

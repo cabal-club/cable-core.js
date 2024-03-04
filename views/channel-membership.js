@@ -52,7 +52,7 @@ module.exports = function (lvl) {
     // TODO (2023-03-08): either change the key layout or, before calling map, get a map of <pubkey:channel> ->
     // timestamp of the latest post|leave message for channel and pass to this index, so that we can make sure we only
     // ever set latest membership correctly
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
       let ops = []
       unprocessedBatches++
@@ -113,7 +113,7 @@ module.exports = function (lvl) {
     },
 
     api: {
-      getChannelNames: function (offset, limit, cb) {
+      getChannelNames (offset, limit, cb) {
         ready(async function () {
           const iter = lvl.keys()
           const keys = await iter.all()
@@ -124,7 +124,7 @@ module.exports = function (lvl) {
           cb(null, channels.slice(offset, limit))
         })
       },
-      clearMembership: function (channel, publicKey, cb) {
+      clearMembership (channel, publicKey, cb) {
         if (!cb) { cb = noop }
         ready(function () {
           lvl.del(`${channel}!${util.hex(publicKey)}`, (err) => {
@@ -134,7 +134,7 @@ module.exports = function (lvl) {
           })
         })
       },
-      isInChannel: function (channel, publicKey, cb) {
+      isInChannel (channel, publicKey, cb) {
         ready(function () {
           lvl.get(`${channel}!${util.hex(publicKey)}`, (err, value) => {
             if (err && err.notFound ) { return cb(null, false) }
@@ -143,7 +143,7 @@ module.exports = function (lvl) {
           })
         })
       },
-      getHistoricUsers: function (channel, cb) {
+      getHistoricUsers (channel, cb) {
         // return set of channel names that pubkey is in according to our local knowledge
         // also includes channels that have been joined previously but are marked as left
         ready(async function () {
@@ -166,7 +166,7 @@ module.exports = function (lvl) {
           cb(null, Array.from(pubkeys.values()))
         })
       },
-      getHistoricMembership: function (publicKey, cb) {
+      getHistoricMembership (publicKey, cb) {
         // return set of channel names that pubkey is in according to our local knowledge
         // also includes channels that have been joined previously but are marked as left
         // 
@@ -193,7 +193,7 @@ module.exports = function (lvl) {
           cb(null, channels)
         })
       },
-      getUsersInChannel: function (channel, cb) {
+      getUsersInChannel (channel, cb) {
         if (!cb) { cb = noop }
         ready(async function () {
           debug("api.getUsersInChannel")
@@ -216,7 +216,7 @@ module.exports = function (lvl) {
           cb(null, Array.from(new Set(pubkeys)))
         })
       },
-      getJoinedChannels: function (publicKey, cb) {
+      getJoinedChannels (publicKey, cb) {
         // return set of channel names that pubkey is in according to our local knowledge
         // TODO (2023-03-07): write test to confirm this yields expected result for multiple channels with multiple
         // users

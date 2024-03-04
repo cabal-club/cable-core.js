@@ -49,7 +49,7 @@ module.exports = function (lvl) {
         }
       })
     },
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
 
       let seen = {}
@@ -93,7 +93,7 @@ module.exports = function (lvl) {
     api: {
       // returns a Map() which maps view names to a list of keys in that view, where each key has been recorded to reference the queried
       // hash
-      getUses: function (hash, cb) {
+      getUses (hash, cb) {
         debug("api.getUses for %O", util.hex(hash))
         ready(async function () {
           const iter = lvl.values({
@@ -115,7 +115,7 @@ module.exports = function (lvl) {
         })
       },
       // remove all traces of this hash being indexed in the reverse map
-      del: function (hash, cb) {
+      del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
         ready(async function () {

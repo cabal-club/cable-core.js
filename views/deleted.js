@@ -38,7 +38,7 @@ module.exports = function (lvl) {
   }
 
   return {
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
       let seen = {}
       let ops = []
@@ -78,7 +78,7 @@ module.exports = function (lvl) {
     },
 
     api: {
-      isDeleted: function (hash, cb) {
+      isDeleted (hash, cb) {
         // checks if a hash has been deleted. if true then the hash has been deleted and must not be persisted or
         // resynced
         ready(function () {
@@ -90,7 +90,7 @@ module.exports = function (lvl) {
           })
         })
       },
-      isDeletedMany: function (hashes, cb) {
+      isDeletedMany (hashes, cb) {
         // returns an object mapping the queried hashes to a boolean. if corresponding boolean is true then the hash has
         // been deleted and must not be persisted or resynced
         ready(function () {
@@ -109,7 +109,7 @@ module.exports = function (lvl) {
           })
         })
       },
-      del: function (hash, cb) {
+      del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
         ready(function () {

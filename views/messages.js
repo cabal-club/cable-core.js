@@ -39,7 +39,7 @@ module.exports = function (lvl, reverseIndex) {
   }
 
   return {
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
       let seen = {}
       let ops = []
@@ -98,7 +98,7 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
-      getChannelTimeRange: function (channel, timestart, timeend, limit, cb) {
+      getChannelTimeRange (channel, timestart, timeend, limit, cb) {
         // level's "unlimited" value is -1, not 0
         if (limit === 0) { limit = -1 }
         // get the hashes recorded in the specified time range
@@ -122,7 +122,7 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes) // only return one hash
         })
       },
-      del: function (hash, cb) {
+      del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
         ready(function () {

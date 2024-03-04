@@ -176,7 +176,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
   return {
     // TODO (2024-02-xx): * edit incoming post before calling .map() by adding a field "isApplicable: bool" i.e. authored by
     // one of our mod authorities and the time of authoring was after they'd acceded to the role
-    map: function (posts, next) {
+    map (posts, next) {
       debug("view.map")
       let seen = {}
       let ops = []
@@ -343,7 +343,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
     // TODO (2024-02-08): 
     // * support for deleting / dropping a hash and all the associated keys (basically turning on reverseIndex bits)
     api: {
-      getAllApplied: function (cb) {
+      getAllApplied (cb) {
         ready(async function () {
           debug("api.getAllApplied")
           const iter = lvl.values({
@@ -357,7 +357,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
           cb(null, deduped) 
         })
       },
-      getAllRelevantSince: function (tsSince, cb) {
+      getAllRelevantSince (tsSince, cb) {
         ready(async function () {
           debug("api.getAllRelevantSince")
           // we use "time!<context>!<ts>" to index "relevant!"-index keys by timestamp. 
@@ -374,7 +374,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
           cb(null, deduped)
         })
       },
-      getRelevantbyContextsSince: function (tsSince, validContexts, cb) {
+      getRelevantbyContextsSince (tsSince, validContexts, cb) {
         ready(async function () {
           debug("api.getAllRelevantSince")
           // we use "time!<context>!<ts>" to index "relevant!"-index keys by timestamp. 

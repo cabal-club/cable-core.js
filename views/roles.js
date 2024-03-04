@@ -33,7 +33,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
   }
 
   return {
-    map: function (msgs, next) {
+    map (msgs, next) {
       debug("view.map")
       let seen = {}
       let ops = []
@@ -98,7 +98,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
       // first level: only set rows by authors that are recognized as admins
       // second level: only set rows authored *after* they were recognized as admins (not necessary but would be useful + less data to manage)
       // third level: add method for removing records from latest due to them having lost their admin role
-      getRelevantRoleHashes: function (cb) {
+      getRelevantRoleHashes (cb) {
         ready(async function () {
           debug("api.getRelevantRoleHashes")
           const iter = lvl.values({
@@ -110,7 +110,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
           cb(null, hashes) 
         })
       },
-      getLatestByAuthor: function (publicKey, cb) {
+      getLatestByAuthor (publicKey, cb) {
         // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
         ready(async function () {
           debug("api.getAllHashesByAuthor")
@@ -123,7 +123,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
           cb(null, hashes) 
         })
       },
-      getAllSinceTime: function (ts, cb) {
+      getAllSinceTime (ts, cb) {
         // returns all hashes authored since ts
         ready(async function () {
           debug("api.getAllSinceTime")
@@ -136,7 +136,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
           cb(null, hashes) 
         })
       },
-      getAllByAuthorSinceTime: function (publicKey, ts, cb) {
+      getAllByAuthorSinceTime (publicKey, ts, cb) {
         // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
         ready(async function () {
           debug("api.getAllByAuthorSinceTime")
@@ -155,7 +155,7 @@ module.exports = function (lvl/*, reverseIndex*/) {
         })
       },
       // demote admin removes all rows associated with them from table `latest`
-      demoteAdmin: function (publicKey, cb) {
+      demoteAdmin (publicKey, cb) {
         ready(async function () {
           debug("api.demoteAdmin")
           if (typeof cb === "undefined") { cb = noop }

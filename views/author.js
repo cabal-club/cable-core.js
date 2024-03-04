@@ -98,7 +98,7 @@ module.exports = function (lvl, reverseIndex) {
 
     api: {
       // returns a list of all known public keys
-      getUniquePublicKeys: function (cb) {
+      getUniquePublicKeys (cb) {
         if (!cb) return
         ready(async function () {
           debug("api.getUniquePublicKeys")
@@ -113,7 +113,7 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, Array.from(set).map(hex => b4a.from(hex, "hex")))
         })
       },
-      getAllHashesByAuthor: function (publicKey, cb) {
+      getAllHashesByAuthor (publicKey, cb) {
         // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
         ready(async function () {
           debug("api.getAllHashesByAuthor")
@@ -126,7 +126,7 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes) 
         })
       },
-      getAllHashesByAuthorAndType: function (publicKey, postType, cb) {
+      getAllHashesByAuthorAndType (publicKey, postType, cb) {
         // get all post hashes made by publicKey for the specified postType
         ready(async function () {
           debug("api.getAllHashesByAuthorAndType")
@@ -139,11 +139,11 @@ module.exports = function (lvl, reverseIndex) {
           cb(null, hashes) // only return one hash
         })
       },
-      del: function (hash, cb) {
+      del (hash, cb) {
         debug("api.del")
         if (typeof cb === "undefined") { cb = noop }
-        ready(function () {
-          lvl.del(hash, function (err) {
+        ready(() => {
+          lvl.del(hash, (err) => {
             if (err) { return cb(err) }
             return cb(null)
           })
