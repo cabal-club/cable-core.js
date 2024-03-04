@@ -42,8 +42,6 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach((msg) => {
-        if (!sanitize(msg)) return
-
         const ts = monotonicTimestamp(msg.timestamp)
         // <pubkey>!<post_type-id>!<mono-ts> -> <hash>
         const key = `${util.hex(msg.publicKey)}!${msg.postType}!${ts}`
@@ -147,10 +145,3 @@ module.exports = function (lvl, reverseIndex) {
     }
   }
 }
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
-}
-

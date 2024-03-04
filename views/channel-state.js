@@ -42,8 +42,6 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach((msg) => {
-        if (!sanitize(msg)) return
-
         let key
 
         const ts = monotonicTimestamp(msg.timestamp)
@@ -219,10 +217,3 @@ module.exports = function (lvl, reverseIndex) {
     }
   }
 }
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
-}
-

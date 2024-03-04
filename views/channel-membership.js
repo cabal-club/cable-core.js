@@ -57,8 +57,6 @@ module.exports = function (lvl) {
         return parseInt(a.timestamp) - parseInt(b.timestamp)
       })
       sorted.forEach((msg) => {
-        if (!sanitize(msg)) return
-
         // key schema
         // <channel>!<publicKey> -> 1 or 0
         // 1 = joined, 0 = left. no record for a key means no recorded interaction between channel & publicKey
@@ -240,10 +238,3 @@ module.exports = function (lvl) {
     }
   }
 }
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
-}
-

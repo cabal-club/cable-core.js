@@ -54,7 +54,6 @@ module.exports = function (lvl) {
       unprocessedBatches++
       debug(msgs)
       msgs.forEach((msg) => {
-        if (!sanitize(msg)) return
         // key scheme
         // <hash>!<mono-ts> => "<viewname><separator><viewkey>"
         // TODO (2023-03-01): check other views for order of `!||~` wrt ranging over timestamp! if at the end less
@@ -132,10 +131,4 @@ module.exports = function (lvl) {
       }
     }
   }
-}
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
 }

@@ -87,7 +87,6 @@ module.exports = function (lvl) {
       unprocessedBatches++
       debug("msgs %O", msgs.length)
       msgs.forEach(msg => {
-        if (!sanitize(msg)) return
         // no links 
         if (!msg.links || msg.links.length === 0) { 
           debug("skipping msg %O (no links content)", msg)
@@ -376,10 +375,4 @@ module.exports = function (lvl) {
       }
     }
   }
-}
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
 }

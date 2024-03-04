@@ -42,7 +42,6 @@ module.exports = function (lvl, reverseIndex) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach((msg) => {
-        if (!sanitize(msg)) return
         // use hex-encoded strings as keys to help deduplicate posts 
         const key = hex(msg.hash)
         const value = msg.buf
@@ -125,10 +124,4 @@ module.exports = function (lvl, reverseIndex) {
       }
     }
   }
-}
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  if (typeof msg !== 'object') return null
-  return msg
 }

@@ -42,8 +42,6 @@ module.exports = function (lvl) {
       let pending = 0
       unprocessedBatches++
       msgs.forEach((hash) => {
-        if (!sanitize(hash)) return
-
         /* key scheme
           <deleted hash> -> 1
         */
@@ -118,10 +116,3 @@ module.exports = function (lvl) {
     }
   }
 }
-
-// Returns a well-formed message or null
-function sanitize (msg) {
-  // if (typeof msg !== 'object') return null
-  return msg
-}
-
