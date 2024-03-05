@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 the cable-core.js authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const viewName = "mod:roles"
 const debug = require("debug")(`core:${viewName}`)
 const util = require("cable-core/util.js")

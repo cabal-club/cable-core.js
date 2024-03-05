@@ -1,5 +1,8 @@
+// SPDX-FileCopyrightText: 2023 the cable-core.js authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const EventEmitter = require('events').EventEmitter
-// const b4a = require("b4a")
 const viewName = "mod:actions"
 const debug = require("debug")(`core:${viewName}`)
 const b4a = require("b4a")
