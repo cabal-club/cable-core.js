@@ -16,6 +16,7 @@ const util = require("./util.js")
 const CableStore = require("./store.js")
 const EventsManager = require("./events-manager.js")
 const Swarm = require("./peers.js").Swarm
+const LiveQueries = require("./live-queries.js")
 
 // aliases
 const TEXT_POST = cable.TEXT_POST
@@ -24,8 +25,6 @@ const INFO_POST = cable.INFO_POST
 const TOPIC_POST = cable.TOPIC_POST
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
-
-const REQID_TO_CHANNELS = "reqid-to-channels"
 
 // TODO (2023-09-05): consider abstracting live requests handling into an explicit live requests handler in a separate file
 
@@ -102,11 +101,8 @@ class CableCore extends EventEmitter {
     this.requestsMap = new Map()
     // tracks which hashes we have explicitly requested in a 'request for hash' request
     this.requestedHashes = new Set()
-    // tracks "live" requests: requests that have asked for future posts, as they are produced
-    this.liveQueries = new Map()
-    // expedient way to go from a reqid to the relevant channel name
-    this.liveQueries.set(REQID_TO_CHANNELS, new Map())
     this._defaultTTL = 0
+    this.live = new LiveQueries(this)
 
     const _emitStoredPost = (obj, hash) => {
       // TODO (2023-08-18): how to know when:
@@ -147,7 +143,7 @@ class CableCore extends EventEmitter {
       // set timestamp to -1 because we don't have it when producing a channel-state-replacement, 
       // and timestamp only matters for correctly sending hash responses for channel time range requests 
       // (i.e. not applicable for channel state requests)
-      this._sendLiveHashResponse(channel, postType, [hash], -1)
+      this.live.sendLiveHashResponse(channel, postType, [hash], -1)
       // TODO (2023-09-07): also emit the newly reindexed post?
       this.resolveHashes([hash], (err, results) => {
         const obj = results[0]
@@ -162,12 +158,12 @@ class CableCore extends EventEmitter {
 
     this.events.register("store", this.store, "store-post", ({ obj, channel, timestamp, hash, postType }) => {
       livedebug("store post evt, post type: %i", postType)
-      this._sendLiveHashResponse(channel, postType, [hash], timestamp)
+      this.live.sendLiveHashResponse(channel, postType, [hash], timestamp)
      
       _emitStoredPost(obj, hash)
     })
 
-    this.events.register("core", this, "live-request-ended", (reqidHex) => {
+    this.events.register("live", this.live, "live-request-ended", (reqidHex) => {
       livedebug("live query concluded for %s", reqidHex)
       this._sendConcludingHashResponse(b4a.from(reqidHex, "hex"))
     })
@@ -201,62 +197,6 @@ class CableCore extends EventEmitter {
   //  join - emit(peer)
   //  leave - emit(peer)
   //  data - emit(data, {address, data})
-
-  // this function is part of "live query" behaviour of the channel state request (when future = 1) 
-  // and the channel time range request (when timeEnd = 0)
-  // note: `timestamp` === -1 if event channel-state-replacement called this function (the timestamp only matters for
-  // channel time range request, which will always set it)
-  _sendLiveHashResponse(channel, postType, hashes, timestamp) {
-    const reqidList = this._getLiveRequests(channel)
-    reqidList.forEach(reqid => {
-      const requestInfo = this.requestsMap.get(util.hex(reqid))
-      coredebug("requestInfo for reqid %O: %O", reqid, requestInfo)
-      const reqType = requestInfo.obj.msgType
-      if (reqType === constants.CHANNEL_STATE_REQUEST) {
-        // channel state request only sends hash responses for:
-        // post/topic
-        // post/info
-        // post/join
-        // post/leave
-        switch (postType) {
-          case constants.TOPIC_POST:
-          case constants.INFO_POST:
-          case constants.JOIN_POST:
-          case constants.LEAVE_POST:
-            // we want to continue in these cases
-            break
-          default: 
-            // the post that was emitted wasn't relevant for request type; skip
-            return
-        }
-      } else if (reqType === constants.TIME_RANGE_REQUEST) {
-        // channel time range request only sends hash responses for:
-        // post/text
-        // post/delete
-        switch (postType) {
-          // we want to continue in these cases
-          case constants.TEXT_POST:
-          case constants.DELETE_POST:
-            break
-          default:
-            // the post that was emitted wasn't relevant for request type; skip
-            return
-        }
-        // the time start boundary set by the channel time range request 
-        const timeStart = requestInfo.obj.timeStart
-        // we only want to emit a live hash response if the stored post's timestamp >= timeStart; 
-        // it wasn't, return early and avoid dispatching a response
-        if (timestamp < timeStart) { return }
-      } else {
-        // no matches, skip to next loop
-        return
-      }
-      const response = cable.HASH_RESPONSE.create(reqid, hashes)
-      this.dispatchResponse(response)
-      this._updateLiveStateRequest(channel, reqid, hashes.length)
-      livedebug("dispatch response with %d hashes %O", hashes.length, response)
-    })
-  }
 
   _sendConcludingHashResponse (reqid) {
     // a concluding hash response is a signal to others that we've finished with this request, and regard it as ended on
@@ -583,7 +523,7 @@ class CableCore extends EventEmitter {
     coredebug("_removeRequest: remove %O", reqid)
     const reqidHex = util.hex(reqid)
     // cancel any potential ongoing live requests
-    this._cancelLiveStateRequest(reqidHex)
+    this.live.cancelLiveStateRequest(reqidHex)
     // forget the targeted request id locally
     this.requestsMap.delete(reqidHex)
   }
@@ -760,7 +700,7 @@ class CableCore extends EventEmitter {
           // if obj.timeEnd === 0 => keep this request alive
           if (obj.timeEnd === 0) {
             const hasLimit = obj.limit !== 0
-            this._addLiveStateRequest(obj.channel, obj.reqid, obj.limit, hasLimit)
+            this.live.addLiveStateRequest(obj.channel, obj.reqid, obj.limit, hasLimit)
           }
           // get post hashes for a certain channel & time range
           this.store.getChannelTimeRange(obj.channel, obj.timeStart, obj.timeEnd, obj.limit, (err, hashes) => {
@@ -791,7 +731,7 @@ class CableCore extends EventEmitter {
           // if obj.future === 1 => keep this request alive
           if (obj.future === 1) {
             // it has no implicit limit && updatesRemaining does not apply
-            this._addLiveStateRequest(obj.channel, obj.reqid, 0, false)
+            this.live.addLiveStateRequest(obj.channel, obj.reqid, 0, false)
           }
           // get channel state hashes
           this.getChannelStateHashes(obj.channel, (err, hashes) => {
@@ -873,106 +813,6 @@ class CableCore extends EventEmitter {
       this.handleResponse(buf)
       return
     }
-  }
-
-  // we want to test the following when a request sets live query to true:
-  // * receives new hash responses when they are produced locally (e.g. a post is written whose timespan fits the interval)
-  // * time range request's limits are not exceeded & the live query is canceled once reached
-  // * cancel request cancels the related live queries, if they exist
-
-  // in this implementation a `live request` is a request that has asked to receive updates as they are produced; i.e.
-  // future posts, instead of only asking for historic posts.
-  //
-  // requests which have a live query component:
-  // * TIME_RANGE_REQUEST (channel time range request)
-  // * CHANNEL_STATE_REQUEST (channel state request) -- has no limit to updates!
-  // that's it!
-  //
-  // _addLiveStateRequest maps a channel name to one of potentially many ongoing "live" requests
-  //
-  // Map structure: <channel name> -> [{ updatesRemaining: Number, hasLimit: boolean, reqid: hexStringOfBuffer}]
-  _addLiveStateRequest(channel, reqid, updatesRemaining, hasLimit) {
-    // TODO (2023-04-24): live state request currently has no conception of a valid time range, which could affect the
-    // anticipated behaviour of channel time range request (e.g. we could receive & store a post/text whose timestamp is
-    // older than the timeStart of a live channel time range request)
-    
-    // TODO (2023-03-31): use _addLiveRequest when processing an incoming TIME_RANGE_REQUEST + CHANNEL_STATE_REQUEST
-    const reqidHex = util.hex(reqid)
-    livedebug("track %s", reqidHex)
-
-    // a potentially rascally attempt to fuck shit up; abort
-    if (channel === REQID_TO_CHANNELS) { return } 
-
-    const reqidMap = this.liveQueries.get(REQID_TO_CHANNELS)
-    if (!reqidMap.has(reqidHex)) {
-      reqidMap.set(reqidHex, channel)
-    }
-
-    if (!this.liveQueries.has(channel)) {
-      this.liveQueries.set(channel, [])
-    }
-    const arr = this.liveQueries.get(channel)
-    // track the live request, including how many updates it has left before it has finished being served
-    const req = { reqid: reqidHex, updatesRemaining, hasLimit }
-    arr.push(req)
-    this.liveQueries.set(channel, arr)
-  }
-
-  // returns a list of reqidHex, corresponding to live requests for the given channel
-  _getLiveRequests(channel) {
-    livedebug("get live request for %s", channel)
-    const channelQueries = this.liveQueries.get(channel)
-    // no such channel
-    if (!channelQueries) { return [] }
-    return channelQueries.map(item => b4a.from(item.reqid, "hex"))
-  }
-
-  _updateLiveStateRequest(channel, reqid, updatesSpent) {
-    const channelQueries = this.liveQueries.get(channel)
-    // no such channel
-    if (!channelQueries) { return }
-    const index = channelQueries.findIndex(item => item.reqid === util.hex(reqid))
-    const entry = channelQueries[index]
-    // no live query with `reqid`
-    if (!entry) { return }
-    if (entry.hasLimit) {
-      entry.updatesRemaining = entry.updatesRemaining - updatesSpent
-      livedebug("updated live request for %O", entry)
-      if (entry.updatesRemaining <= 0) {
-        this._cancelLiveStateRequest(entry.reqid)
-        // emit an event when a live request has finished service
-        this.emit("live-request-ended", entry.reqid)
-      }
-    }
-  }
-
-  _cancelLiveStateRequest(reqidHex) {
-    livedebug("cancel live state request for reqid %s", reqidHex)
-    const channel = this.liveQueries.get(REQID_TO_CHANNELS).get(reqidHex)
-    if (!channel) {
-      livedebug("cancel live request could not find channel for reqid %s", reqidHex)
-      return
-    }
-    let channelQueries = this.liveQueries.get(channel)
-    if (!channelQueries) { 
-      livedebug("channel queries was empty for channel %s (reqid %s)", channel, reqidhex)
-      return
-    }
-    const index = channelQueries.findIndex(item => item.reqid === reqidHex)
-    if (index < 0) {
-      livedebug("cancel live request could not find entry for reqid %s", reqidHex)
-      return 
-    }
-    // remove the entry tracking this particular req_id: delete 1 item at `index`
-    channelQueries.splice(index, 1)
-
-    // there are no longer any live queries being tracked for `channel`, stop tracking it
-    if (channelQueries.length === 0) {
-      this.liveQueries.delete(channel)
-    } else {
-      this.liveQueries.set(channel, channelQueries)
-    }
-    this.liveQueries.get(REQID_TO_CHANNELS).delete(reqidHex)
   }
 
   _messageIsRequest (type) {
