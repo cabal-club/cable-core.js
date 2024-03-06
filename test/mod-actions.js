@@ -16,7 +16,7 @@ const now = +(new Date())
 function annotateIsApplicable(modAuthoritiesSet) {
   return (post) => {
     const obj = cable.parsePost(post)
-    obj.postHash = crypto.hash(post)
+    obj.hash = crypto.hash(post)
     if (modAuthoritiesSet.has(util.hex(obj.publicKey))) {
       return {...obj, isApplicable: true }
     }
@@ -38,20 +38,20 @@ function act(authorKp, recipient, timestamp, action, channel) {
     recipients = []
   }
   const post = cable.MODERATION_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, channel, timestamp, recipients, action, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 function block(authorKp, recipient, timestamp, drop=DROP) {
   const post = cable.BLOCK_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, timestamp, [recipient], DROP, NOTIFY, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 function unblock(authorKp, recipient, timestamp) {
   const post = cable.UNBLOCK_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, timestamp, [recipient], UNDROP, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 test("smoke test", t => {
@@ -80,7 +80,7 @@ test("simple index querying", t => {
   const push = (o, expected) => { 
     posts.push(o.post) 
     if (expected) {
-      expectedHashes.add(util.hex(o.postHash))
+      expectedHashes.add(util.hex(o.hash))
     }
   }
 
@@ -123,7 +123,7 @@ test("local precedence test", t => {
   const push = (o, expected) => { 
     posts.push(o.post) 
     if (expected) {
-      expectedHashes.add(util.hex(o.postHash))
+      expectedHashes.add(util.hex(o.hash))
     }
   }
   let o
@@ -170,7 +170,7 @@ test("mix of moderation actions from authorized and unauthorized users", t => {
   const push = (o, expected) => { 
     posts.push(o.post) 
     if (expected) {
-      expectedHashes.add(util.hex(o.postHash))
+      expectedHashes.add(util.hex(o.hash))
     }
   }
   let expectedHashCount = 0
@@ -232,7 +232,7 @@ test("exercise changes in latest relevant action for the same set of author-reci
   const push = (o, expected) => { 
     posts.push(o.post) 
     if (expected) {
-      expectedHashes.add(util.hex(o.postHash))
+      expectedHashes.add(util.hex(o.hash))
     }
   }
   // we will first index only o1
@@ -244,8 +244,8 @@ test("exercise changes in latest relevant action for the same set of author-reci
 
   const authorities = new Set([util.hex(pubKey(alice))])
   const allOps = posts.flatMap(annotateIsApplicable(authorities))
-  const firstOp = allOps.filter(o => b4a.equals(o.postHash, o1.postHash))
-  const secondOp = allOps.filter(o => b4a.equals(o.postHash, o2.postHash))
+  const firstOp = allOps.filter(o => b4a.equals(o.hash, o1.hash))
+  const secondOp = allOps.filter(o => b4a.equals(o.hash, o2.hash))
 
   index.map(firstOp)
 
@@ -254,7 +254,7 @@ test("exercise changes in latest relevant action for the same set of author-reci
     t.error(err, "should have no error")
     t.equal(hashes.length, 1, "# relevant hashes from index should be: 1")
     hashes.forEach(h => {
-      t.equal(h, util.hex(o1.postHash), "relevant hash should be an expected hash")
+      t.equal(h, util.hex(o1.hash), "relevant hash should be an expected hash")
     })
 
     // now ingest the second operation, which should entirely supercede the first operation
@@ -268,7 +268,7 @@ test("exercise changes in latest relevant action for the same set of author-reci
     index.api.getAllRelevantSince(ts, (err, hashes) => {
       t.equal(hashes.length, 1, "# relevant hashes from index should be: 1")
       hashes.forEach(h => {
-        t.equal(h, util.hex(o2.postHash), "relevant hash should be an expected hash")
+        t.equal(h, util.hex(o2.hash), "relevant hash should be an expected hash")
       })
       t.end()
     })
@@ -295,7 +295,7 @@ test("relevant action across a set of channels should only be returned for the q
   const push = (o, expected) => { 
     posts.push(o.post) 
     if (expected) {
-      expectedHashes.add(util.hex(o.postHash))
+      expectedHashes.add(util.hex(o.hash))
     }
   }
   o = act(alice.kp, pubKey(bob), after(now), constants.ACTION_HIDE_USER, "default")
@@ -353,8 +353,8 @@ test(`assert on events emitted from index: 'apply-action' and 'remove-obsolete'`
 
   const authorities = new Set([util.hex(pubKey(alice))])
   const allOps = posts.flatMap(annotateIsApplicable(authorities))
-  const firstOp = allOps.filter(o => b4a.equals(o.postHash, o1.postHash))
-  const remainingOps = allOps.filter(o => !b4a.equals(o.postHash, o1.postHash))
+  const firstOp = allOps.filter(o => b4a.equals(o.hash, o1.hash))
+  const remainingOps = allOps.filter(o => !b4a.equals(o.hash, o1.hash))
   let pending = 3 // 2x "apply-action" events (one for each mod action) and 1x "remove obsolete"
   const done = (evtName) => {
     t.pass(`${evtName} happened`)

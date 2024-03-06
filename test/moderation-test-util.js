@@ -27,7 +27,7 @@ const between = (start, end) => {
 function annotateIsAdmin(admins) {
   return (post) => {
     const obj = cable.parsePost(post)
-    obj.postHash = crypto.hash(post)
+    obj.hash = crypto.hash(post)
     const key = b4a.toString(obj.publicKey, "hex")
     if (admins.has(key)) {
       return {...obj, isAdmin: true }

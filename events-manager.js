@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 const debug = require("debug")("core:event-manager")
+
+// an abstraction that keeps track of all event listeners. reasoning behind it is that event listeners have historically been:
+// 1. many in cabal pursuits
+// 2. hard to keep track of, track down, and manage correctly (a source of leaks)
 class EventsManager {
   // TODO (2023-04-24): return a singleton instance?
   

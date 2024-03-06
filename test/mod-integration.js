@@ -15,19 +15,12 @@ const { annotateIsAdmin, before, after, between, User } = require("./moderation-
 const pubKey = (recp) => recp.kp.publicKey
 const now = +(new Date())
 
-function annotateIsApplicable(modAuthoritiesMap) {
+function annotateIsApplicable(all) {
   return (post) => {
     const obj = cable.parsePost(post)
-    obj.postHash = crypto.hash(post)
-    const role_ts = modAuthoritiesMap.get(util.hex(obj.publicKey))
-    
-    if (role_ts) {
-      if (obj.timestamp >= role_ts.since) {
-        return {...obj, isApplicable: true }
-      }
-      return obj
-    }
-    return obj
+    obj.hash = crypto.hash(post)
+    const isApplicable = util.isApplicable(post, all)
+    return {...obj, isApplicable }
   }
 }
 const LINKS = []
@@ -44,8 +37,8 @@ const UNDROP = 1
 
 function assign(authorKp, recipient, timestamp, role, context=constants.CABAL_CONTEXT) {
   const post = cable.ROLE_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, context, timestamp, b4a.from(recipient, "hex"), role, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 function act(authorKp, recipient, timestamp, action, channel) {
@@ -55,20 +48,20 @@ function act(authorKp, recipient, timestamp, action, channel) {
     recipients = []
   }
   const post = cable.MODERATION_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, channel, timestamp, recipients, action, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 function block(authorKp, recipient, timestamp) {
   const post = cable.BLOCK_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, timestamp, [recipient], DROP, NOTIFY, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 function unblock(authorKp, recipient, timestamp) {
   const post = cable.UNBLOCK_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, timestamp, [recipient], UNDROP, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 test("smoke test", t => {
@@ -88,7 +81,7 @@ test("integration test across cable.js/ and moderation system", t => {
   const hiddenChannel = "bad-channel"
 
   // 4 post hashes
-  const postHashes = [1,2,3,4].map(i => crypto.hash(b4a.from([i])))
+  const hashes = [1,2,3,4].map(i => crypto.hash(b4a.from([i])))
 
   const alice = new User() // admin
   const bob = new User()   // mod
@@ -110,14 +103,13 @@ test("integration test across cable.js/ and moderation system", t => {
   pushAssignment(t_A1)
 
   const fakeHashDb = new Map()
-  const adminKeys = new Set([pubKey(local), pubKey(alice)].map(util.hex))
 
   let actionPosts = []
   let expectedHashes = new Set()
   const push = (o, expected) => { 
     actionPosts.push(o.post) 
     if (expected) {
-      expectedHashes.add(util.hex(o.postHash))
+      expectedHashes.add(util.hex(o.hash))
     }
   }
 
@@ -141,29 +133,29 @@ test("integration test across cable.js/ and moderation system", t => {
   push(o_A3, true)
 
   // /* actions on posts */
-  const o_L2 = act(local.kp, postHashes[0], after(o_L1.timestamp), constants.ACTION_HIDE_POST, channel)
+  const o_L2 = act(local.kp, hashes[0], after(o_L1.timestamp), constants.ACTION_HIDE_POST, channel)
   push(o_L2, true)
 
   // local precedence prevents bob's action from being applied
-  const o_B2 = act(bob.kp, postHashes[0], after(o_L2.timestamp), constants.ACTION_UNHIDE_POST, channel)
+  const o_B2 = act(bob.kp, hashes[0], after(o_L2.timestamp), constants.ACTION_UNHIDE_POST, channel)
   push(o_B2)
-  const o_B3 = act(bob.kp, postHashes[1], after(o_B2.timestamp), constants.ACTION_HIDE_POST, channel)
+  const o_B3 = act(bob.kp, hashes[1], after(o_B2.timestamp), constants.ACTION_HIDE_POST, channel)
   push(o_B3, true)
   // to be overridden by alice's unhide for same post
-  const o_B4 = act(bob.kp, postHashes[2], after(o_B3.timestamp), constants.ACTION_HIDE_POST, channel)
+  const o_B4 = act(bob.kp, hashes[2], after(o_B3.timestamp), constants.ACTION_HIDE_POST, channel)
   push(o_B4)
 
-  const o_A4 = act(alice.kp, postHashes[2], after(o_B4.timestamp), constants.ACTION_UNHIDE_POST, channel)
+  const o_A4 = act(alice.kp, hashes[2], after(o_B4.timestamp), constants.ACTION_UNHIDE_POST, channel)
   push(o_A4, true)
-  const o_A5 = act(alice.kp, postHashes[3], after(o_A4.timestamp), constants.ACTION_DROP_POST, channel)
+  const o_A5 = act(alice.kp, hashes[3], after(o_A4.timestamp), constants.ACTION_DROP_POST, channel)
   push(o_A5, true)
 
   /* actions on channels */
   const o_B5 = act(bob.kp, null, after(o_L2.timestamp), constants.ACTION_DROP_CHANNEL, hiddenChannel)
   push(o_B5, true)
 
-  const expectedHiddenPosts = new Set([postHashes[0], postHashes[1]].map(util.hex))
-  const expectedDroppedPosts = new Set([postHashes[3]].map(util.hex))
+  const expectedHiddenPosts = new Set([hashes[0], hashes[1]].map(util.hex))
+  const expectedDroppedPosts = new Set([hashes[3]].map(util.hex))
   const expectedDroppedChannels = new Set([hiddenChannel])
 
   // from local's POV
@@ -181,37 +173,45 @@ test("integration test across cable.js/ and moderation system", t => {
   //
   // we do the entire pipeline to test that each individual step works and to confirm that it is also
   // suitable as input for the actual indexes
+
+  function toObj(post) {
+    const obj = cable.parsePost(post)
+    obj.hash = crypto.hash(post)
+    return obj
+  }
+
+  function annotate (rolesMap) {
+    return (post) => {
+      const obj = toObj(post)
+      const isAdmin = util.isAdmin(post, rolesMap)
+      return { ...obj, isAdmin }
+    }
+  }
   
-  // convert the assignments into a list of operations 
-  const roleOps = assignments.flatMap(annotateIsAdmin(adminKeys))
+  const sys = new ModerationRoles(pubKey(local))
+  const roleOps = assignments.flatMap(toObj)
+  const all = sys.analyze(roleOps)
+  // annotate operations with `isAdmin` which is used as information by view `roles` indexing
+  const annotatedOps = assignments.flatMap(annotate(all))
 
   // ingest role ops into fakeHashDb
-  roleOps.forEach((op) => { fakeHashDb.set(util.hex(op.postHash), op) })
-  roles.map(roleOps)
+  annotatedOps.forEach((op) => { fakeHashDb.set(util.hex(op.hash), op) })
+  roles.map(annotatedOps)
 
-  const sys = new ModerationRoles(pubKey(local))
   roles.api.getAllSinceTime(before(tsFirstAdmin), (err, hashes) => {
     const ops = hashes.map(h => fakeHashDb.get(util.hex(h)))
-    const all = sys.analyze(ops)
 
     // get all our mods and admins
     const roleMap = all.get(constants.CABAL_CONTEXT)
     const admins = util.getRole(roleMap, constants.ADMIN_FLAG)
-    t.equal(admins.size, 1, "should have one admin")
+    t.equal(admins.size, 2, "should have one admin in addition to local user")
     const mods = util.getRole(roleMap, constants.MOD_FLAG)
     t.equal(mods.size, 1, "should have one mod")
 
-    const authoritiesMap = new Map()
-    Array.from(admins).concat(Array.from(mods)).forEach(pubkey => {
-      const role_ts = roleMap.get(pubkey)
-      authoritiesMap.set(pubkey, role_ts)
-    })
-    authoritiesMap.set(util.hex(pubKey(local)), { role: constants.ADMIN_FLAG, since: 0 })
-
-    const actionOps = actionPosts.flatMap(annotateIsApplicable(authoritiesMap))
+    const actionOps = actionPosts.flatMap(annotateIsApplicable(all))
     // ingest action ops into fakeHashDb
     actionOps.forEach(op => { 
-      if (op) { fakeHashDb.set(util.hex(op.postHash), op) }
+      if (op) { fakeHashDb.set(util.hex(op.hash), op) }
     })
     actions.map(actionOps)
 
@@ -224,7 +224,8 @@ test("integration test across cable.js/ and moderation system", t => {
         t.true(expectedHashes.has(h), `applied hash '${h}' should be an expected hash`)
       })
 
-      const state = new ModerationSystem(ops)
+      const state = new ModerationSystem()
+      state.process(ops)
       const hidden = state.getHiddenUsers()
       const dropped = state.getDroppedUsers()
       const blocked = state.getBlockedUsers()

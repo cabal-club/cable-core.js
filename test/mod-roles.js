@@ -18,10 +18,25 @@ const LINKS = []
 const REASON = ""
 const PRIVACY = 0
 
+function toObj(post) {
+  const obj = cable.parsePost(post)
+  obj.hash = crypto.hash(post)
+  return obj
+}
+
+function annotate (rolesMap) {
+  return (post) => {
+    const obj = toObj(post)
+    const isAdmin = util.isAdmin(post, rolesMap)
+    return { ...obj, isAdmin }
+  }
+}
+  
+
 function assign(authorKp, recipient, timestamp, role, context=constants.CABAL_CONTEXT) {
   const post = cable.ROLE_POST.create(authorKp.publicKey, authorKp.secretKey, LINKS, context, timestamp, b4a.from(recipient, "hex"), role, REASON, PRIVACY)
-  const postHash = crypto.hash(post)
-  return { postHash, timestamp, post }
+  const hash = crypto.hash(post)
+  return { hash, timestamp, post }
 }
 
 test("smoke test", t => {
@@ -104,22 +119,22 @@ test("simple scenario with index comparison", t => {
   /* 
    * local should have:
    *
-   * 2 admin (alice, bob)
+   * 2+1 admin (alice, bob + local)
    * 1 mod (felicia)
    * 1 user (eve)
    *
    */
-
   const db = new MemoryLevel({ valueEncoding: "binary" })
   const index = createRolesIndex(db)
   
-  const admins = new Set([local, alice, bob].map(pubKey))
-  const ops = posts.flatMap(annotateIsAdmin(admins))
+  const sys = new ModerationRoles(pubKeyBuf(local))
+  let all = sys.analyze(posts.flatMap(toObj))
+  const ops = posts.flatMap(annotate(all))
 
   // simulate having stored the operations by their hash. we'll query this fake database of hashes later using the
   // hashes we get out from querying the indexes
   const fakeHashDb = new Map()
-  ops.forEach(op => { fakeHashDb.set(util.hex(op.postHash), op) })
+  ops.forEach(op => { fakeHashDb.set(util.hex(op.hash), op) })
   index.map(ops)
 
   index.api.getAllSinceTime(now, (err, hashes) => {
@@ -127,14 +142,13 @@ test("simple scenario with index comparison", t => {
     opsMap.set("indexes", hashes.map(h => fakeHashDb.get(util.hex(h))))
     opsMap.set("original", ops)
 
-    const sys = new ModerationRoles(pubKeyBuf(local))
     for (let [source, ops] of opsMap.entries()) {
-      const all = sys.analyze(ops)
+      all = sys.analyze(ops)
       const roleMap = all.get(constants.CABAL_CONTEXT)
       const admins = util.getRole(roleMap, constants.ADMIN_FLAG) 
       const mods = util.getRole(roleMap, constants.MOD_FLAG)
       const users = util.getRole(roleMap, constants.USER_FLAG)
-      t.equal(admins.size, 2, `${source}: admins`)
+      t.equal(admins.size, 3, `${source}: admins`)
       t.equal(mods.size, 1, `${source}: mods`)
       t.equal(users.size, 1, `${source}: users`)
     }
@@ -168,15 +182,13 @@ test("assert that the timestamp a role is valid from is the *lowest* timestamp f
   /* 
    * local should have:
    *
-   * 2 admin (alice, bob)
+   * 2+1 admin (alice, bob + local)
    * 1 mod (felicia)
    *
    */
 
-  const admins = new Set([local, alice, bob].map(pubKey))
-  const ops = posts.flatMap(annotateIsAdmin(admins))
   const sys = new ModerationRoles(pubKeyBuf(local))
-  const all = sys.analyze(ops)
+  let all = sys.analyze(posts.flatMap(toObj))
   const feliciaTs = all.get(constants.CABAL_CONTEXT).get(pubKey(felicia)).since
   t.true(feliciaTs === A1.timestamp, "felicia's role was valid from the time alice issued it")
   t.end()
@@ -190,6 +202,13 @@ test("test index table `latest`", t => {
   const felicia = new User()
   const gordon = new User()
 
+  console.log("local", pubKey(local))
+  console.log("alice", pubKey(alice))
+  console.log("bob", pubKey(bob))
+  console.log("eve", pubKey(eve))
+  console.log("felicia", pubKey(felicia))
+  console.log("gordon", pubKey(gordon))
+
   const posts = []
   const push = (o) => {
     posts.push(o.post)
@@ -197,32 +216,31 @@ test("test index table `latest`", t => {
   const adminHashes = []
 
   // from local's pov, local's assignments have precedence over those made by other users
-  const L0 = assign(local.kp, pubKey(alice), now, constants.ADMIN_FLAG) // ADMIN => may assign roles for those viewing that user as admin
+  const L0 = assign(local.kp, pubKey(alice), after(now), constants.ADMIN_FLAG) // ADMIN => may assign roles for those viewing that user as admin
   push(L0)
-  adminHashes.push(L0.postHash)
+  adminHashes.push(L0.hash)
   // don't add this to adminHashes - it's overridden on the next line
-  const L1 = assign(local.kp, pubKey(bob), now, constants.USER_FLAG)
+  const L1 = assign(local.kp, pubKey(bob), after(L0.timestamp), constants.USER_FLAG)
   push(L1)
   const L2 = assign(local.kp, pubKey(bob), after(L1.timestamp), constants.ADMIN_FLAG)
   push(L2)
-  adminHashes.push(L2.postHash)
-  const L3 = assign(local.kp, pubKey(eve), now, constants.USER_FLAG) // eve should never be anything other than a user
+  adminHashes.push(L2.hash)
+  const L3 = assign(local.kp, pubKey(eve), after(now), constants.USER_FLAG) // eve should never be anything other than a user
   push(L3)
-  adminHashes.push(L3.postHash)
+  adminHashes.push(L3.hash)
 
-  const A1 = assign(alice.kp, pubKey(felicia), after(now), constants.USER_FLAG) // will be overridden by bob's assignment just a few lines down
+  const A1 = assign(alice.kp, pubKey(felicia), after(L0.timestamp), constants.USER_FLAG) // will be overridden by bob's assignment just a few lines down
   push(A1)
-  adminHashes.push(A1.postHash)
+  adminHashes.push(A1.hash)
 
   const B1 = assign(bob.kp, pubKey(gordon), between(L1.timestamp, L2.timestamp), constants.MOD_FLAG) // made when bob was not an admin, no effect
   push(B1)
-  adminHashes.push(B1.postHash)
-  const B2 = assign(bob.kp, pubKey(eve), after(L2.timestamp), constants.MOD_FLAG) // denied by local's assignment
+  const B2 = assign(bob.kp, pubKey(eve), after(L2.timestamp), constants.MOD_FLAG) // denied by local's assignment - should still be indexed?
   push(B2)
-  adminHashes.push(B2.postHash)
+  adminHashes.push(B2.hash)
   const B3 = assign(bob.kp, pubKey(felicia), after(L2.timestamp), constants.MOD_FLAG) // will be mod, because it's the highest set capability that is chosen (barring local assignments)
   push(B3)
-  adminHashes.push(B3.postHash)
+  adminHashes.push(B3.hash)
 
   const E1 = assign(eve.kp, pubKey(alice), after(now), constants.USER_FLAG) // no effect
   push(E1)
@@ -238,7 +256,7 @@ test("test index table `latest`", t => {
   /* 
    * local should have:
    *
-   * 2 admin (alice, bob)
+   * 2+1 admin (alice, bob + local)
    * 1 mod (felicia)
    * 1 user (eve)
    *
@@ -246,8 +264,12 @@ test("test index table `latest`", t => {
 
   const db = new MemoryLevel({ valueEncoding: "binary" })
   const index = createRolesIndex(db)
+
+  const sys = new ModerationRoles(pubKeyBuf(local))
+  let all = sys.analyze(posts.flatMap(toObj))
+  const ops = posts.flatMap(annotate(all))
+
   const adminKeys = new Set([pubKey(local), pubKey(alice), pubKey(bob)])
-  const ops = posts.flatMap(annotateIsAdmin(adminKeys))
   const numAdminSetRows = ops.reduce((acc, curr) => {
     if (adminKeys.has(b4a.toString(curr.publicKey, "hex"))) {
       acc += 1
@@ -258,7 +280,7 @@ test("test index table `latest`", t => {
   // simulate having stored the operations by their hash. we'll query this fake database of hashes later using the
   // hashes we get out from querying the indexes
   const fakeHashDb = new Map()
-  ops.forEach(op => { fakeHashDb.set(util.hex(op.postHash), op) })
+  ops.forEach(op => { fakeHashDb.set(util.hex(op.hash), op) })
   index.map(ops)
 
   index.api.getRelevantRoleHashes((err, hashes) => {
@@ -282,9 +304,11 @@ test("test index table `latest`", t => {
       const admins = util.getRole(roleMap, constants.ADMIN_FLAG) 
       const mods = util.getRole(roleMap, constants.MOD_FLAG)
       const users = util.getRole(roleMap, constants.USER_FLAG)
-      t.equal(admins.size, 2, `${source}: admins`)
+      t.equal(admins.size, 3, `${source}: admins`)
       t.equal(mods.size, 1, `${source}: mods`)
+      // only explicitly assigned users
       t.equal(users.size, 1, `${source}: users`)
+      t.equal(Array.from(users)[0], pubKey(eve), `the user was, indeed, eve (${pubKey(eve)})`)
     }
 
     t.end()
@@ -314,7 +338,9 @@ test("index table `latest` with admin demote should cause row deletion", t => {
   const adminKeys = new Set([pubKey(local), pubKey(alice)])
   const numAdminSetRows = 2 
 
-  const ops = posts.flatMap(annotateIsAdmin(adminKeys))
+  const sys = new ModerationRoles(pubKeyBuf(local))
+  let all = sys.analyze(posts.flatMap(toObj))
+  const ops = posts.flatMap(annotate(all))
   index.map(ops)
 
   index.api.getRelevantRoleHashes((err, hashes) => {
@@ -369,24 +395,21 @@ test("simple scenario", t => {
   /* 
    * local should have:
    *
-   * 2 admin (alice, bob)
+   * 2+1 admin (alice, bob + local)
    * 1 mod (felicia)
    * 1 user (eve)
    *
    */
 
+
   const sys = new ModerationRoles(pubKeyBuf(local))
-  let roleMap
+  const all = sys.analyze(posts.flatMap(toObj))
 
-  const adminKeys = new Set([local, alice, bob].map(pubKey))
-  const ops = posts.flatMap(annotateIsAdmin(adminKeys))
-  const all = sys.analyze(ops)
-
-  roleMap = all.get(constants.CABAL_CONTEXT)
+  const roleMap = all.get(constants.CABAL_CONTEXT)
   const admins = util.getRole(roleMap, constants.ADMIN_FLAG) 
   const mods = util.getRole(roleMap, constants.MOD_FLAG)
   const users = util.getRole(roleMap, constants.USER_FLAG)
-  t.equal(admins.size, 2, "admins")
+  t.equal(admins.size, 3, "admins")
   t.equal(mods.size, 1, "mods")
   t.equal(users.size, 1, "users") // note: only counts explicitly assigned atm 
 
@@ -415,7 +438,7 @@ test("simple scenario extended", t => {
   push(L3)
 
   const A1 = assign(alice.kp, pubKey(felicia), after(now), constants.ADMIN_FLAG)
-  push(L1)
+  push(A1)
 
   const F1 = assign(felicia.kp, pubKey(gordon), between(now, A1.timestamp), constants.ADMIN_FLAG) // should not be applied! this happened *right before* alice assigned felicia as admin
   push(F1)
@@ -423,24 +446,19 @@ test("simple scenario extended", t => {
   /* 
    * local should have:
    *
-   * 3 admin (alice, bob, felicia, gordon)
+   * 3+1 admin (alice, bob, felicia) + local
    * 1 user (eve)
    *
    */
 
   const sys = new ModerationRoles(pubKeyBuf(local))
-  let roleMap
+  const all = sys.analyze(posts.flatMap(toObj))
 
-  const adminKeys = new Set([local, alice, bob].map(pubKey))
-  const ops = posts.flatMap(annotateIsAdmin(adminKeys))
-  const all = sys.analyze(ops)
-
-  roleMap = all.get(constants.CABAL_CONTEXT)
+  const roleMap = all.get(constants.CABAL_CONTEXT)
   const admins = util.getRole(roleMap, constants.ADMIN_FLAG)
-  admins.add(pubKey(local))
   const mods = util.getRole(roleMap, constants.MOD_FLAG)
   const users = util.getRole(roleMap, constants.USER_FLAG)
-  t.equal(admins.size, 3, "admins")
+  t.equal(admins.size, 4, "admins")
   t.equal(mods.size, 0, "mods")
   t.equal(users.size, 1, "users") // note: only counts explicitly assigned atm 
 
@@ -517,31 +535,26 @@ test("basic scenario 1", t => {
   /* 
    * local should have:
    *
-   * 1 admin (bob)
+   * 1+1 admin (bob + local)
    * 2 mod (john)
    * 3 user (alice, eve, mallory)
    *
    * channel "programming"
-   * 0                  + 1 cabal-wide = 1 admin
+   * 0                  + 1 cabal-wide + local = 2 admin
    * 1 mod (liam)       + 1 cabal-wide = 2 mods
    *
    */
 
-  const sys = new ModerationRoles(pubKeyBuf(local))
   let roleMap
-
-  const ops = posts.map(post => {
-    const obj = cable.parsePost(post)
-    return { postHash: crypto.hash(post), ...obj }
-  })
-
-  const all = sys.analyze(ops)
+  const sys = new ModerationRoles(pubKeyBuf(local))
+  const all = sys.analyze(posts.flatMap(toObj))
+  const ops = posts.flatMap(annotate(all))
 
   roleMap = all.get(constants.CABAL_CONTEXT)
   const admins = util.getRole(roleMap, constants.ADMIN_FLAG) 
   const mods = util.getRole(roleMap, constants.MOD_FLAG)
   const users = util.getRole(roleMap, constants.USER_FLAG)
-  t.equal(admins.size, 1, "cabal-wide admins")
+  t.equal(admins.size, 2, "cabal-wide admins")
   t.equal(mods.size, 1, "cabal-wide mods")
   t.equal(users.size, 3, "cabal-wide users") // note: explicitly assigned atm 
 
@@ -549,7 +562,7 @@ test("basic scenario 1", t => {
   const channelMods = util.getRole(roleMap, constants.MOD_FLAG) // also includes cabal-wide admins/mods etc
   const channelAdmins = util.getRole(roleMap, constants.ADMIN_FLAG) 
   const channelUsers = util.getRole(roleMap, constants.USER_FLAG) 
-  t.equal(channelAdmins.size, 1, "channel-specific admins")
+  t.equal(channelAdmins.size, 2, "channel-specific admins")
   t.equal(channelMods.size, 2, "channel-specific mods")
   t.equal(channelUsers.size, 3, "channel-specific users")
   t.end()
@@ -643,31 +656,31 @@ test("basic scenario 2", t => {
   /* 
    * local should have:
    *
-   * 5 admin (alice, bob, felicia, gordon, john)
+   * 5+1 admin (alice, bob, felicia, gordon, john + local)
    * 2 mod (ion, knut)
    * 2 user (eve, mallory)
    * ?? herbert
    *
    * channel "programming"
-   * 0 admins           + 5 cabal-wide = 5
+   * 0 admins           + 5 cabal-wide + local = 6
    * 2 mod (liam, nat)  + 2 cabal wide = 4
    *
    */
 
-  const sys = new ModerationRoles(pubKeyBuf(local))
   let roleMap
 
-  const ops = posts.map(annotateIsAdmin(new Set))
-  const all = sys.analyze(ops)
+  const sys = new ModerationRoles(pubKeyBuf(local))
+  const all = sys.analyze(posts.flatMap(toObj))
+  const ops = posts.flatMap(annotate(all))
 
   // cabal-wide
   roleMap = all.get(constants.CABAL_CONTEXT)
-  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 5, "admins")
+  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 6, "admins")
   t.equal(util.getRole(roleMap, constants.MOD_FLAG).size, 2, "mods")
   t.equal(util.getRole(roleMap, constants.USER_FLAG).size, 2, "users")
   // cabal-wide + channel specific assignments
   roleMap = all.get(channel)
-  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 5, "channel admins")
+  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 6, "channel admins")
   t.equal(util.getRole(roleMap, constants.MOD_FLAG).size, 4, "channel mods")
   t.equal(util.getRole(roleMap, constants.USER_FLAG).size, 2, "channel users")
   t.end()
@@ -761,41 +774,43 @@ test("basic scenario 2 with indexes", t => {
   /* 
    * local should have:
    *
-   * 5 admin (alice, bob, felicia, gordon, john)
+   * 5+1 admin (alice, bob, felicia, gordon, john + local)
    * 2 mod (ion, knut)
    * 2 user (eve, mallory)
    * ?? herbert
    *
    * channel "programming"
-   * 0 admins           + 5 cabal-wide = 5
+   * 0 admins           + 5 cabal-wide + local = 6
    * 2 mod (liam, nat)  + 2 cabal wide = 4
    *
    */
 
   const db = new MemoryLevel({ valueEncoding: "binary" })
   const index = createRolesIndex(db)
-  const originalOps = posts.map(annotateIsAdmin(new Set))
+
+  const sys = new ModerationRoles(pubKeyBuf(local))
+  let all = sys.analyze(posts.flatMap(toObj))
+  const originalOps = posts.flatMap(annotate(all))
   // simulate having stored the operations by their hash. we'll query this fake database of hashes later using the
   // hashes we get out from querying the indexes
   const fakeHashDb = new Map()
-  originalOps.forEach(op => { fakeHashDb.set(util.hex(op.postHash), op) })
+  originalOps.forEach(op => { fakeHashDb.set(util.hex(op.hash), op) })
   index.map(originalOps)
   index.api.getAllSinceTime(now, (err, hashes) => {
     const opsMap = new Map()
     opsMap.set("indexes", hashes.map(h => fakeHashDb.get(util.hex(h))))
     opsMap.set("original", originalOps)
 
-    const sys = new ModerationRoles(pubKeyBuf(local))
     for (let [source, ops] of opsMap) {
       const all = sys.analyze(ops)
       // cabal-wide
       roleMap = all.get(constants.CABAL_CONTEXT)
-      t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 5, `${source}: admins`)
+      t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 6, `${source}: admins`)
       t.equal(util.getRole(roleMap, constants.MOD_FLAG).size, 2, `${source}: mods`)
       t.equal(util.getRole(roleMap, constants.USER_FLAG).size, 2, `${source}: users`)
       // cabal-wide + channel specific assignments
       roleMap = all.get(channel)
-      t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 5, `${source}: channel admins`)
+      t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 6, `${source}: channel admins`)
       t.equal(util.getRole(roleMap, constants.MOD_FLAG).size, 4, `${source}: channel mods`)
       t.equal(util.getRole(roleMap, constants.USER_FLAG).size, 2, `${source}: channel users`)
     }
@@ -892,32 +907,32 @@ test("basic scenario 3", t => {
   /* 
    * local should have:
    *
-   * 5 admin (alice, bob, felicia, gordon, john)
+   * 5+1 admin (alice, bob, felicia, gordon, john + local)
    * 2 mod (ion, knut)
    * 2 user (eve, mallory)
    * ?? herbert
    *
    * channel "programming"
-   * 0 admins           + 5 cabal-wide = 5
+   * 0 admins           + 5 cabal-wide + local = 6
    * 2 mod (liam, nat)  + 2 cabal wide = 4
    *
    */
 
-  const sys = new ModerationRoles(pubKeyBuf(local))
   let roleMap
 
-  const ops = posts.map(annotateIsAdmin(new Set))
-  const all = sys.analyze(ops)
+  const sys = new ModerationRoles(pubKeyBuf(local))
+  const all = sys.analyze(posts.flatMap(toObj))
+  const ops = posts.flatMap(annotate(all))
 
   // cabal-wide
   roleMap = all.get(constants.CABAL_CONTEXT)
-  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 5, "admins")
+  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 6, "admins")
   t.equal(util.getRole(roleMap, constants.MOD_FLAG).size, 2, "mods")
   t.equal(util.getRole(roleMap, constants.USER_FLAG).size, 2, "users")
 
   // cabal-wide + channel specific assignments
   roleMap = all.get(channel)
-  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 5, "channel admins")
+  t.equal(util.getRole(roleMap, constants.ADMIN_FLAG).size, 6, "channel admins")
   t.equal(util.getRole(roleMap, constants.MOD_FLAG).size, 4, "channel mods")
   t.equal(util.getRole(roleMap, constants.USER_FLAG).size, 2, "channel users")
   t.end()

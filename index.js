@@ -17,6 +17,7 @@ const CableStore = require("./store.js")
 const EventsManager = require("./events-manager.js")
 const Swarm = require("./peers.js").Swarm
 const LiveQueries = require("./live-queries.js")
+const { ModerationRoles, ModerationSystem } = require("./moderation.js")
 
 // aliases
 const TEXT_POST = cable.TEXT_POST
@@ -25,12 +26,11 @@ const INFO_POST = cable.INFO_POST
 const TOPIC_POST = cable.TOPIC_POST
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
+const ROLE_POST = cable.ROLE_POST
+const MODERATION_POST = cable.MODERATION_POST
+const BLOCK_POST = cable.BLOCK_POST
+const UNBLOCK_POST = cable.UNBLOCK_POST
 
-// TODO (2023-09-05): consider abstracting live requests handling into an explicit live requests handler in a separate file
-
-// an abstraction that keeps track of all event listeners. reasoning behind it is that event listeners have historically been:
-// 1. many in cabal pursuits
-// 2. hard to keep track of, track down, and manage correctly (a source of leaks)
 class CableCore extends EventEmitter {
   constructor(level, opts) {
     super()
@@ -104,6 +104,14 @@ class CableCore extends EventEmitter {
     this._defaultTTL = 0
     this.live = new LiveQueries(this)
 
+    // call rolesComputer.analyze(<all relevant post/role operations>) to receive back a map of which users have which
+    // roles in what channels
+    this.rolesComputer = new ModerationRoles(this.kp.publicKey)
+    this.activeRoles = new Map() // the output of `rolesComputer.analyze(operations)` will be stored in `this.activeRoles`
+    // `this.moderation` keeps track of moderation actions (post/moderation, post/block, post/unblock) are currently in place regarding
+    // users, posts, channels
+    this.moderation = new ModerationSystem()
+
     const _emitStoredPost = (obj, hash) => {
       // TODO (2023-08-18): how to know when:
       // * a new user joined?
@@ -118,10 +126,10 @@ class CableCore extends EventEmitter {
           this._emitChat("remove", { channel: obj.channel, publicKey, hash: util.hex(hash) })
           break
         case constants.INFO_POST:
-          if (obj.key === "name") {
-            this._emitUsers("name-changed", {publicKey, name: obj.value})
+          if (obj.info.has("name")) {
+            this._emitUsers("name-changed", {publicKey, name: obj.info.get("name")})
           } else {
-            coredebug("store-post: unknown key for post/info (key: %s)", obj.key)
+            coredebug("store-post: unknown key for post/info (keys: %O)", [...obj.info.keys()])
           }
           break
         case constants.TOPIC_POST:
@@ -274,6 +282,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     // TODO (2023-06-11): decide what to do wrt context for post/info
     const links = this._links()
+    // TODO (2024-03-05): get / use the local user's currently set `accept-role` (if any!) and, if set, pass it along to `INFO_POST.create`
     const buf = INFO_POST.create(this.kp.publicKey, this.kp.secretKey, links, util.timestamp(), [["name", name]])
     this.store.info(buf, done)
     return buf
@@ -438,8 +447,8 @@ class CableCore extends EventEmitter {
       bufs.forEach((buf, index) => {
         if (buf !== null) { 
 					const post = cable.parsePost(buf)
-          // deviating from spec behaviour!
-          // 1. add a 'hash' key to each resolved hash.
+          // deviating from spec-defined fields!
+          // 1. add a 'postHash' key to each resolved hash.
           // this allows downstream clients to refer to a particular post and act on it
           post["postHash"] = util.hex(hashes[index])
           // 2. convert to hex string instead of buffer instance
@@ -578,6 +587,8 @@ class CableCore extends EventEmitter {
         break
       case constants.CHANNEL_LIST_REQUEST:
         entry.resType = constants.CHANNEL_LIST_RESPONSE
+      case constants.MODERATION_STATE_REQUEST:
+        entry.resType = constants.MODERATION_STATE_RESPONSE
         break
       default:
         throw new Error(`make request: unknown reqType (${reqType})`)
@@ -766,6 +777,9 @@ class CableCore extends EventEmitter {
             return res([response])
           })
           break
+        case constants.MODERATION_STATE_REQUEST:
+          throw new Error("todo (2024-03-05): handle moderation state request :)!")
+          break
         default:
           throw new Error(`handle request: unknown request type ${reqType}`)
       }
@@ -822,6 +836,7 @@ class CableCore extends EventEmitter {
       case constants.TIME_RANGE_REQUEST:
       case constants.CHANNEL_STATE_REQUEST:
       case constants.CHANNEL_LIST_REQUEST:
+      case constants.MODERATION_STATE_REQUEST:
         return true
         break
       default:
@@ -857,6 +872,9 @@ class CableCore extends EventEmitter {
         break
       case constants.CHANNEL_LIST_REQUEST:
         decrementedBuf = cable.CHANNEL_LIST_REQUEST.decrementTTL(buf)
+        break
+      case constants.MODERATION_STATE_REQUEST:
+        decrementedBuf = cable.MODERATION_STATE_REQUEST.decrementTTL(buf)
         break
       default:
         throw new Error(`forward request: unknown request type ${reqType}`)
@@ -898,6 +916,18 @@ class CableCore extends EventEmitter {
             break
           case constants.LEAVE_POST:
             this.store.leave(buf, () => { res() })
+            break
+          case constants.ROLE_POST:
+            this.store.role(buf, util.isAdmin(buf, this.activeRoles), () => { res() })
+            break
+          case constants.MODERATION_POST:
+            this.store.moderation(buf, util.isApplicable(buf, this.activeRoles), () => { res() })
+            break
+          case constants.BLOCK_POST:
+            this.store.block(buf, util.isApplicable(buf, this.activeRoles), () => { res() })
+            break
+          case constants.UNBLOCK_POST:
+            this.store.unblock(buf, util.isApplicable(buf, this.activeRoles), () => { res() })
             break
           default:
             rej()

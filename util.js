@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 const b4a = require("b4a")
+const cable = require("cable.js")
+const constants = require("cable.js/constants.js")
 
 // returns a timestamp in UNIX Time form
 function timestamp () {
@@ -112,7 +114,41 @@ function getSmallestValidTime (tracker, cabal, author) {
   return trackerTime
 }
 
+function _getContext (obj) {
+  // block/unblock don't have a channel, they act on the entire cabal context
+  if ((obj.postType === constants.BLOCK_POST || obj.postType === constants.UNBLOCK_POST) || obj.channel.length === 0) {
+    return constants.CABAL_CONTEXT
+  } 
+  return obj.channel
+}
 
+function determineAuthority (buf, roles, authorityTest) {
+  const obj = cable.parsePost(buf)
+  // if the context for the post doesn't exist, for some reason, use the cabal context
+  let authorityMap 
+  const context = _getContext(obj)
+  if (roles.has(context)) {
+    authorityMap = roles.get(context)
+  } else {
+    authorityMap = roles.get(constants.CABAL_CONTEXT)
+  }
+  const role_ts = authorityMap.get(hex(obj.publicKey))
+  // if (role_ts && role_ts.since > obj.timestamp) {
+  //   console.log(obj, role_ts)
+  // }
+  return (role_ts && authorityTest(obj, role_ts))
+}
+
+const testIsModAuthority  = (obj, role_ts) => role_ts.role !== constants.USER_FLAG && obj.timestamp >= role_ts.since
+const testIsAdmin         = (obj, role_ts) => role_ts.role === constants.ADMIN_FLAG && obj.timestamp >= role_ts.since
+
+function isApplicable (buf, roles) {
+  return determineAuthority(buf, roles, testIsModAuthority)
+}
+
+function isAdmin (buf, roles) {
+  return determineAuthority(buf, roles, testIsAdmin)
+}
 
 class Ready {
   // callback processing queue. functions are pushed onto the queue if they are dispatched before the store is ready or
@@ -155,5 +191,7 @@ module.exports = {
   hex,
   getRole,
   getSmallestValidTime, 
-  Ready
+  Ready,
+  isAdmin,
+  isApplicable
 }

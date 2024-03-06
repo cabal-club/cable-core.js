@@ -23,18 +23,18 @@ module.exports = function (lvl/*, reverseIndex*/) {
         const ts = monotonicTimestamp(msg.timestamp)
 
         const keys = []
-				// LATEST ROLES          latest!<authorKey>!<recpKey>!<context> => <postHash>
+				// LATEST ROLES          latest!<authorKey>!<recpKey>!<context> => <hash>
         if (msg.isAdmin) {
           keys.push({
             key: `latest!${util.hex(msg.publicKey)}!${util.hex(msg.recipient)}!${msg.channel}`
           })
         }
 
-				// ROLES SINCE TS        all!<monots>!<authorKey>!<recpKey>!<context> => postHash
+				// ROLES SINCE TS        all!<monots>!<authorKey>!<recpKey>!<context> => hash
         keys.push({
           key: `all!${ts}!${util.hex(msg.publicKey)}!${util.hex(msg.recipient)}!${msg.channel}`
         })
-        const hash = msg.postHash
+        const hash = msg.hash
 
         keys.forEach(item => {
           const {key} = item

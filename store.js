@@ -35,6 +35,10 @@ const INFO_POST = cable.INFO_POST
 const TOPIC_POST = cable.TOPIC_POST
 const JOIN_POST = cable.JOIN_POST
 const LEAVE_POST = cable.LEAVE_POST
+const ROLE_POST = cable.ROLE_POST
+const MODERATION_POST = cable.MODERATION_POST
+const BLOCK_POST = cable.BLOCK_POST
+const UNBLOCK_POST = cable.UNBLOCK_POST
 
 // database interactions
 class CableStore extends EventEmitter {
@@ -105,6 +109,8 @@ class CableStore extends EventEmitter {
       "messages": this.messagesView,
       "deleted": this.deletedView,
       "links": this.linksView,
+      "actions": this.actionsView,
+      "roles": this.rolesView
     }
   }
 
@@ -159,6 +165,106 @@ class CableStore extends EventEmitter {
   // function `done` implements a kind of synching mechanism for each storage method, such that a collection of
   // promises can be assembled, with a Promise.all(done) firing when all <view>.map invocations have finished processing
   // indexing operations
+  //
+  // parameter `isAdmin` is a boolean that describes whether the author was an admin or not
+  role(buf, isAdmin, done) {
+    if (!done) { done = util.noop }
+    let promises = []
+    let p
+
+    const hash = crypto.hash(buf)
+    const obj = ROLE_POST.toJSON(buf)
+
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.rolesView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(() => {
+      this._emitStoredPost(hash, buf, obj.channel)
+      done()
+    })
+  }
+
+  // parameter `isApplicable` is a boolean that describes whether the author was a a moderation authority or not
+  moderation(buf, isApplicable, done) {
+    if (!done) { done = util.noop }
+    let promises = []
+    let p
+
+    const hash = crypto.hash(buf)
+    const obj = MODERATION_POST.toJSON(buf)
+
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.actionsView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(() => {
+      this._emitStoredPost(hash, buf, obj.channel)
+      done()
+    })
+  }
+
+  // parameter `isApplicable` is a boolean that describes whether the author was a a moderation authority or not
+  block(buf, isApplicable, done) {
+    if (!done) { done = util.noop }
+    let promises = []
+    let p
+
+    const hash = crypto.hash(buf)
+    const obj = BLOCK_POST.toJSON(buf)
+
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.actionsView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(() => {
+      this._emitStoredPost(hash, buf, obj.channel)
+      done()
+    })
+  }
+
+  // parameter `isApplicable` is a boolean that describes whether the author was a a moderation authority or not
+  unblock(buf, isApplicable, done) {
+    if (!done) { done = util.noop }
+    let promises = []
+    let p
+
+    const hash = crypto.hash(buf)
+    const obj = UNBLOCK_POST.toJSON(buf)
+
+    p = new Promise((res, rej) => {
+      this._storeNewPost(buf, hash, res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.actionsView.map([{ ...obj, hash}], res)
+    })
+    promises.push(p)
+
+    Promise.all(promises).then(() => {
+      this._emitStoredPost(hash, buf, obj.channel)
+      done()
+    })
+  }
 
   join(buf, done) {
     if (!done) { done = util.noop }

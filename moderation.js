@@ -49,8 +49,8 @@ class Role {
 }
 
 // one of the ideas used here is to calculate the given role of a user by aggregating vouches (roles assigned from other
-// users which are regarded as valid) and OR-ing all those vouches together and getting the highest set bit, with some additional
-// logic for local user's overrides
+// users which are regarded as valid) and selecting the vouch the highest capability, with additional logic for local
+// user's overrides
 
 // tracks the set of roles for a particular channel context
 class RoleTracker {
@@ -153,6 +153,8 @@ class RoleTracker {
       finalRoles.set(recipient, { role: finalRole, since: timetable.get(recipient), precedence: false })
     })
 
+    // local user is always admin from their pov
+    finalRoles.set(this.localKeyHex, { role: constants.ADMIN_FLAG, since: 0 })
     return finalRoles
   }
 }
@@ -164,13 +166,19 @@ class ModerationRoles {
     this.localKeyBuf = localKey
   }
 
-  // `analyze` produces the set of final roles, as viewed from the local user, across all channels and the cabal context
+  // `analyze` produces the set of final roles, as viewed from the local user, across all channels and the cabal
+  // context.
   //
-  // `analyze` returns a map with channels as keys and as values a map. the values maps each public key with an assigned role to
-  // that role. each role is represented by { role: int constant, since: timestamp since role was regarded valid }
+  // it returns a map with channels as keys and as values a map. each value maps a public key (note: only public keys
+  // with explicit assignments) to their final assigned role for that channel. 
+  // each role is represented by:
+  // { 
+  //   role: int constant, 
+  //   since: timestamp since role was regarded valid 
+  // }
   //
-  // analyze() *always* starts from scratch using what it assumes is the full state of deduplicated role operations in
-  // `operations` (as derived from querying views/roles.js)
+  // the function *ALWAYS* starts from scratch, regarding its input parameter `operations` as what it assumes is the full
+  // state of deduplicated role operations (as derived from querying views/roles.js)
   analyze(operations) {
     // shared across all role trackers to help track which recipients have been assigned some kind of role by the local user
     const localAssignedKeys = new Set()
@@ -270,7 +278,7 @@ class ModerationSystem {
   posts = new Map()
   channels = new Map()
 
-  constructor (actions) {
+  process (actions) {
     let activeMap
     actions.sort(timeCmp).forEach(action => {
       let recipients 
@@ -343,6 +351,10 @@ class ModerationSystem {
       return u.isDropped() ? recp : null
     }).filter(u => u)
   }
+  // TODO (2024-03-05): add functionality to get <state'd> users in a channel, or if empty: the cabal context
+  // 
+  // perhaps it should rather be: one instance of ModerationSystem per channel? can also just get all and then filter
+  // based on channel
   getHiddenUsers() {
     return this.#getHidden(this.recipients)
   }

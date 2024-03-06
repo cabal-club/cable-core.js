@@ -24,22 +24,22 @@ const POSTS_NAMESPACE   = "p"    // short for posts
 
 const APPLIED_USER_KEY = (recipient, channel, type) =>        `${PREFIX_APPLIED}!${USER_NAMESPACE}!${util.hex(recipient)}!${channel}!${type}`
 const APPLIED_CHANNEL_KEY = (name) =>        `${PREFIX_APPLIED}!${CHANNEL_NAMESPACE}!${name}`
-const APPLIED_POST_KEY = (postHash, type) => `${PREFIX_APPLIED}!${POSTS_NAMESPACE}!${util.hex(postHash)}!${type}`
+const APPLIED_POST_KEY = (hash, type) => `${PREFIX_APPLIED}!${POSTS_NAMESPACE}!${util.hex(hash)}!${type}`
 
 const RELEVANT_USER_KEY = (p, recipient, channel, type) =>           `${PREFIX_RELEVANT}!${USER_NAMESPACE}!${util.hex(p.publicKey)}!${util.hex(recipient)}!${channel}!${type}`
 const RELEVANT_CHANNEL_KEY = (p, name) =>        `${PREFIX_RELEVANT}!${CHANNEL_NAMESPACE}!${util.hex(p.publicKey)}!${name}`
-const RELEVANT_POST_KEY = (p, postHash, type) => `${PREFIX_RELEVANT}!${POSTS_NAMESPACE}!${util.hex(p.publicKey)}!${util.hex(postHash)}!${type}`
+const RELEVANT_POST_KEY = (p, hash, type) => `${PREFIX_RELEVANT}!${POSTS_NAMESPACE}!${util.hex(p.publicKey)}!${util.hex(hash)}!${type}`
 
 // indexes `PREFIX_RELEVANT` by timestamp
 const TIME_KEY = (time, context) => `${PREFIX_TIME_INDEX}!${monotonicTimestamp(time)}!${context}`
 
 // store values as a combination of posthash (of the mod action), author pubkey, and timestamp. that way we don't need to query any other
 // index to figure out what to do in the various situations of determining the relevancy and precedence
-const assembleValue = (p) => `${util.hex(p.postHash)}!${util.hex(p.publicKey)}!${p.timestamp}`
+const assembleValue = (p) => `${util.hex(p.hash)}!${util.hex(p.publicKey)}!${p.timestamp}`
 function splitValue(val) {
-  const [postHash, publicKey, ts] = val.split("!")
+  const [hash, publicKey, ts] = val.split("!")
   return {
-    postHash,
+    hash,
     publicKey,
     timestamp: parseInt(ts)
   }
@@ -87,30 +87,30 @@ function pushUser(entries, post, type) {
   let channel = post.channel ? post.channel : constants.CABAL_CONTEXT
   for (const recipient of post.recipients) {
     if (post.isApplicable) {
-      entries.push({ key: APPLIED_USER_KEY(recipient, channel, type), value: post.postHash })
+      entries.push({ key: APPLIED_USER_KEY(recipient, channel, type), value: post.hash })
     }
     const relevantKey = RELEVANT_USER_KEY(post, recipient, channel, type)
-    entries.push({ key: relevantKey, value: post.postHash })
+    entries.push({ key: relevantKey, value: post.hash })
     entries.push({ key: TIME_KEY(post.timestamp, channel), value: relevantKey })
   }
 }
 
 function pushChannel(entries, post, type) {
   if (post.isApplicable) {
-    entries.push({ key: APPLIED_CHANNEL_KEY(post.channel), value: post.postHash })
+    entries.push({ key: APPLIED_CHANNEL_KEY(post.channel), value: post.hash })
   }
   const relevantKey = RELEVANT_CHANNEL_KEY(post, post.channel)
-  entries.push({ key: relevantKey, value: post.postHash })
+  entries.push({ key: relevantKey, value: post.hash })
   entries.push({ key: TIME_KEY(post.timestamp, post.channel), value: relevantKey })
 }
 
 function pushPost(entries, post, type) {
   for (const recipient of post.recipients) {
     if (post.isApplicable) {
-      entries.push({ key: APPLIED_POST_KEY(recipient, type), value: post.postHash })
+      entries.push({ key: APPLIED_POST_KEY(recipient, type), value: post.hash })
     }
     const relevantKey = RELEVANT_POST_KEY(post, recipient, type)
-    entries.push({ key: relevantKey, value: post.postHash })
+    entries.push({ key: relevantKey, value: post.hash })
     entries.push({ key: TIME_KEY(post.timestamp, post.channel), value: relevantKey })
   }
 }
@@ -150,7 +150,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
   const conditionallyEmitApplyEvt = (key, post) => {
     switch (key.split("!")[0]) {
       case PREFIX_APPLIED:
-        debug("emit apply-action %s", post.postHash)
+        debug("emit apply-action %s", post.hash)
         events.emit("apply-action", { post })
         break
     }
@@ -241,7 +241,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
 
       for (const [key, entry] of keyedPosts) {
         const post = entry.post
-        const hash = post.postHash
+        const hash = post.hash
         const value = entry.value
         pending++
         // no previously stored value -> no comparison required before writing to key
@@ -289,7 +289,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
                 })
                 // the previously authored post by this author is now considered obsolete and we don't need to store it,
                 // signal this fact outwards
-                events.emit("remove-obsolete", { hash: prev.postHash })
+                events.emit("remove-obsolete", { hash: prev.hash })
               }
               ops.push({
                 type: 'put',
@@ -311,7 +311,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
         //
         // we do not want to remove the *new* value stored at e.g. table relevant as a result
         //
-        // const getHash = (p) => splitValue(p.value).postHash
+        // const getHash = (p) => splitValue(p.value).hash
         // const getKey = (p) => p.key
         // reverseIndex.map(reverseIndex.transformOps(viewName, getHash, getKey, ops))
         debug("ops %O", ops)
@@ -335,7 +335,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
             lt: `${PREFIX_APPLIED}!~`
           })
           const values = await iter.all()
-          const hashes = values.map(encoded => splitValue(encoded).postHash)
+          const hashes = values.map(encoded => splitValue(encoded).hash)
           const deduped = Array.from(new Set(hashes))
           cb(null, deduped) 
         })
@@ -353,7 +353,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
           const hashes = await lvl.getMany(values)
           // split out the hash values from the composite key, and run it through Set to make sure we only return unique
           // hashes
-          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).postHash)))
+          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).hash)))
           cb(null, deduped)
         })
       },
@@ -380,7 +380,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
           const hashes = await lvl.getMany(values)
           // split out the hash values from the composite key, and run it through Set to make 
           // sure we only return unique hashes
-          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).postHash)))
+          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).hash)))
           cb(null, deduped)
         })
       },
