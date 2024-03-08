@@ -107,9 +107,7 @@ class RoleTracker {
     const localUserFlags = new Map() // keep local user's assigned flags separate
 
     const pushRole = (map, role) => {
-      if (!map.has(role.recipient)) {
-        map.set(role.recipient, [])
-      }
+      if (!map.has(role.recipient)) { map.set(role.recipient, []) }
       map.get(role.recipient).push(role)
     }
 
@@ -126,7 +124,7 @@ class RoleTracker {
 
     // the final role for each recipient is the valid role assigned them with the most capabilities
     const finalRoles = new Map()
-    // maps recipients to timestamps representing when their most capable role started to be regarded as valid
+    // timetable maps recipients to timestamps representing when their most capable role started to be regarded as valid
     const timetable = new Map()
     recipients.forEach(recipient => {
       if (localUserFlags.has(recipient)) {
@@ -157,6 +155,17 @@ class RoleTracker {
     finalRoles.set(this.localKeyHex, { role: constants.ADMIN_FLAG, since: 0 })
     return finalRoles
   }
+}
+
+// cmpRoles for r1 and r2 returns
+// 1 if r1 > r2
+// 0 if r1 === r2
+// -1 if r1 < r2
+function cmpRoles(r1, r2) {
+  if (r1 === r2) { return 0 }
+  if (r1 === constants.ADMIN_FLAG && r2 !== constants.ADMIN_FLAG) { return 1 }
+  if (r1 === constants.MOD_FLAG && r2 === constants.USER_FLAG) { return 1 }
+  return -1
 }
 
 // TODO (2024-01-25): consider construction faults of this class in terms of load on memory for very very many
@@ -258,7 +267,7 @@ class ModerationRoles {
         }
         // the role with the most capability should be chosen. in this case we may have a role set on the cabal and one
         // set on the channel. or we simply pick the one with local precedence
-        if (!contextMap.has(recipient) || role.role > cabalRole.role || !cabalRole.precedence && role.precedence) {
+        if (!contextMap.has(recipient) || cmpRoles(role.role, cabalRole.role) > 0 || !cabalRole.precedence && role.precedence) {
           contextMap.set(recipient, role)
           continue
         }
