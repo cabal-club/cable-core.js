@@ -230,7 +230,6 @@ test("integration test across cable.js/ and moderation system", t => {
       const hidden = state.getHiddenUsers(constants.CABAL_CONTEXT)
       const hiddenPosts = state.getHiddenPosts(channel)
       const droppedPosts = state.getDroppedPosts(channel)
-      console.log(state)
       const droppedChannels = state.getDroppedChannels()
 
       t.equal(droppedChannels.length, 1, "1 channel should be dropped")

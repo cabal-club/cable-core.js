@@ -108,17 +108,16 @@ class CableCore extends EventEmitter {
     // roles in what channels
     this.rolesComputer = new ModerationRoles(this.kp.publicKey)
     this.activeRoles = new Map() // the output of `rolesComputer.analyze(operations)` will be stored in `this.activeRoles`
-    // `this.moderationActions` keeps track of moderation actions (post/moderation, post/block, post/unblock) are currently in place regarding
-    // users, posts, channels
-    // TODO (2024-03-11): convert moderationActions to Map[context][ModerationSystem] ?
-    this.moderationActions = new ModerationSystem()
+    // `this.moderation` keeps track of moderation actions (post/moderation, post/block, post/unblock) across channel contexts with methods to get state regarding
+    // users, posts, and channels
+    this.moderation = new ModerationSystem()
 
     // get the latest moderation state and apply it
     this.store.rolesView.api.getRelevantRoleHashes((err, hashes) => {
       if (hashes.length === 0) { return }
       this._getData(hashes, (err, ops) => {
-        // in-place updates `this.moderationActions`
-        this.moderationActions.process(ops)
+        // updates `this.moderation` in-place
+        this.moderation.process(ops)
       })
     })
 
@@ -159,8 +158,14 @@ class CableCore extends EventEmitter {
         case constants.LEAVE_POST:
           this._emitChannels("leave", { channel: obj.channel, publicKey })
           break
+        case constants.ROLE_POST:
+        case constants.MODERATION_POST:
+        case constants.BLOCK_POST:
+        case constants.UNBLOCK_POST:
+          coredebug("store-post: moderation post type %d (todo: emit events for cable-client)", obj.postType)
+          break
         default:
-          coredebug("store-post: unknown post type &d", obj.postType)
+          coredebug("store-post: unknown post type %d", obj.postType)
       }
     }
 
@@ -241,18 +246,15 @@ class CableCore extends EventEmitter {
     })
 
     this.events.register("store", this.store, "actions-update", (action) => {
-      // TODO (2024-03-11): introduce channel awareness to actions tracker / `ModerationSystem`
-      this.moderationActions.process([action])
+      this.moderation.process([action])
+      this.emit("moderation/actions-update")
       // in core we are required to be able to track:
       //
       // * dropped {users, posts, channels} for knowing how to handle incoming posts
       // * blocked users
+      //
       // i.e. we don't need necessarily need to maintain a list of hide operations at the core level; we just need to be
       // able to respond to clients with that information
-      // * trying to work out: should we maintain this.moderationActions?
-      //
-      // should only emit actions-update if the role had isApplicable set?
-      // _emitStoredPost(obj, hash)
     })
 
     this.events.register("store", this.store, "channel-state-replacement", ({ channel, postType, hash }) => {
@@ -274,7 +276,7 @@ class CableCore extends EventEmitter {
     })
 
     this.events.register("store", this.store, "store-post", ({ obj, channel, timestamp, hash, postType }) => {
-      livedebug("store post evt, post type: %i", postType)
+      coredebug("store post evt, post type: %d", postType)
       this.live.sendLiveHashResponse(channel, postType, [hash], timestamp)
      
       _emitStoredPost(obj, hash)
@@ -452,7 +454,7 @@ class CableCore extends EventEmitter {
     if (!done) { done = util.noop }
     const links = [] /*this._links(channel)*/
     const buf = cable.ROLE_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, timestamp, b4a.from(recipient, "hex"), role, reason, privacy)
-    this.store.role(buf, done)
+    this.store.role(buf, util.isAdmin(this.kp, buf, this.activeRoles), done)
     return buf
   }
 
@@ -1012,6 +1014,7 @@ class CableCore extends EventEmitter {
   }
 
   _storeExternalBuf(buf, done) {
+    coredebug("_storeExternalBuf()")
     if (!done) { done = util.noop }
     const hash = this.hash(buf)
     this.store.deletedView.api.isDeleted(hash, (err, deleted) => {

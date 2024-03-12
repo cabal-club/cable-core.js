@@ -286,7 +286,7 @@ function timeCmp(a, b) {
 class ModerationSystem {
   contextTracker = new Map()
 
-  getContextTracker(context) {
+  #getContextTracker(context) {
     if (context === "") { context = constants.CABAL_CONTEXT }
     if (this.contextTracker.has(context)) { return this.contextTracker.get(context) }
     const recipients = new Map()
@@ -303,10 +303,10 @@ class ModerationSystem {
 
       let tracker
       if (action.hasOwnProperty("channel")) {
-        tracker = this.getContextTracker(action.channel)
+        tracker = this.#getContextTracker(action.channel)
       } else if (action.postType === constants.BLOCK_POST || action.postType === constants.UNBLOCK_POST) {
         // block/unblock don't have a channel property -> apply to entire cabal
-        tracker = this.getContextTracker(constants.CABAL_CONTEXT)
+        tracker = this.#getContextTracker(constants.CABAL_CONTEXT)
         recipients = action.recipients.map(util.hex)
         activeMap = tracker.recipients
       }
@@ -323,7 +323,7 @@ class ModerationSystem {
           case constants.ACTION_DROP_CHANNEL:
           case constants.ACTION_UNDROP_CHANNEL:
             // dropping channels only makes sense in terms of the cabal context: use that tracker instead of the channel property
-            tracker = this.getContextTracker(constants.CABAL_CONTEXT)
+            tracker = this.#getContextTracker(constants.CABAL_CONTEXT)
             recipients = [action.channel]
             activeMap = tracker.channels
             break
@@ -391,22 +391,22 @@ class ModerationSystem {
   }
 
   getHiddenUsers(context) {
-    return this.#getHidden(this.getContextTracker(context).recipients)
+    return this.#getHidden(this.#getContextTracker(context).recipients)
   }
   getDroppedPosts(context) {
-    return this.#getDropped(this.getContextTracker(context).posts)
+    return this.#getDropped(this.#getContextTracker(context).posts)
   }
   getHiddenPosts(context) {
-    return this.#getHidden(this.getContextTracker(context).posts)
+    return this.#getHidden(this.#getContextTracker(context).posts)
   }
   getDroppedChannels() {
-    return this.#getDropped(this.getContextTracker(constants.CABAL_CONTEXT).channels)
+    return this.#getDropped(this.#getContextTracker(constants.CABAL_CONTEXT).channels)
   }
   getDroppedUsers() {
-    return this.#getDropped(this.getContextTracker(constants.CABAL_CONTEXT).recipients)
+    return this.#getDropped(this.#getContextTracker(constants.CABAL_CONTEXT).recipients)
   }
   getBlockedUsers() {
-    const recipients = this.getContextTracker(constants.CABAL_CONTEXT).recipients
+    const recipients = this.#getContextTracker(constants.CABAL_CONTEXT).recipients
     return [...recipients].map(([recp, u]) => {
       return u.isBlocked() ? recp : null
     }).filter(u => u)

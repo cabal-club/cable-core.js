@@ -168,6 +168,7 @@ class CableStore extends EventEmitter {
   //
   // parameter `isAdmin` is a boolean that describes whether the author was an admin or not
   role(buf, isAdmin, done) {
+    storedebug("role()")
     if (!done) { done = util.noop }
     let promises = []
     let p
@@ -215,6 +216,9 @@ class CableStore extends EventEmitter {
 
     Promise.all(promises).then(() => {
       this._emitStoredPost(hash, buf, obj.channel)
+      if (isApplicable) {
+        this.emit("actions-update", { ...obj })
+      }
       done()
     })
   }
@@ -240,6 +244,9 @@ class CableStore extends EventEmitter {
 
     Promise.all(promises).then(() => {
       this._emitStoredPost(hash, buf, obj.channel)
+      if (isApplicable) {
+        this.emit("actions-update", { ...obj })
+      }
       done()
     })
   }
@@ -265,6 +272,9 @@ class CableStore extends EventEmitter {
 
     Promise.all(promises).then(() => {
       this._emitStoredPost(hash, buf, obj.channel)
+      if (isApplicable) {
+        this.emit("actions-update", { ...obj })
+      }
       done()
     })
   }

@@ -65,7 +65,6 @@ test("smoke test", t => {
   t.end()
 })
 
-// this test is equivalent to test/moderation-system.js
 test("simple admin and mod role assignment should tally up correctly", t => {
   const local = new User() // always admin
   const core = new CableCore(MemoryLevel, { keypair: local.kp })
@@ -111,6 +110,56 @@ test("simple admin and mod role assignment should tally up correctly", t => {
     }
   })
 
-  const t_L1 = core.assignRole(pubKey(alice), "", tsFirstAdmin, constants.ADMIN_FLAG, "", 0)
-  core._storeExternalBuf(t_L1.post)
+  core.assignRole(pubKey(alice), "", tsFirstAdmin, constants.ADMIN_FLAG, "", 0)
+})
+
+test("simple moderation actions test", t => {
+  const local = new User() // always admin
+  const core = new CableCore(MemoryLevel, { keypair: local.kp })
+
+  const channel = "test"
+  const alice = new User() // admin
+  const bob = new User()   // mod
+  const eve = new User() // user to be hidden in entire cabal
+  const felicia = new User() // user to be hidden in channel `test`
+
+  const tsFirstAdmin = before(now) - 1000
+  const tsBobMod = tsFirstAdmin + 20
+  const tsBobHides = tsBobMod + 100
+  const tsAliceHides = tsBobHides + 100
+
+  let roles = 0
+  core.on("moderation/roles-update", () => {
+    roles++
+    switch (roles) {
+      case 1:
+        const t_A1 = assign(alice.kp, pubKey(bob), tsBobMod, constants.MOD_FLAG)
+        core._storeExternalBuf(t_A1.post)
+        break
+      case 2:
+        const t_B1 = act(bob.kp, pubKey(eve), tsBobHides, constants.ACTION_HIDE_USER, "") // hide eve in entire cabal
+        core._storeExternalBuf(t_B1.post)
+        const t_A2 = act(alice.kp, pubKey(felicia), tsAliceHides, constants.ACTION_HIDE_USER, channel) // hide felicia in channel `test`
+        core._storeExternalBuf(t_A2.post)
+        break
+    }
+  })
+
+  let actions = 0
+  core.on("moderation/actions-update", () => {
+    actions++
+    switch (actions) {
+    case 2:
+        const cabalHiddenUsers = core.moderation.getHiddenUsers(constants.CABAL_CONTEXT)
+        const channelHiddenUsers = core.moderation.getHiddenUsers(channel)
+        t.equal(cabalHiddenUsers.length, 1, "should have 1 hidden user on the cabal level")
+        t.true(cabalHiddenUsers[0] === pubKeyStr(eve), "eve should be the cabal-hidden user")
+        t.equal(channelHiddenUsers.length, 1, "should have 1 hidden user in the channel")
+        t.true(channelHiddenUsers[0] === pubKeyStr(felicia), "felicia should be the channel-hidden user")
+        t.end()
+        break
+    }
+  })
+
+  core.assignRole(pubKey(alice), "", tsFirstAdmin, constants.ADMIN_FLAG, "", 0)
 })
