@@ -86,6 +86,14 @@ function humanizePostType(posttype) {
       return "post/join"
     case 5:
       return "post/leave"
+    case 6:
+      return "post/role"
+    case 7:
+      return "post/moderation"
+    case 8:
+      return "post/block"
+    case 9:
+      return "post/unblock"
     default:
       return "unknown"
   }
@@ -122,7 +130,7 @@ function _getContext (obj) {
   return obj.channel
 }
 
-function determineAuthority (buf, roles, authorityTest) {
+function determineAuthority (localKp, buf, roles, authorityTest) {
   const obj = cable.parsePost(buf)
   // if the context for the post doesn't exist, for some reason, use the cabal context
   let authorityMap 
@@ -132,22 +140,24 @@ function determineAuthority (buf, roles, authorityTest) {
   } else {
     authorityMap = roles.get(constants.CABAL_CONTEXT)
   }
+
+  if (!authorityMap) {
+    return b4a.equals(obj.publicKey, localKp.publicKey)
+  }
+
   const role_ts = authorityMap.get(hex(obj.publicKey))
-  // if (role_ts && role_ts.since > obj.timestamp) {
-  //   console.log(obj, role_ts)
-  // }
   return (role_ts && authorityTest(obj, role_ts))
 }
 
 const testIsModAuthority  = (obj, role_ts) => role_ts.role !== constants.USER_FLAG && obj.timestamp >= role_ts.since
 const testIsAdmin         = (obj, role_ts) => role_ts.role === constants.ADMIN_FLAG && obj.timestamp >= role_ts.since
 
-function isApplicable (buf, roles) {
-  return determineAuthority(buf, roles, testIsModAuthority)
+function isApplicable (localKp, buf, roles) {
+  return determineAuthority(localKp, buf, roles, testIsModAuthority)
 }
 
-function isAdmin (buf, roles) {
-  return determineAuthority(buf, roles, testIsAdmin)
+function isAdmin (localKp, buf, roles) {
+  return determineAuthority(localKp, buf, roles, testIsAdmin)
 }
 
 class Ready {
