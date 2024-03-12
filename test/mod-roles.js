@@ -24,10 +24,10 @@ function toObj(post) {
   return obj
 }
 
-function annotate (rolesMap) {
+function annotate (localKp, rolesMap) {
   return (post) => {
     const obj = toObj(post)
-    const isAdmin = util.isAdmin(post, rolesMap)
+    const isAdmin = util.isAdmin(localKp, post, rolesMap)
     return { ...obj, isAdmin }
   }
 }
@@ -84,6 +84,88 @@ test("create index and make basic query", t => {
   })
 })
 
+test("testing combined example from spec (section 4.2.5.1.4 Combined example)", t => {
+  const ursula = new User() // our pov i.e. the 'local user'
+  const aleph = new User()
+  const bert = new User()
+  const channel = "test"
+
+  const posts = []
+  const push = (obj) => {
+    posts.push(obj.post)
+  }
+  // step 1
+  const u1 = assign(ursula.kp, pubKey(bert), after(now), constants.ADMIN_FLAG)
+  push(u1)
+  // step 2
+  const u2 = assign(ursula.kp, pubKey(aleph), after(u1.timestamp), constants.MOD_FLAG, channel)
+  push(u2)
+  // step 3
+  const b1 = assign(ursula.kp, pubKey(aleph), after(u2.timestamp), constants.ADMIN_FLAG)
+  push(b1)
+  // step 4
+  const u3 = assign(ursula.kp, pubKey(aleph), after(b1.timestamp), constants.USER_FLAG)
+  push(u3)
+
+  /* from spec:
+    After applying step 3, Ursula considers Aleph to have role mod in channel
+    `test` (rule *2. the local user's roles trump all other roles*) and as
+    role admin in all the other channels of the cabal (rule *3. the relevant
+    role with the most capabilities trumps roles that have lower
+    capabilities*).
+
+    After step 4, Ursula considers Aleph to have role normal user
+    in the entire cabal with the exception of channel `test` where they
+    retain their moderator role (rule *3.  The relevant role with the most
+    capabilities trumps roles that have lower capabilities* causes mod to be
+    retained in `test` due to being a relevant role and having greater
+    capabilities).
+  */
+
+  const db = new MemoryLevel({ valueEncoding: "binary" })
+  const index = createRolesIndex(db)
+  
+  const sys = new ModerationRoles(pubKeyBuf(ursula))
+  let all = sys.analyze(posts.flatMap(toObj))
+  const ops = posts.flatMap(annotate(ursula.kp, all))
+
+
+  // simulate having stored the operations by their hash. we'll query this fake database of hashes later using the
+  // hashes we get out from querying the indexes
+  const fakeHashDb = new Map()
+  ops.forEach(op => { fakeHashDb.set(util.hex(op.hash), op) })
+  index.map(ops)
+
+  index.api.getRelevantRoleHashes((err, hashes) => {
+    const opsMap = new Map()
+    opsMap.set("indexes", hashes.map(h => fakeHashDb.get(util.hex(h))))
+    opsMap.set("original", ops)
+
+    let roleMap, admins, mods, users
+    for (let [source, ops] of opsMap.entries()) {
+      all = sys.analyze(ops)
+      // on cabal context
+      roleMap = all.get(constants.CABAL_CONTEXT)
+      admins = util.getRole(roleMap, constants.ADMIN_FLAG) 
+      mods = util.getRole(roleMap, constants.MOD_FLAG)
+      users = util.getRole(roleMap, constants.USER_FLAG)
+      t.equal(admins.size, 2, `${source}: cabal admins`) // bert + ursula
+      t.equal(mods.size, 0, `${source}: cabal mods`)
+      t.equal(users.size, 1, `${source}: cabal users`)
+      // on cabal context
+      roleMap = all.get(channel)
+      admins = util.getRole(roleMap, constants.ADMIN_FLAG) 
+      mods = util.getRole(roleMap, constants.MOD_FLAG)
+      users = util.getRole(roleMap, constants.USER_FLAG)
+      t.equal(admins.size, 2, `${source}: channel admins`) // bert + ursula
+      t.equal(mods.size, 1, `${source}: channel mods`)
+      t.equal(users.size, 0, `${source}: channel users`)
+    }
+
+    t.end()
+  })
+})
+
 test("simple scenario with index comparison", t => {
   const local = new User()
   const alice = new User()
@@ -126,10 +208,10 @@ test("simple scenario with index comparison", t => {
    */
   const db = new MemoryLevel({ valueEncoding: "binary" })
   const index = createRolesIndex(db)
-  
+
   const sys = new ModerationRoles(pubKeyBuf(local))
   let all = sys.analyze(posts.flatMap(toObj))
-  const ops = posts.flatMap(annotate(all))
+  const ops = posts.flatMap(annotate(local.kp, all))
 
   // simulate having stored the operations by their hash. we'll query this fake database of hashes later using the
   // hashes we get out from querying the indexes
@@ -202,13 +284,6 @@ test("test index table `latest`", t => {
   const felicia = new User()
   const gordon = new User()
 
-  console.log("local", pubKey(local))
-  console.log("alice", pubKey(alice))
-  console.log("bob", pubKey(bob))
-  console.log("eve", pubKey(eve))
-  console.log("felicia", pubKey(felicia))
-  console.log("gordon", pubKey(gordon))
-
   const posts = []
   const push = (o) => {
     posts.push(o.post)
@@ -267,7 +342,7 @@ test("test index table `latest`", t => {
 
   const sys = new ModerationRoles(pubKeyBuf(local))
   let all = sys.analyze(posts.flatMap(toObj))
-  const ops = posts.flatMap(annotate(all))
+  const ops = posts.flatMap(annotate(local.kp, all))
 
   const adminKeys = new Set([pubKey(local), pubKey(alice), pubKey(bob)])
   const numAdminSetRows = ops.reduce((acc, curr) => {
@@ -340,7 +415,7 @@ test("index table `latest` with admin demote should cause row deletion", t => {
 
   const sys = new ModerationRoles(pubKeyBuf(local))
   let all = sys.analyze(posts.flatMap(toObj))
-  const ops = posts.flatMap(annotate(all))
+  const ops = posts.flatMap(annotate(local.kp, all))
   index.map(ops)
 
   index.api.getRelevantRoleHashes((err, hashes) => {
@@ -348,7 +423,7 @@ test("index table `latest` with admin demote should cause row deletion", t => {
     const L2 = assign(local.kp, pubKey(alice), after(L1.timestamp), constants.USER_FLAG)
     adminKeys.delete(pubKey(alice))
     index.map(posts.flatMap(annotateIsAdmin(adminKeys)))
-    index.api.demoteAdmin(pubKey(alice), (err) => {
+    index.api.demoteAdmin(pubKey(alice), constants.CABAL_CONTEXT, (err) => {
       t.error(err, "demote admin should work, no error pls")
       index.api.getRelevantRoleHashes((err, hashes) => {
         t.error(err, "no error pls")
@@ -548,7 +623,7 @@ test("basic scenario 1", t => {
   let roleMap
   const sys = new ModerationRoles(pubKeyBuf(local))
   const all = sys.analyze(posts.flatMap(toObj))
-  const ops = posts.flatMap(annotate(all))
+  const ops = posts.flatMap(annotate(local.kp, all))
 
   roleMap = all.get(constants.CABAL_CONTEXT)
   const admins = util.getRole(roleMap, constants.ADMIN_FLAG) 
@@ -623,7 +698,7 @@ test("basic scenario 2", t => {
   push(B2)
   const B3 = assign(bob.kp, pubKey(liam), after(now), constants.MOD_FLAG, channel)
   push(B3)
- 
+
   // alice -admin-> john
   const A5 = assign(alice.kp, pubKey(john), after(now), constants.ADMIN_FLAG)
   push(A5)
@@ -671,7 +746,7 @@ test("basic scenario 2", t => {
 
   const sys = new ModerationRoles(pubKeyBuf(local))
   const all = sys.analyze(posts.flatMap(toObj))
-  const ops = posts.flatMap(annotate(all))
+  const ops = posts.flatMap(annotate(local.kp, all))
 
   // cabal-wide
   roleMap = all.get(constants.CABAL_CONTEXT)
@@ -790,7 +865,7 @@ test("basic scenario 2 with indexes", t => {
 
   const sys = new ModerationRoles(pubKeyBuf(local))
   let all = sys.analyze(posts.flatMap(toObj))
-  const originalOps = posts.flatMap(annotate(all))
+  const originalOps = posts.flatMap(annotate(local.kp, all))
   // simulate having stored the operations by their hash. we'll query this fake database of hashes later using the
   // hashes we get out from querying the indexes
   const fakeHashDb = new Map()
@@ -922,7 +997,7 @@ test("basic scenario 3", t => {
 
   const sys = new ModerationRoles(pubKeyBuf(local))
   const all = sys.analyze(posts.flatMap(toObj))
-  const ops = posts.flatMap(annotate(all))
+  const ops = posts.flatMap(annotate(local.kp, all))
 
   // cabal-wide
   roleMap = all.get(constants.CABAL_CONTEXT)
