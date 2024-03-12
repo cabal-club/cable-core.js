@@ -36,6 +36,10 @@ module.exports = function (lvl, reverseIndex) {
           case constants.TOPIC_POST:
           case constants.JOIN_POST:
           case constants.LEAVE_POST:
+          case constants.ROLE_POST:
+          case constants.MODERATION_POST:
+          case constants.BLOCK_POST:
+          case constants.UNBLOCK_POST:
             // do nothing
             break
           default:

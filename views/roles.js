@@ -26,13 +26,13 @@ module.exports = function (lvl/*, reverseIndex*/) {
 				// LATEST ROLES          latest!<authorKey>!<recpKey>!<context> => <hash>
         if (msg.isAdmin) {
           keys.push({
-            key: `latest!${util.hex(msg.publicKey)}!${util.hex(msg.recipient)}!${msg.channel}`
+            key: `latest!${util.hex(msg.publicKey)}!${msg.channel}!${util.hex(msg.recipient)}`
           })
         }
 
 				// ROLES SINCE TS        all!<monots>!<authorKey>!<recpKey>!<context> => hash
         keys.push({
-          key: `all!${ts}!${util.hex(msg.publicKey)}!${util.hex(msg.recipient)}!${msg.channel}`
+          key: `all!${ts}!${util.hex(msg.publicKey)}!${msg.channel}!${util.hex(msg.recipient)}`
         })
         const hash = msg.hash
 
@@ -131,16 +131,17 @@ module.exports = function (lvl/*, reverseIndex*/) {
           cb(null, Array.from(hashes))
         })
       },
-      // demote admin removes all rows associated with them from table `latest`
-      demoteAdmin (publicKey, cb) {
+      // demoting an admin means removing all of their applied roles for a given context. in database terms, this necessitates removing all
+      // rows associated with them from table `latest`
+      demoteAdmin (publicKey, context, cb) {
         ready.call(async function () {
           debug("api.demoteAdmin")
           if (typeof cb === "undefined") { cb = noop }
           // get all keys authored by publicKey to table `latest`
           const iter = lvl.keys({
             reverse: true,
-            gt: `latest!${util.hex(publicKey)}!`,
-            lt: `latest!${util.hex(publicKey)}~`
+            gt: `latest!${util.hex(publicKey)}!${context}!`,
+            lt: `latest!${util.hex(publicKey)}!${context}~`
           })
           // delete 'em
           const keys = await iter.all()

@@ -55,14 +55,6 @@ module.exports = function (lvl, reverseIndex) {
     api: {
       get (hash, cb) {
         debug("api.get")
-        /* what we can do if we want to introduce opts:
-
-        if (typeof opts === "function") {
-          cb = opts
-          opts = {}
-        }
-        if (!opts) { opts = {} }
-*/
         ready.call(() => {
           lvl.get(hex(hash), (err, buf) => {
             if (err) { return cb(err, null) }

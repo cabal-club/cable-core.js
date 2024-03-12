@@ -181,12 +181,15 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     p = new Promise((res, rej) => {
-      this.rolesView.map([{ ...obj, hash}], res)
+      this.rolesView.map([{ ...obj, hash, isAdmin }], res)
     })
     promises.push(p)
 
     Promise.all(promises).then(() => {
       this._emitStoredPost(hash, buf, obj.channel)
+      if (isAdmin) {
+        this.emit("roles-update", { ...obj })
+      }
       done()
     })
   }
@@ -206,7 +209,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     p = new Promise((res, rej) => {
-      this.actionsView.map([{ ...obj, hash}], res)
+      this.actionsView.map([{ ...obj, hash, isApplicable }], res)
     })
     promises.push(p)
 
@@ -231,7 +234,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     p = new Promise((res, rej) => {
-      this.actionsView.map([{ ...obj, hash}], res)
+      this.actionsView.map([{ ...obj, hash, isApplicable }], res)
     })
     promises.push(p)
 
@@ -256,7 +259,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     p = new Promise((res, rej) => {
-      this.actionsView.map([{ ...obj, hash}], res)
+      this.actionsView.map([{ ...obj, hash, isApplicable }], res)
     })
     promises.push(p)
 

@@ -172,39 +172,38 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
       debug("incoming posts %O", posts)
       posts.forEach((post) => {
         const entries = []
-        let droppingUser = false
-        switch (post.action) {
-          /* concerns user */
-          case constants.ACTION_DROP_USER:
-          case constants.ACTION_UNDROP_USER:
+        if (post.postType === constants.MODERATION_POST) {
+          switch (post.action) {
+            case constants.ACTION_HIDE_USER:
+            case constants.ACTION_UNHIDE_USER:
+              pushUser(entries, post, HIDE_GROUP)
+              break
+              /* concerns channel */
+            case constants.ACTION_DROP_CHANNEL:
+            case constants.ACTION_UNDROP_CHANNEL:
+              pushChannel(entries, post, DROP_GROUP)
+              break
+              /* concerns posts */
+            case constants.ACTION_HIDE_POST:
+            case constants.ACTION_UNHIDE_POST:
+              pushPost(entries, post, HIDE_GROUP)
+              break
+            case constants.ACTION_DROP_POST:
+            case constants.ACTION_UNDROP_POST:
+              pushPost(entries, post, DROP_GROUP)
+            default:
+          }
+        } else if (post.postType === constants.BLOCK_POST || post.postType === constants.UNBLOCK_POST) {
+          let droppingUser = false
+          if (post.drop || post.undrop) {
             droppingUser = true
-          case constants.ACTION_BLOCK_USER:
-          case constants.ACTION_UNBLOCK_USER:
-            // check if a drop/undrop is occurring as well
-            pushUser(entries, post, BLOCK_GROUP)
-            if (droppingUser) {
-              // if drop also occured we also push an additional entry to track
-              pushUser(entries, post, DROP_GROUP)
-            }
-            break
-          case constants.ACTION_HIDE_USER:
-          case constants.ACTION_UNHIDE_USER:
-            pushUser(entries, post, HIDE_GROUP)
-            break
-          /* concerns channel */
-          case constants.ACTION_DROP_CHANNEL:
-          case constants.ACTION_UNDROP_CHANNEL:
-            pushChannel(entries, post, DROP_GROUP)
-            break
-          /* concerns posts */
-          case constants.ACTION_HIDE_POST:
-          case constants.ACTION_UNHIDE_POST:
-            pushPost(entries, post, HIDE_GROUP)
-            break
-          case constants.ACTION_DROP_POST:
-          case constants.ACTION_UNDROP_POST:
-            pushPost(entries, post, DROP_GROUP)
-          default:
+          }
+          // check if a drop/undrop is occurring as well
+          pushUser(entries, post, BLOCK_GROUP)
+          if (droppingUser) {
+            // if drop also occured we also push an additional entry to track
+            pushUser(entries, post, DROP_GROUP)
+          }
         }
 
         entries.forEach(entry => {

@@ -108,9 +108,27 @@ class CableCore extends EventEmitter {
     // roles in what channels
     this.rolesComputer = new ModerationRoles(this.kp.publicKey)
     this.activeRoles = new Map() // the output of `rolesComputer.analyze(operations)` will be stored in `this.activeRoles`
-    // `this.moderation` keeps track of moderation actions (post/moderation, post/block, post/unblock) are currently in place regarding
+    // `this.moderationActions` keeps track of moderation actions (post/moderation, post/block, post/unblock) are currently in place regarding
     // users, posts, channels
-    this.moderation = new ModerationSystem()
+    // TODO (2024-03-11): convert moderationActions to Map[context][ModerationSystem] ?
+    this.moderationActions = new ModerationSystem()
+
+    // get the latest moderation state and apply it
+    this.store.rolesView.api.getRelevantRoleHashes((err, hashes) => {
+      if (hashes.length === 0) { return }
+      this._getData(hashes, (err, ops) => {
+        // in-place updates `this.moderationActions`
+        this.moderationActions.process(ops)
+      })
+    })
+
+    // get the latest roles and compute the final roles applied for the local user's pov
+    this.store.actionsView.api.getAllApplied((err, hashes) => {
+      if (hashes.length === 0) { return }
+      this._getData(hashes, (err, ops) => {
+        this.activeRoles = this.rolesComputer.analyze(ops)
+      })
+    })
 
     const _emitStoredPost = (obj, hash) => {
       // TODO (2023-08-18): how to know when:
@@ -145,6 +163,97 @@ class CableCore extends EventEmitter {
           coredebug("store-post: unknown post type &d", obj.postType)
       }
     }
+
+    // obj is the json encoded post/role, with isAdmin attached
+    this.events.register("store", this.store, "roles-update", ({ recipient, channel, role }) => {
+      // we want to be able to:
+      // * diff what the user's current (prev) role is (i.e. their representation in this.rolesComputer) with their new role
+      // * discern which context the change happened in: cabal context or a channel
+
+      const updateRolesComputer = () => {
+        this.store.rolesView.api.getRelevantRoleHashes((err, hashes) => {
+          coredebug("update roles computer %d hashes returned", hashes.length)
+          if (hashes.length === 0) { return }
+          this._getData(hashes, (err, bufs) => {
+            const ops = bufs.map(cable.parsePost)
+            coredebug("returned ops %O", ops)
+            this.activeRoles = this.rolesComputer.analyze(ops)
+            coredebug("active roles %O", this.activeRoles)
+            this.emit("moderation/roles-update")
+            // TODO (2024-03-07): emit some kind of event to signal "hey, shit has changed!"
+          })
+        })
+      }
+      
+      let performDemote = false
+      const context = channel.length ? constants.CABAL_CONTEXT : channel
+      // .get(recipient) returns { role: integer, since: timestamp, [precedence] }
+      if (this.activeRoles.get(context)?.has(recipient)) {
+        const prev = this.activeRoles.get(constants.CABAL_CONTEXT).get(recipient)
+        performDemote = prev.role === constants.ADMIN_FLAG && prev.role > role
+      }
+
+      if (performDemote) { // -- full update incoming
+        this.store.rolesView.api.demoteAdmin(demotedKey, context, updateRolesComputer)
+      } else {
+      // TODO (2024-03-11): replace full replacement with more efficient (but potentially error-prone) in-place patching
+        updateRolesComputer()
+      }
+      //   // -- in place patching of activeRoles!
+      //   const newRoleTs = { role, since: timestamp, precedence: b4a.equals(authorKey, this.kp.publicKey) }
+      //
+      //   if (context === constants.CABAL_CONTEXT && role === constants.ADMIN_FLAG) {
+      //     for (const chan of this.activeRoles) {
+      //       if (this.activeRoles.has(recipient)) {
+      //         this.activeRoles.get(context).set(recipient, newRoleTs)
+      //       }
+      //     }
+      //   }
+      //
+      //   if (this.activeRoles.has(context)) {
+      //     if (this.activeRoles.get(context).has(recipient)) {
+      //       this.activeRoles.get(context).set(recipient, newRoleTs)
+      //     }
+      //   }
+      // }
+
+      // determine if full update of `this.rolesComputer` is required or if a simple patch will do 
+      // (e.g. adding a new admin is a patch as it has no far-reaching consequences yet; removing an admin has consequences)
+      //
+      // patch situations: 
+      // * user without any assigned roles is made an mod|admin
+      // * user that is a mod is made an admin
+      // * note: adding an admin on the cabal context requires patching all channels of rolesComputer
+      // * ? mod (mod->user) is demoted?
+      //
+      // full update situations:
+      // * an admin is demoted (admin->mod; admin->user) 
+      //   - should we detect this here? and then perform the sequence:
+      //   -- store.rolesView.demoteAdmin, AND THEN, once that is done
+      //   -- store.rolesView.getRelevantRoleHashes() -> resolveHashes, and finally perform 
+      //   -- rolesComputer.analyze(ops)
+      // * note: it may be the case that it's only when an admin is demoted that requires a full update; test this
+      //         thought
+      //
+      // TODO (2024-03-07): test situation where a mod at time T_1 does some moderation actions and then later at T_2 they are
+      // elevated to being an admin. their previous actions should remain applied, despite having a "newer" timestamp of
+      // when they acceded their latest role
+    })
+
+    this.events.register("store", this.store, "actions-update", (action) => {
+      // TODO (2024-03-11): introduce channel awareness to actions tracker / `ModerationSystem`
+      this.moderationActions.process([action])
+      // in core we are required to be able to track:
+      //
+      // * dropped {users, posts, channels} for knowing how to handle incoming posts
+      // * blocked users
+      // i.e. we don't need necessarily need to maintain a list of hide operations at the core level; we just need to be
+      // able to respond to clients with that information
+      // * trying to work out: should we maintain this.moderationActions?
+      //
+      // should only emit actions-update if the role had isApplicable set?
+      // _emitStoredPost(obj, hash)
+    })
 
     this.events.register("store", this.store, "channel-state-replacement", ({ channel, postType, hash }) => {
       livedebug("channel-state-replacement evt (channel: %s, postType %i, hash %O)", channel, postType, hash)
@@ -339,6 +448,14 @@ class CableCore extends EventEmitter {
     return buf
   }
 
+  assignRole(recipient, channel, timestamp, role, reason, privacy, done) {
+    if (!done) { done = util.noop }
+    const links = [] /*this._links(channel)*/
+    const buf = cable.ROLE_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, timestamp, b4a.from(recipient, "hex"), role, reason, privacy)
+    this.store.role(buf, done)
+    return buf
+  }
+
   /* methods to get data we already have locally */
   getChat(channel, start, end, limit, cb) {
     coredebug(channel, start, end, limit, cb)
@@ -437,6 +554,15 @@ class CableCore extends EventEmitter {
         cb(null, channelUsers)
       })
     })
+  }
+
+  getRoles(channel) {
+    const context = channel === "" ? constants.CABAL_CONTEXT : channel
+    const emptyRoles = new Map()
+    if (this.activeRoles.has(context)) {
+      return this.activeRoles.get(context)
+    }
+    return emptyRoles
   }
 
   // resolves hashes into post objects. note: all post objects that are returned from cable-core will have their buffer
@@ -918,16 +1044,16 @@ class CableCore extends EventEmitter {
             this.store.leave(buf, () => { res() })
             break
           case constants.ROLE_POST:
-            this.store.role(buf, util.isAdmin(buf, this.activeRoles), () => { res() })
+            this.store.role(buf, util.isAdmin(this.kp, buf, this.activeRoles), () => { res() })
             break
           case constants.MODERATION_POST:
-            this.store.moderation(buf, util.isApplicable(buf, this.activeRoles), () => { res() })
+            this.store.moderation(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
             break
           case constants.BLOCK_POST:
-            this.store.block(buf, util.isApplicable(buf, this.activeRoles), () => { res() })
+            this.store.block(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
             break
           case constants.UNBLOCK_POST:
-            this.store.unblock(buf, util.isApplicable(buf, this.activeRoles), () => { res() })
+            this.store.unblock(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
             break
           default:
             rej()
