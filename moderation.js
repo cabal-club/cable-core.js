@@ -198,6 +198,7 @@ class ModerationRoles {
     const channelTrackers = new Map()
 
     const getTracker = (channelContext) => {
+      channelContext = channelContext || constants.CABAL_CONTEXT
       if (!channelTrackers.has(channelContext)) { channelTrackers.set(channelContext, new RoleTracker(this.localKeyBuf, localAssignedKeys)) }
       if (channelContext === constants.CABAL_CONTEXT) { return cabal }
       return channelTrackers.get(channelContext)
@@ -206,7 +207,7 @@ class ModerationRoles {
     // all newly assigned admins are added to this set. it is initially seeded with the local user's admins
     const newAdmins = new Set()
 
-    const op2role = (op) => { return new Role(op.publicKey, op.recipient, op.timestamp, op.role, op.channel) }
+    const op2role = (op) => { return new Role(op.publicKey, op.recipient, op.timestamp, op.role, op.channel === "" ? constants.CABAL_CONTEXT : op.channel) }
     const localAssignments = operations.filter(op => {
       return b4a.equals(op.publicKey, this.localKeyBuf)
     }).map(op2role)
@@ -238,7 +239,7 @@ class ModerationRoles {
           //
           // rationale: in determineRoles we use the information of which admin added a particular user as a role, and performing this hack
           // repairs the gap between channel-wide roles and cabal-wide roles
-          if (role.channel !== constants.CABAL_CONTEXT && cabal.adminRoles.has(role.author)) {
+          if ((role.channel !== constants.CABAL_CONTEXT || role.channel !== "") && cabal.adminRoles.has(role.author)) {
             tracker.addRole(cabal.adminRoles.get(role.author))
           }
 
@@ -283,30 +284,55 @@ function timeCmp(a, b) {
 }
 
 class ModerationSystem {
-  recipients = new Map()
-  posts = new Map()
-  channels = new Map()
+  contextTracker = new Map()
+
+  getContextTracker(context) {
+    if (context === "") { context = constants.CABAL_CONTEXT }
+    if (this.contextTracker.has(context)) { return this.contextTracker.get(context) }
+    const recipients = new Map()
+    const posts = new Map()
+    const channels = new Map()
+    this.contextTracker.set(context, { recipients, posts, channels })
+    return this.contextTracker.get(context)
+  }
 
   process (actions) {
     let activeMap
     actions.sort(timeCmp).forEach(action => {
       let recipients 
-      switch (action.action) {
-        case constants.ACTION_HIDE_POST:
-        case constants.ACTION_UNHIDE_POST:
-        case constants.ACTION_DROP_POST:
-        case constants.ACTION_UNDROP_POST:
-          recipients = action.recipients.map(util.hex)
-          activeMap = this.posts
-          break
-        case constants.ACTION_DROP_CHANNEL:
-        case constants.ACTION_UNDROP_CHANNEL:
-          recipients = [action.channel]
-          activeMap = this.channels
-          break
-        default:
-          recipients = action.recipients.map(util.hex)
-          activeMap = this.recipients
+
+      let tracker
+      if (action.hasOwnProperty("channel")) {
+        tracker = this.getContextTracker(action.channel)
+      } else if (action.postType === constants.BLOCK_POST || action.postType === constants.UNBLOCK_POST) {
+        // block/unblock don't have a channel property -> apply to entire cabal
+        tracker = this.getContextTracker(constants.CABAL_CONTEXT)
+        recipients = action.recipients.map(util.hex)
+        activeMap = tracker.recipients
+      }
+
+      if (action.postType === constants.MODERATION_POST) {
+        switch (action.action) {
+          case constants.ACTION_HIDE_POST:
+          case constants.ACTION_UNHIDE_POST:
+          case constants.ACTION_DROP_POST:
+          case constants.ACTION_UNDROP_POST:
+            recipients = action.recipients.map(util.hex)
+            activeMap = tracker.posts
+            break
+          case constants.ACTION_DROP_CHANNEL:
+          case constants.ACTION_UNDROP_CHANNEL:
+            // dropping channels only makes sense in terms of the cabal context: use that tracker instead of the channel property
+            tracker = this.getContextTracker(constants.CABAL_CONTEXT)
+            recipients = [action.channel]
+            activeMap = tracker.channels
+            break
+          case constants.ACTION_HIDE_USER:
+          case constants.ACTION_UNHIDE_USER:
+            recipients = action.recipients.map(util.hex)
+            activeMap = tracker.recipients
+            break
+        }
       }
 
       for (const recipient of recipients) {
@@ -317,33 +343,35 @@ class ModerationSystem {
         } else {
           u = activeMap.get(recipient)
         }
-        switch (action.action) {
-          case constants.ACTION_BLOCK_USER:
-            u.block()
-            break
-          case constants.ACTION_UNBLOCK_USER:
-            u.unblock()
-            break
-          case constants.ACTION_DROP_CHANNEL:
-          case constants.ACTION_DROP_POST:
-          case constants.ACTION_DROP_USER:
-            u.drop()
-            break
-          case constants.ACTION_UNDROP_CHANNEL:
-          case constants.ACTION_UNDROP_POST:
-          case constants.ACTION_UNDROP_USER:
-            u.undrop()
-            break
-          case constants.ACTION_HIDE_POST:
-          case constants.ACTION_HIDE_USER:
-            u.hide()
-            break
-          case constants.ACTION_UNHIDE_POST:
-          case constants.ACTION_UNHIDE_USER:
-            u.unhide()
-            break
-          default:
-            return new Error("moderation system: unknown action constant")
+        if (action.postType === constants.MODERATION_POST) {
+          switch (action.action) {
+            case constants.ACTION_DROP_CHANNEL:
+            case constants.ACTION_DROP_POST:
+            case constants.ACTION_DROP_USER:
+              u.drop()
+              break
+            case constants.ACTION_UNDROP_CHANNEL:
+            case constants.ACTION_UNDROP_POST:
+            case constants.ACTION_UNDROP_USER:
+              u.undrop()
+              break
+            case constants.ACTION_HIDE_POST:
+            case constants.ACTION_HIDE_USER:
+              u.hide()
+              break
+            case constants.ACTION_UNHIDE_POST:
+            case constants.ACTION_UNHIDE_USER:
+              u.unhide()
+              break
+            default:
+              return new Error("moderation system: unknown action constant")
+          }
+        } else if (action.postType === constants.BLOCK_POST) {
+          if (action.drop) { u.drop() }
+          u.block()
+        } else if (action.postType === constants.UNBLOCK_POST) {
+          if (action.undrop) { u.undrop() }
+          u.unblock()
         }
         activeMap.set(recipient, u)
       }
@@ -355,34 +383,33 @@ class ModerationSystem {
       return u.isHidden() ? recp : null
     }).filter(u => u)
   }
+
   #getDropped(map) {
     return [...map].map(([recp, u]) => {
       return u.isDropped() ? recp : null
     }).filter(u => u)
   }
-  // TODO (2024-03-05): add functionality to get <state'd> users in a channel, or if empty: the cabal context
-  // 
-  // perhaps it should rather be: one instance of ModerationSystem per channel? can also just get all and then filter
-  // based on channel
-  getHiddenUsers() {
-    return this.#getHidden(this.recipients)
+
+  getHiddenUsers(context) {
+    return this.#getHidden(this.getContextTracker(context).recipients)
+  }
+  getDroppedPosts(context) {
+    return this.#getDropped(this.getContextTracker(context).posts)
+  }
+  getHiddenPosts(context) {
+    return this.#getHidden(this.getContextTracker(context).posts)
   }
   getDroppedChannels() {
-    return this.#getDropped(this.channels)
+    return this.#getDropped(this.getContextTracker(constants.CABAL_CONTEXT).channels)
   }
   getDroppedUsers() {
-    return this.#getDropped(this.recipients)
-  }
-  getDroppedPosts() {
-    return this.#getDropped(this.posts)
+    return this.#getDropped(this.getContextTracker(constants.CABAL_CONTEXT).recipients)
   }
   getBlockedUsers() {
-    return [...this.recipients].map(([recp, u]) => {
+    const recipients = this.getContextTracker(constants.CABAL_CONTEXT).recipients
+    return [...recipients].map(([recp, u]) => {
       return u.isBlocked() ? recp : null
     }).filter(u => u)
-  }
-  getHiddenPosts() {
-    return this.#getHidden(this.posts)
   }
 }
 

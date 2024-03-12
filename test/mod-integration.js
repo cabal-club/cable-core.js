@@ -5,7 +5,6 @@ const { MemoryLevel } = require("memory-level")
 const createRolesIndex = require("../views/roles.js")
 const createActionsIndex = require("../views/actions.js")
 const { ModerationRoles, ModerationSystem } = require("../moderation.js")
-// TODO (2024-02-19): replace with released cable.js/ version
 const constants = require("cable.js/constants.js")
 const cable = require("cable.js/index.js")
 const crypto = require("cable.js/cryptography.js")
@@ -15,11 +14,11 @@ const { annotateIsAdmin, before, after, between, User } = require("./moderation-
 const pubKey = (recp) => recp.kp.publicKey
 const now = +(new Date())
 
-function annotateIsApplicable(all) {
+function annotateIsApplicable(localKp, all) {
   return (post) => {
     const obj = cable.parsePost(post)
     obj.hash = crypto.hash(post)
-    const isApplicable = util.isApplicable(post, all)
+    const isApplicable = util.isApplicable(localKp, post, all)
     return {...obj, isApplicable }
   }
 }
@@ -180,10 +179,10 @@ test("integration test across cable.js/ and moderation system", t => {
     return obj
   }
 
-  function annotate (rolesMap) {
+  function annotate (localKp, rolesMap) {
     return (post) => {
       const obj = toObj(post)
-      const isAdmin = util.isAdmin(post, rolesMap)
+      const isAdmin = util.isAdmin(localKp, post, rolesMap)
       return { ...obj, isAdmin }
     }
   }
@@ -192,7 +191,7 @@ test("integration test across cable.js/ and moderation system", t => {
   const roleOps = assignments.flatMap(toObj)
   const all = sys.analyze(roleOps)
   // annotate operations with `isAdmin` which is used as information by view `roles` indexing
-  const annotatedOps = assignments.flatMap(annotate(all))
+  const annotatedOps = assignments.flatMap(annotate(local.kp, all))
 
   // ingest role ops into fakeHashDb
   annotatedOps.forEach((op) => { fakeHashDb.set(util.hex(op.hash), op) })
@@ -208,7 +207,7 @@ test("integration test across cable.js/ and moderation system", t => {
     const mods = util.getRole(roleMap, constants.MOD_FLAG)
     t.equal(mods.size, 1, "should have one mod")
 
-    const actionOps = actionPosts.flatMap(annotateIsApplicable(all))
+    const actionOps = actionPosts.flatMap(annotateIsApplicable(local.kp, all))
     // ingest action ops into fakeHashDb
     actionOps.forEach(op => { 
       if (op) { fakeHashDb.set(util.hex(op.hash), op) }
@@ -226,17 +225,18 @@ test("integration test across cable.js/ and moderation system", t => {
 
       const state = new ModerationSystem()
       state.process(ops)
-      const hidden = state.getHiddenUsers()
       const dropped = state.getDroppedUsers()
       const blocked = state.getBlockedUsers()
-      const hiddenPosts = state.getHiddenPosts()
-      const droppedPosts = state.getDroppedPosts()
+      const hidden = state.getHiddenUsers(constants.CABAL_CONTEXT)
+      const hiddenPosts = state.getHiddenPosts(channel)
+      const droppedPosts = state.getDroppedPosts(channel)
+      console.log(state)
       const droppedChannels = state.getDroppedChannels()
 
-      t.equal(droppedChannels.length, 1, "one channel should be dropped")
-      t.equal(droppedPosts.length, 1, "one post should be dropped")
-      t.equal(hiddenPosts.length, 2, "two posts should be hidden")
-      t.equal(dropped.length, 0, "should have no dropped user")
+      t.equal(droppedChannels.length, 1, "1 channel should be dropped")
+      t.equal(droppedPosts.length, 1, "1 post should be dropped")
+      t.equal(hiddenPosts.length, 2, "2 posts should be hidden")
+      t.equal(dropped.length, 1, "should have 1 dropped user")
       t.equal(hidden.length, 1, "should have 1 hidden user")
       t.equal(blocked.length, 1, "should have 1 blocked user")
       t.equal(hidden[0], util.hex(pubKey(felicia)), "felicia should be hidden")
