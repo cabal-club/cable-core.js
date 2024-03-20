@@ -58,7 +58,7 @@ class EventsManager {
     if (!this.sources.has(id)) { return }
     const { source, listener } = this.sources.get(id)
     debug("deregister listener %s", id)
-    source.removeEventListener(eventName, listener)
+    source.removeListener(eventName, listener)
     this.sources.delete(id)
   }
 }
