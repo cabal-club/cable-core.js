@@ -104,6 +104,17 @@ function hex (input) {
   return b4a.toString(input, "hex")
 }
 
+function transformUserRoleMapScheme (activeRoles) {
+  const userMap = new Map()
+  for (const [context, pubkeyMap] of activeRoles) {
+    for (const [pubkey, roleTs] of pubkeyMap) {
+      if (!userMap.has(pubkey)) { userMap.set(pubkey, new Map()) }
+      userMap.get(pubkey).set(context, roleTs.role)
+    }
+  }
+  return userMap
+}
+
 /* used by moderation tests and functionality */
 function getRole(map, role) {
   const keys = new Set()
@@ -172,10 +183,13 @@ class Ready {
   }
 
   increment() {
+    this.debug("incr")
     this.unprocessedBatches++
   }
   decrement() {
+    this.debug("decr")
     this.unprocessedBatches--
+    if (this.unprocessedBatches <= 0) { this.call() }
   }
   
   call (cb) {
@@ -184,6 +198,7 @@ class Ready {
     if (!cb) cb = function () {}
     // we can process the queue
     if (this.unprocessedBatches <= 0) {
+      this.debug("ready firing!")
       for (let fn of this.queue) { fn() }
       this.queue = []
       return cb()
@@ -201,6 +216,7 @@ module.exports = {
   hex,
   getRole,
   getSmallestValidTime, 
+  transformUserRoleMapScheme,
   Ready,
   isAdmin,
   isApplicable

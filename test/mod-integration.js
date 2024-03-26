@@ -215,12 +215,12 @@ test("integration test across cable.js/ and moderation system", t => {
     actions.map(actionOps)
 
     actions.api.getAllApplied((err, actionHashes) => {
-      const ops = actionHashes.map(h => fakeHashDb.get(h))
+      const ops = actionHashes.map(h => fakeHashDb.get(util.hex(h)))
       // construct a little graph of applied mod actions using action ops
       t.error(err, "should have no error")
       t.equal(actionHashes.length, expectedHashes.size, "applied hashes from index should be same as expected hashes")
       actionHashes.forEach(h => {
-        t.true(expectedHashes.has(h), `applied hash '${h}' should be an expected hash`)
+        t.true(expectedHashes.has(util.hex(h)), `applied hash '${h}' should be an expected hash`)
       })
 
       const state = new ModerationSystem()

@@ -35,6 +35,7 @@ class LiveQueries extends EventEmitter {
   // requests which have a live query component:
   // * TIME_RANGE_REQUEST (channel time range request)
   // * CHANNEL_STATE_REQUEST (channel state request) -- has no limit to updates!
+  // * MODERATION_STATE_REQUEST (moderation state request) -- has no limit to updates AND has multiple channels in the same request
   // that's it!
   //
   // _addLiveStateRequest maps a channel name to one of potentially many ongoing "live" requests
@@ -50,12 +51,15 @@ class LiveQueries extends EventEmitter {
     livedebug("track %s", reqidHex)
 
     // a potentially rascally attempt to fuck shit up; abort
-    if (channel === REQID_TO_CHANNELS) { return } 
+    if (channel === REQID_TO_CHANNELS) { return }
 
+    // `reqidMap`, due to moderation state request operating on many channels in a single request, maps each request to
+    // a set of channels (as opposed to a single channel as is the case for the live queries in the other cases)
     const reqidMap = this.liveQueries.get(REQID_TO_CHANNELS)
     if (!reqidMap.has(reqidHex)) {
-      reqidMap.set(reqidHex, channel)
+      reqidMap.set(reqidHex, new Set())
     }
+    reqidMap.get(reqidHex).add(channel)
 
     if (!this.liveQueries.has(channel)) {
       this.liveQueries.set(channel, [])
@@ -97,31 +101,35 @@ class LiveQueries extends EventEmitter {
 
   cancelLiveStateRequest(reqidHex) {
     livedebug("cancel live state request for reqid %s", reqidHex)
-    const channel = this.liveQueries.get(REQID_TO_CHANNELS).get(reqidHex)
-    if (!channel) {
+    const channelSet = this.liveQueries.get(REQID_TO_CHANNELS).get(reqidHex)
+    if (!channelSet) {
       livedebug("cancel live request could not find channel for reqid %s", reqidHex)
       return
     }
-    let channelQueries = this.liveQueries.get(channel)
-    if (!channelQueries) { 
-      livedebug("channel queries was empty for channel %s (reqid %s)", channel, reqidhex)
-      return
-    }
-    const index = channelQueries.findIndex(item => item.reqid === reqidHex)
-    if (index < 0) {
-      livedebug("cancel live request could not find entry for reqid %s", reqidHex)
-      return 
-    }
-    // remove the entry tracking this particular req_id: delete 1 item at `index`
-    channelQueries.splice(index, 1)
+    // iterating over the channel set is caused by moderation state request operating on multiple channels in the same
+    // request
+    for (const channel of channelSet) {
+      let channelQueries = this.liveQueries.get(channel)
+      if (!channelQueries) { 
+        livedebug("channel queries was empty for channel %s (reqid %s)", channel, reqidHex)
+        continue
+      }
+      const index = channelQueries.findIndex(item => item.reqid === reqidHex)
+      if (index < 0) {
+        livedebug("cancel live request could not find entry for reqid %s", reqidHex)
+        continue
+      }
+      // remove the entry tracking this particular req_id: delete 1 item at `index`
+      channelQueries.splice(index, 1)
 
-    // there are no longer any live queries being tracked for `channel`, stop tracking it
-    if (channelQueries.length === 0) {
-      this.liveQueries.delete(channel)
-    } else {
-      this.liveQueries.set(channel, channelQueries)
+      // there are no longer any live queries being tracked for `channel`, stop tracking it
+      if (channelQueries.length === 0) {
+        this.liveQueries.delete(channel)
+      } else {
+        this.liveQueries.set(channel, channelQueries)
+      }
+      this.liveQueries.get(REQID_TO_CHANNELS).get(reqidHex).delete(channel)
     }
-    this.liveQueries.get(REQID_TO_CHANNELS).delete(reqidHex)
   }
 
   // this function is part of "live query" behaviour of the channel state request (when future = 1) 
@@ -145,6 +153,18 @@ class LiveQueries extends EventEmitter {
           case constants.INFO_POST:
           case constants.JOIN_POST:
           case constants.LEAVE_POST:
+            // we want to continue in these cases
+            break
+          default: 
+            // the post that was emitted wasn't relevant for request type; skip
+            return
+        }
+      } else if (reqType === constants.MODERATION_STATE_REQUEST) {
+        switch (postType) {
+          case constants.BLOCK_POST:
+          case constants.UNBLOCK_POST:
+          case constants.MODERATION_POST:
+          case constants.ROLE_POST:
             // we want to continue in these cases
             break
           default: 

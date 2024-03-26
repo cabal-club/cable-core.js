@@ -6,7 +6,7 @@ const EventEmitter = require('events').EventEmitter
 const viewName = "mod:actions"
 const debug = require("debug")(`core:${viewName}`)
 const b4a = require("b4a")
-const util = require("cable-core/util.js")
+const util = require("../util.js")
 const monotonicTimestamp = util.monotonicTimestamp()
 const constants = require("cable.js/constants.js")
 
@@ -146,7 +146,7 @@ function getComparator(key) {
 module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
   const events = new EventEmitter()
   const ready = new util.Ready(viewName)
-
+	debug("init getLocalKey", getLocalKey)
   const conditionallyEmitApplyEvt = (key, post) => {
     switch (key.split("!")[0]) {
       case PREFIX_APPLIED:
@@ -335,7 +335,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
           })
           const values = await iter.all()
           const hashes = values.map(encoded => splitValue(encoded).hash)
-          const deduped = Array.from(new Set(hashes))
+          const deduped = Array.from(new Set(hashes)).map(h => b4a.from(h, "hex"))
           cb(null, deduped) 
         })
       },
@@ -352,11 +352,11 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
           const hashes = await lvl.getMany(values)
           // split out the hash values from the composite key, and run it through Set to make sure we only return unique
           // hashes
-          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).hash)))
+          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).hash))).map(h => b4a.from(h, "hex"))
           cb(null, deduped)
         })
       },
-      getRelevantbyContextsSince (tsSince, validContexts, cb) {
+      getRelevantByContextsSince (tsSince, validContexts, cb) {
         ready.call(async function () {
           debug("api.getAllRelevantSince")
           // we use "time!<context>!<ts>" to index "relevant!"-index keys by timestamp. 
@@ -379,7 +379,7 @@ module.exports = function (lvl, getLocalKey, /*, reverseIndex*/) {
           const hashes = await lvl.getMany(values)
           // split out the hash values from the composite key, and run it through Set to make 
           // sure we only return unique hashes
-          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).hash)))
+          const deduped = Array.from(new Set(hashes.map(encoded => splitValue(encoded).hash))).map(h => b4a.from(h, "hex"))
           cb(null, deduped)
         })
       },

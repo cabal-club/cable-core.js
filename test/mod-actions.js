@@ -144,7 +144,7 @@ test("local precedence test", t => {
     t.error(err, "should have no error")
     t.equal(hashes.length, expectedHashes.size, "applied hashes from index should be same as expected hashes")
     hashes.forEach(h => {
-      t.true(expectedHashes.has(h), "applied hash should be an expected hash")
+      t.true(expectedHashes.has(util.hex(h)), "applied hash should be an expected hash")
     })
     t.end()
   })
@@ -208,7 +208,7 @@ test("mix of moderation actions from authorized and unauthorized users", t => {
     t.error(err, "should have no error")
     t.equal(hashes.length, expectedHashCount, "applied hashes from index should be same as expected hashes")
     hashes.forEach(h => {
-      t.true(expectedHashes.has(h), "applied hash should be an expected hash")
+      t.true(expectedHashes.has(util.hex(h)), "applied hash should be an expected hash")
     })
     index.api.getAllRelevantSince(before(now), (err, hashes) => {
       t.equal(hashes.length, relevantHashCount, "returned relevant hash count should match expected count")
@@ -254,7 +254,7 @@ test("exercise changes in latest relevant action for the same set of author-reci
     t.error(err, "should have no error")
     t.equal(hashes.length, 1, "# relevant hashes from index should be: 1")
     hashes.forEach(h => {
-      t.equal(h, util.hex(o1.hash), "relevant hash should be an expected hash")
+      t.equal(util.hex(h), util.hex(o1.hash), "relevant hash should be an expected hash")
     })
 
     // now ingest the second operation, which should entirely supercede the first operation
@@ -268,7 +268,7 @@ test("exercise changes in latest relevant action for the same set of author-reci
     index.api.getAllRelevantSince(ts, (err, hashes) => {
       t.equal(hashes.length, 1, "# relevant hashes from index should be: 1")
       hashes.forEach(h => {
-        t.equal(h, util.hex(o2.hash), "relevant hash should be an expected hash")
+        t.equal(util.hex(h), util.hex(o2.hash), "relevant hash should be an expected hash")
       })
       t.end()
     })
@@ -320,11 +320,11 @@ test("relevant action across a set of channels should only be returned for the q
   index.map(ops)
 
   const ts = before(now)
-  index.api.getRelevantbyContextsSince(ts, channels, (err, hashes) => {
+  index.api.getRelevantByContextsSince(ts, channels, (err, hashes) => {
     t.error(err, "should have no error")
     t.equal(hashes.length, expectedHashes.size, "relevant hashes from index should be same as expected hashes")
     hashes.forEach(h => {
-      t.true(expectedHashes.has(h), "relevant hash should be an expected hash")
+      t.true(expectedHashes.has(util.hex(h)), "relevant hash should be an expected hash")
     })
     t.end()
   })

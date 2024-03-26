@@ -32,6 +32,8 @@ const BLOCK_POST = cable.BLOCK_POST
 const UNBLOCK_POST = cable.UNBLOCK_POST
 
 class CableCore extends EventEmitter {
+  #moderationReady
+
   constructor(level, opts) {
     super()
     if (!opts) { opts = {} }
@@ -82,7 +84,7 @@ class CableCore extends EventEmitter {
 
     this.events = new EventsManager()
 
-    this.store = new CableStore(level, { storage: opts.storage})
+    this.store = new CableStore(level, this.kp.publicKey, { storage: opts.storage })
     /* used as: 
      * store a join message:
      * store.join(buf) 
@@ -104,29 +106,53 @@ class CableCore extends EventEmitter {
     this._defaultTTL = 0
     this.live = new LiveQueries(this)
 
-    // call rolesComputer.analyze(<all relevant post/role operations>) to receive back a map of which users have which
-    // roles in what channels
+    // call rolesComputer.analyze(<all relevant post/role operations>) to receive a map of which users have which roles
+    // in what channels (or on the cabal itself) for the entire cabal
     this.rolesComputer = new ModerationRoles(this.kp.publicKey)
-    this.activeRoles = new Map() // the output of `rolesComputer.analyze(operations)` will be stored in `this.activeRoles`
-    // `this.moderation` keeps track of moderation actions (post/moderation, post/block, post/unblock) across channel contexts with methods to get state regarding
+    // `this.activeRoles = rolesComputer.analyze(operations)` i.e. analyze's output will be stored in `this.activeRoles`
+    this.activeRoles = new Map() 
+    // `this.moderationActions` keeps track of moderation actions (post/moderation, post/block, post/unblock) across channel contexts with methods to get state regarding
     // users, posts, and channels
-    this.moderation = new ModerationSystem()
+    this.moderationActions = new ModerationSystem()
 
+    this.#moderationReady = new util.Ready("moderation")
+    this.#moderationReady.increment()
     // get the latest moderation state and apply it
     this.store.rolesView.api.getRelevantRoleHashes((err, hashes) => {
-      if (hashes.length === 0) { return }
-      this._getData(hashes, (err, ops) => {
-        // updates `this.moderation` in-place
-        this.moderation.process(ops)
+      if (err || hashes.length === 0) { 
+        // if we have no roles set let's operate on nothing to set the local user as a default admin in all known
+        // channels
+        this.activeRoles = this.rolesComputer.analyze([])
+        return this.#moderationReady.decrement()
+      }
+      this._getData(hashes, (err, bufs) => {
+				const ops = bufs.map(cable.parsePost)
+        this.activeRoles = this.rolesComputer.analyze(ops)
+        this.#moderationReady.decrement()
       })
     })
 
     // get the latest roles and compute the final roles applied for the local user's pov
+    this.#moderationReady.increment()
     this.store.actionsView.api.getAllApplied((err, hashes) => {
-      if (hashes.length === 0) { return }
-      this._getData(hashes, (err, ops) => {
-        this.activeRoles = this.rolesComputer.analyze(ops)
+      if (err || hashes.length === 0) {
+        coredebug("first read moderation actions ops length 0 (err = %O)", err)
+        return this.#moderationReady.decrement()
+      }
+      this._getData(hashes, (err, bufs) => {
+				const ops = bufs.map(cable.parsePost)
+        coredebug("first read moderation actions ops %O", ops)
+        this.moderationActions.process(ops)
+        this.#moderationReady.decrement()
+				coredebug("moderation actions done", this.moderationActions)
       })
+    })
+
+    this.#moderationReady.call(() => {
+      // event `moderation/init` signals that anything and everything moderation has finished initializing and can be
+      // relied on :]
+			coredebug("FIRE MOD")
+      this._emitModeration("init")
     })
 
     const _emitStoredPost = (obj, hash) => {
@@ -159,10 +185,18 @@ class CableCore extends EventEmitter {
           this._emitChannels("leave", { channel: obj.channel, publicKey })
           break
         case constants.ROLE_POST:
+          this._emitModeration("role", { publicKey, role: obj.role, recipient: util.hex(obj.recipient), reason: obj.reason,
+            channel: obj.channel || constants.CABAL_CONTEXT })
+          break
         case constants.MODERATION_POST:
+          this._emitModeration("action", { publicKey, action: obj.action, recipients: obj.recipients.map(util.hex), 
+            reason: obj.reason, channel: obj.channel || constants.CABAL_CONTEXT })
+          break
         case constants.BLOCK_POST:
+          this._emitModeration("block", { publicKey, recipients: obj.recipients.map(util.hex), reason: obj.reason })
+          break
         case constants.UNBLOCK_POST:
-          coredebug("store-post: moderation post type %d (todo: emit events for cable-client)", obj.postType)
+          this._emitModeration("unblock", { publicKey, recipients: obj.recipients.map(util.hex), reason: obj.reason })
           break
         default:
           coredebug("store-post: unknown post type %d", obj.postType)
@@ -184,8 +218,7 @@ class CableCore extends EventEmitter {
             coredebug("returned ops %O", ops)
             this.activeRoles = this.rolesComputer.analyze(ops)
             coredebug("active roles %O", this.activeRoles)
-            this.emit("moderation/roles-update")
-            // TODO (2024-03-07): emit some kind of event to signal "hey, shit has changed!"
+            this._emitModeration("roles-update", util.transformUserRoleMapScheme(this.activeRoles))
           })
         })
       }
@@ -246,8 +279,8 @@ class CableCore extends EventEmitter {
     })
 
     this.events.register("store", this.store, "actions-update", (action) => {
-      this.moderation.process([action])
-      this.emit("moderation/actions-update")
+      this.moderationActions.process([action])
+      this._emitModeration("actions-update", action)
       // in core we are required to be able to track:
       //
       // * dropped {users, posts, channels} for knowing how to handle incoming posts
@@ -276,7 +309,7 @@ class CableCore extends EventEmitter {
     })
 
     this.events.register("store", this.store, "store-post", ({ obj, channel, timestamp, hash, postType }) => {
-      coredebug("store post evt, post type: %d", postType)
+      coredebug("store post evt [%s], post type: %d", channel, postType)
       this.live.sendLiveHashResponse(channel, postType, [hash], timestamp)
      
       _emitStoredPost(obj, hash)
@@ -296,6 +329,9 @@ class CableCore extends EventEmitter {
   }
   _emitChat(eventName, obj) {
     this.emit(`chat/${eventName}`, obj)
+  }
+  _emitModeration(eventName, obj) {
+    this.emit(`moderation/${eventName}`, obj)
   }
 
   /* event sources */
@@ -410,6 +446,7 @@ class CableCore extends EventEmitter {
 
 	// post/join
 	join(channel, done) {
+    coredebug("join channel %s", channel)
     if (!done) { done = util.noop }
     const links = this._links(channel)
     const buf = JOIN_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, util.timestamp())
@@ -456,6 +493,73 @@ class CableCore extends EventEmitter {
     const buf = cable.ROLE_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, timestamp, b4a.from(recipient, "hex"), role, reason, privacy)
     this.store.role(buf, util.isAdmin(this.kp, buf, this.activeRoles), done)
     return buf
+  }
+
+  moderatePosts (postids, action, reason, privacy, timestamp, done) {
+    if (!done) { done = util.noop }
+		switch (action) {
+			case constants.ACTION_HIDE_POST:
+			case constants.ACTION_UNHIDE_POST:
+			case constants.ACTION_DROP_POST:
+			case constants.ACTION_UNDROP_POST:
+				break
+			default:
+				throw new Error("`action` was not related to acting on a post")
+		}
+    const channel = ""
+    const recipients = postids.map(pid => b4a.from(pid, "hex"))
+    const links = [] /*this._links(channel)*/
+    const buf = cable.MODERATION_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, timestamp, recipients, action, reason, privacy)
+    this.store.moderation(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
+    return buf
+  }
+
+  moderateChannel (channel, action, reason, privacy, timestamp, done) {
+		if (!done) { done = util.noop }
+		switch (action) {
+			case constants.ACTION_DROP_CHANNEL:
+			case constants.ACTION_UNDROP_CHANNEL:
+				break
+			default:
+				throw new Error("`action` was not related to acting on a channel")
+		}
+    const recipients = []
+    const links = [] /*this._links(channel)*/
+    const buf = cable.MODERATION_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, timestamp, recipients, action, reason, privacy)
+    this.store.moderation(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
+    return buf
+  }
+
+  blockUsers (recipients, drop, notify, reason, privacy, timestamp, done) {
+    if (!done) { done = util.noop }
+    const links = [] /*this._links(channel)*/
+		const buf = cable.BLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipients, drop, notify, reason, privacy)
+		this.store.block(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
+		return buf
+	}
+
+  unblockUsers (recipients, undrop, reason, privacy, timestamp, done) {
+    if (!done) { done = util.noop }
+    const links = [] /*this._links(channel)*/
+		const buf = cable.UNBLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipients, undrop, reason, privacy)
+		this.store.unblock(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
+		return buf
+	}
+
+  moderateUsers (recipients, channel, action, reason, privacy, timestamp, done) {
+		if (!done) { done = util.noop }
+		switch (action) {
+			case constants.ACTION_HIDE_USER:
+			case constants.ACTION_UNHIDE_USER:
+				break
+			default:
+				throw new Error("`action` was not related to hiding/unhiding a user")
+		}
+    const recipientsBufs = recipients.map(uid => b4a.from(uid, "hex"))
+		const links = [] /*this._links(channel)*/
+		const buf = cable.MODERATION_POST.create(this.kp.publicKey, this.kp.secretKey, links, channel, timestamp, recipientsBufs, action, reason, privacy)
+		this.store.moderation(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
+		return buf
   }
 
   /* methods to get data we already have locally */
@@ -511,14 +615,13 @@ class CableCore extends EventEmitter {
       coredebug("err %O", err)
       coredebug("public keys %O", publicKeys)
       const users = new Map()
-      // set name equivalent to be hex of public key initially
+      // set placeholder defaults for all known public keys
       publicKeys.forEach(publicKey => {
-        const hex = util.hex(publicKey) 
-        users.set(hex, hex)
+        users.set(util.hex(publicKey), { name: "", acceptRole: constants.INFO_DEFAULT_ACCEPT_ROLE })
       })
-      this.store.userInfoView.api.getLatestInfoHashAllUsers((err, latestNameHashes) => {
+      this.store.userInfoView.api.getLatestInfoHashAllUsers((err, latestInfoHashes) => {
         if (err) return cb(err)
-        this.resolveHashes(latestNameHashes, (err, posts) => {
+        this.resolveHashes(latestInfoHashes, (err, posts) => {
           // TODO (2023-09-06): handle post/info deletion and storing null?
           posts.filter(post => post !== null).forEach(post => {
             if (post.postType !== constants.INFO_POST) { return }
@@ -558,13 +661,62 @@ class CableCore extends EventEmitter {
     })
   }
 
-  getRoles(channel) {
-    const context = channel === "" ? constants.CABAL_CONTEXT : channel
-    const emptyRoles = new Map()
-    if (this.activeRoles.has(context)) {
-      return this.activeRoles.get(context)
-    }
-    return emptyRoles
+  getRoles(channel, cb) {
+    this.#moderationReady.call(() => {
+      const context = channel === "" ? constants.CABAL_CONTEXT : channel
+      const emptyRoles = new Map()
+      if (this.activeRoles.has(context)) {
+        return cb(null, this.activeRoles.get(context))
+      }
+      return cb(null, emptyRoles)
+    })
+  }
+
+  getAllRoles(cb) {
+    if (!cb) return
+    // returns a map with the scheme: Map[pubkey] => Map[channel] -> role
+    this.#moderationReady.call(() => {
+      const userMap = util.transformUserRoleMapScheme(this.activeRoles)
+      return cb(null, userMap)
+    })
+  }
+
+  getAllModerationActions(cb) {
+    if (!cb) return
+    this.#moderationReady.call(() => {
+      cb(null, this.moderationActions)
+    })
+  }
+
+  // get all relevant roles + get all relevant actions (used for answering requests)
+  getRelevantModerationHashes(ts, channels, cb) {
+    // TODO (2024-03-25): when handling a moderation state request and fashioning a responce, verify the conformance of
+    // requirements for moderation state request wrt "belonging to at least one channel"
+   
+    // query the actions view to get all matching moderation actions
+    const promises = []
+    promises.push(new Promise((res, rej) => {
+      this.store.actionsView.api.getRelevantByContextsSince(ts, channels, (err, hashes) => {
+        coredebug("relmod actions hashes %O", hashes)
+        if (err) return rej(err)
+        return res(hashes)
+      })
+    }))
+    // query the roles view to get all matching roles
+    promises.push(new Promise((res, rej) => {
+      this.store.rolesView.api.getAllByContextsSinceTime(ts, channels, (err, hashes) => {
+        coredebug("relmod role hashes %O", hashes)
+        if (err) return rej(err)
+        return res(hashes)
+      })
+    }))
+    // wait until both view calls have returned their results, collect them and pass to the callback
+    Promise.all(promises).then((results) => {
+      coredebug("relmod results %O", results)
+      const flat = results.flatMap(h => h)
+      coredebug("flattened %O", flat)
+      cb(results.flatMap(h => h))
+    })
   }
 
   // resolves hashes into post objects. note: all post objects that are returned from cable-core will have their buffer
@@ -673,6 +825,14 @@ class CableCore extends EventEmitter {
     return req
   }
 
+  // <-> getRelevantModerationHashes
+  requestModeration(ttl, channels, future, oldest) {
+    const reqid = crypto.generateReqID()
+    const req = cable.MODERATION_STATE_REQUEST.create(reqid, ttl, channels, future, oldest)
+    this.dispatchRequest(req)
+    return req
+  }
+
   // <-> getChat
   requestPosts(channel, start, end, ttl, limit) {
     const reqid = crypto.generateReqID()
@@ -716,7 +876,7 @@ class CableCore extends EventEmitter {
       case constants.CHANNEL_LIST_REQUEST:
         entry.resType = constants.CHANNEL_LIST_RESPONSE
       case constants.MODERATION_STATE_REQUEST:
-        entry.resType = constants.MODERATION_STATE_RESPONSE
+        entry.resType = constants.HASH_RESPONSE
         break
       default:
         throw new Error(`make request: unknown reqType (${reqType})`)
@@ -879,7 +1039,16 @@ class CableCore extends EventEmitter {
             if (hashes && hashes.length > 0) {
               response = cable.HASH_RESPONSE.create(reqid, hashes)
               responses.push(response)
+            } 
+
+            coredebug("channel-state-request [%s] (%s): responding with %d hashes - %O", obj.channel, util.hex(reqid), hashes.length, hashes)
+            if (hashes.length) {
+              this._getData(hashes, (err, bufs) => {
+                const posts = bufs.map(cable.parsePost)
+                coredebug("channel-state-request [%s] (%s): data for the (%d) hashes - %O", obj.channel, util.hex(reqid), hashes.length, posts)
+              })
             }
+
             // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
             if (obj.future === 0) {
               coredebug("channel-state-request: prepare concluding hash response for %O", reqid)
@@ -906,7 +1075,42 @@ class CableCore extends EventEmitter {
           })
           break
         case constants.MODERATION_STATE_REQUEST:
-          throw new Error("todo (2024-03-05): handle moderation state request :)!")
+          this.getRelevantModerationHashes(obj.oldest, obj.channels, (hashes) => {
+            coredebug("moderation state requests: our hashes %O", hashes)
+            // if obj.future === 1 => keep this request alive
+            // TODO (2024-03-25): think about how to do this nicely for a single request spanning multiple channels
+            if (obj.future === 1) {
+              // moderation state request has no implicit limit && updatesRemaining does not apply
+              //
+              // we want to track posts committed on the cabal level
+              this.live.addLiveStateRequest(constants.CABAL_CONTEXT, obj.reqid, 0, false)
+              // as well as channel-specific posts
+              obj.channels.forEach(channel => {
+                if (channel.length > 0) {
+                  coredebug("moderation-state-request [%s]: tracking new live request for [%s]", util.hex(reqid), channel)
+                  this.live.addLiveStateRequest(channel, obj.reqid, 0, false)
+                }
+              })
+            }
+
+            const responses = []
+            if (hashes && hashes.length > 0) {
+              response = cable.HASH_RESPONSE.create(reqid, hashes)
+              responses.push(response)
+            }
+            // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
+            if (obj.future === 0) {
+              coredebug("moderation-state-request: prepare concluding hash response for %O", reqid)
+              response = cable.HASH_RESPONSE.create(reqid, [])
+              responses.push(response)
+              this._removeRequest(reqid)
+            }
+            // nothing to return, but also don't want to close the live channel state request
+            if (hashes.length === 0 && obj.future === 1) {
+              return res(null)
+            }
+            return res(responses)
+          })
           break
         default:
           throw new Error(`handle request: unknown request type ${reqType}`)

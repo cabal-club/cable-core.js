@@ -287,7 +287,7 @@ class ModerationSystem {
   contextTracker = new Map()
 
   #getContextTracker(context) {
-    if (context === "") { context = constants.CABAL_CONTEXT }
+    if (typeof context === "undefined" || context === "") { context = constants.CABAL_CONTEXT }
     if (this.contextTracker.has(context)) { return this.contextTracker.get(context) }
     const recipients = new Map()
     const posts = new Map()
@@ -297,6 +297,7 @@ class ModerationSystem {
   }
 
   process (actions) {
+		console.error("moderation system actions", actions)
     let activeMap
     actions.sort(timeCmp).forEach(action => {
       let recipients 
@@ -335,6 +336,7 @@ class ModerationSystem {
         }
       }
 
+			console.error("moderation system: recipients", recipients)
       for (const recipient of recipients) {
         let u 
         if (!activeMap.has(recipient)) {

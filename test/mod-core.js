@@ -81,33 +81,34 @@ test("simple admin and mod role assignment should tally up correctly", t => {
   core.on("moderation/roles-update", () => {
     counter++
     let admin, mods
-    const rolesMap = core.getRoles(constants.CABAL_CONTEXT)
-    switch(counter) {
-      case 1:
-        // assert that we now have an admin applied for the cabal context
-        admins = util.getRole(rolesMap, constants.ADMIN_FLAG)
-        t.equal(admins.size, 2, "should have two admins after alice was made admin")
-        t.true(admins.has(pubKeyStr(local)), "local should be an admin")
-        t.true(admins.has(pubKeyStr(alice)), "alice should be an admin")
-        mods = util.getRole(rolesMap, constants.MOD_FLAG)
-        t.true(!mods.has(pubKeyStr(bob)), "bob should not be mod")
-        // assign bob as a mod
-        const t_A1 = assign(alice.kp, pubKey(bob), tsBobMod, constants.MOD_FLAG)
-        core._storeExternalBuf(t_A1.post)
-        break
-      case 2:
-        // assert that we now have 2 admins (alice + local) and 1 mod (bob)
-        admins = util.getRole(rolesMap, constants.ADMIN_FLAG)
-        t.equal(admins.size, 2, "should still have two admins after bob was made mod")
-        t.true(admins.has(pubKeyStr(local)), "local should be an admin")
-        t.true(admins.has(pubKeyStr(alice)), "alice should be an admin")
-        mods = util.getRole(rolesMap, constants.MOD_FLAG)
-        t.equal(mods.size, 1, "should have mod assigned")
-        t.true(mods.has(pubKeyStr(bob)), "bob should be mod")
+    core.getRoles(constants.CABAL_CONTEXT, (err, rolesMap) => {
+      switch(counter) {
+        case 1:
+          // assert that we now have an admin applied for the cabal context
+          admins = util.getRole(rolesMap, constants.ADMIN_FLAG)
+          t.equal(admins.size, 2, "should have two admins after alice was made admin")
+          t.true(admins.has(pubKeyStr(local)), "local should be an admin")
+          t.true(admins.has(pubKeyStr(alice)), "alice should be an admin")
+          mods = util.getRole(rolesMap, constants.MOD_FLAG)
+          t.true(!mods.has(pubKeyStr(bob)), "bob should not be mod")
+          // assign bob as a mod
+          const t_A1 = assign(alice.kp, pubKey(bob), tsBobMod, constants.MOD_FLAG)
+          core._storeExternalBuf(t_A1.post)
+          break
+        case 2:
+          // assert that we now have 2 admins (alice + local) and 1 mod (bob)
+          admins = util.getRole(rolesMap, constants.ADMIN_FLAG)
+          t.equal(admins.size, 2, "should still have two admins after bob was made mod")
+          t.true(admins.has(pubKeyStr(local)), "local should be an admin")
+          t.true(admins.has(pubKeyStr(alice)), "alice should be an admin")
+          mods = util.getRole(rolesMap, constants.MOD_FLAG)
+          t.equal(mods.size, 1, "should have mod assigned")
+          t.true(mods.has(pubKeyStr(bob)), "bob should be mod")
 
-        t.end()
-        break
-    }
+          t.end()
+          break
+      }
+    })
   })
 
   core.assignRole(pubKey(alice), "", tsFirstAdmin, constants.ADMIN_FLAG, "", 0)
@@ -150,8 +151,8 @@ test("simple moderation actions test", t => {
     actions++
     switch (actions) {
     case 2:
-        const cabalHiddenUsers = core.moderation.getHiddenUsers(constants.CABAL_CONTEXT)
-        const channelHiddenUsers = core.moderation.getHiddenUsers(channel)
+        const cabalHiddenUsers = core.moderationActions.getHiddenUsers(constants.CABAL_CONTEXT)
+        const channelHiddenUsers = core.moderationActions.getHiddenUsers(channel)
         t.equal(cabalHiddenUsers.length, 1, "should have 1 hidden user on the cabal level")
         t.true(cabalHiddenUsers[0] === pubKeyStr(eve), "eve should be the cabal-hidden user")
         t.equal(channelHiddenUsers.length, 1, "should have 1 hidden user in the channel")

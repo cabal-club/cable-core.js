@@ -24,6 +24,9 @@ module.exports = function (lvl, reverseIndex) {
       msgs.forEach((msg) => {
         let key
 
+        debug("map incoming: %O", msg)
+
+
         const ts = monotonicTimestamp(msg.timestamp)
         switch (msg.postType) {
           case constants.JOIN_POST:
@@ -86,8 +89,28 @@ module.exports = function (lvl, reverseIndex) {
         // return the latest topic set on channel + latest name and membership change for each known pubkey in channel
         ready.call(async function () {
           debug("api.getLatestState")
-          const opts = { reverse: true, limit: 1}
+          const opts = { reverse: true /*, limit: 1 */}
           const ts = `${util.timestamp()}`
+          // TODO (2024-03-25): due to the index construction, this call gets *all historic* member hashes. would need
+          // to do two passes to get the latest per public key: 
+          //
+          // the plan for tomorrow, 2024-03-25:
+          //
+          // * change the key scheme for member! to be the following
+          // * check tests
+          // * change this function accordingly
+          // * change any other member querying functions accordingly
+          // * sketch up user joining scenario for cable-cli testing
+          // * check impact in cable-cli using scenario
+
+          /* alternate key scheme for member
+
+             member!<channel>!<publicKey>!<ts>
+
+             alternative 1:
+             1) get keys for `member!{channel}!~`, splice out publicKey for each key and put into a set
+             2) iterate over public key set, order by reverse and set limit:1 and get values for `member!{channel}!{publicKey}!~`
+         */
           const member = lvl.values({
             ...opts,
             lt: `member!${channel}!${ts}`,
@@ -97,6 +120,8 @@ module.exports = function (lvl, reverseIndex) {
             lt: `member!${channel}!${ts}`,
             gt: `member!${channel}!!`
           })
+
+          const members = new Map()
           // only iterate over keys within <name> namespace
           const name = lvl.values({
             ...opts,
@@ -105,6 +130,7 @@ module.exports = function (lvl, reverseIndex) {
           })
           const topic = lvl.values({
             ...opts,
+            limit: 1, // get the latest topic post
             lt: `topic!${channel}!${ts}`,
             gt: `topic!${channel}!!`
           })
@@ -113,7 +139,7 @@ module.exports = function (lvl, reverseIndex) {
             await topic.all(), 
             await member.all()
           ].flatMap(entry => entry)
-          debug("hashes", hashes)
+          debug("hashes [%s]", channel, hashes)
           cb(null, hashes)
         })
       },

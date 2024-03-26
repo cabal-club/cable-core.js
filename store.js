@@ -65,7 +65,7 @@ class CableStore extends EventEmitter {
   // persist any of their messages in said channel? the core concern is that channel state request requires sending the
   // latest post/info of **ex-members** which means that over time responses to a channel-state request will just grow
   // and grow in size
-  constructor(level, opts) {
+  constructor(level, localPublicKey, opts) {
     super()
 
     const storage = opts.storage || "data"
@@ -94,7 +94,7 @@ class CableStore extends EventEmitter {
     this.messagesView = createMessagesView(this._db.sublevel("messages", { valueEncoding: "binary" }), this.reverseMapView)
     this.deletedView = createDeletedView(this._db.sublevel("deleted", { valueEncoding: "binary" }))
     this.linksView = createLinksView(this._db.sublevel("links", { valueEncoding: "json" }))
-    this.actionsView = createActionsView(this._db.sublevel("actions", { valueEncoding: "utf8" }))
+    this.actionsView = createActionsView(this._db.sublevel("actions", { valueEncoding: "utf8" }), () => { return localPublicKey })
     this.rolesView = createRolesView(this._db.sublevel("roles", { valueEncoding: "binary" }))
 
     // used primarily when processing an accepted delete request to delete entries in other views with the results from a reverse hash map query.
@@ -187,7 +187,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     Promise.all(promises).then(() => {
-      this._emitStoredPost(hash, buf, obj.channel)
+      this._emitStoredPost(hash, buf, obj.channel || constants.CABAL_CONTEXT)
       if (isAdmin) {
         this.emit("roles-update", { ...obj })
       }
@@ -215,7 +215,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     Promise.all(promises).then(() => {
-      this._emitStoredPost(hash, buf, obj.channel)
+      this._emitStoredPost(hash, buf, obj.channel || constants.CABAL_CONTEXT)
       if (isApplicable) {
         this.emit("actions-update", { ...obj })
       }
@@ -243,7 +243,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     Promise.all(promises).then(() => {
-      this._emitStoredPost(hash, buf, obj.channel)
+      this._emitStoredPost(hash, buf, obj.channel || constants.CABAL_CONTEXT)
       if (isApplicable) {
         this.emit("actions-update", { ...obj })
       }
@@ -271,7 +271,7 @@ class CableStore extends EventEmitter {
     promises.push(p)
 
     Promise.all(promises).then(() => {
-      this._emitStoredPost(hash, buf, obj.channel)
+      this._emitStoredPost(hash, buf, obj.channel || constants.CABAL_CONTEXT)
       if (isApplicable) {
         this.emit("actions-update", { ...obj })
       }

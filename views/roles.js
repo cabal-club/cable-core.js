@@ -4,8 +4,9 @@
 
 const viewName = "mod:roles"
 const debug = require("debug")(`core:${viewName}`)
-const util = require("cable-core/util.js")
+const util = require("../util.js")
 const monotonicTimestamp = util.monotonicTimestamp()
+const constants = require("cable.js/constants.js")
 
 function noop () {}
 
@@ -17,42 +18,37 @@ module.exports = function (lvl/*, reverseIndex*/) {
     map (msgs, next) {
       debug("view.map")
       let ops = []
-      let pending = 0
       ready.increment()
       msgs.forEach((msg) => {
         const ts = monotonicTimestamp(msg.timestamp)
+        const context = msg.channel === "" ? constants.CABAL_CONTEXT : msg.channel
+        debug("context: '%s'", msg.channel)
 
         const keys = []
 				// LATEST ROLES          latest!<authorKey>!<recpKey>!<context> => <hash>
         if (msg.isAdmin) {
           keys.push({
-            key: `latest!${util.hex(msg.publicKey)}!${msg.channel}!${util.hex(msg.recipient)}`
+            key: `latest!${util.hex(msg.publicKey)}!${context}!${util.hex(msg.recipient)}`
           })
         }
 
 				// ROLES SINCE TS        all!<monots>!<authorKey>!<recpKey>!<context> => hash
         keys.push({
-          key: `all!${ts}!${util.hex(msg.publicKey)}!${msg.channel}!${util.hex(msg.recipient)}`
+          key: `all!${ts}!${util.hex(msg.publicKey)}!${context}!${util.hex(msg.recipient)}`
         })
         const hash = msg.hash
 
         keys.forEach(item => {
           const {key} = item
-          pending++
-          lvl.get(key, (err) => {
-            // NOTE (2024-01-25): only stores on entry per key (does not overwrite) currently
-            if (err && err.notFound) {
-              ops.push({
-                type: 'put',
-                key,
-                value: hash
-              })
-            }
-            if (!--pending) done()
+          ops.push({
+            type: 'put',
+            key,
+            value: hash
           })
         })
       })
-      if (!pending) done()
+
+      done()
 
       function done () {
         // const getHash = (m) => m.value
@@ -111,6 +107,26 @@ module.exports = function (lvl/*, reverseIndex*/) {
           })
           const hashes = await iter.all()
           cb(null, hashes) 
+        })
+      },
+      getAllByContextsSinceTime (ts, validContexts, cb) {
+        // returns all hashes authored by publicKey. can be used to purge database of posts made by a public key
+        ready.call(async function () {
+          debug("api.getAllByContextsSinceTime")
+          const iter = lvl.iterator({
+            reverse: true,
+            gt: `all!${ts}!`,
+            lt: `all!~`
+          })
+          const hashes = new Set()
+          const contexts = new Set(validContexts)
+          contexts.add(constants.CABAL_CONTEXT)
+          for await (let [key, hash] of iter) {
+            if (contexts.has(key.split("!")[3])) {
+              hashes.add(hash)
+            }
+          }
+          cb(null, Array.from(hashes))
         })
       },
       getAllByAuthorSinceTime (publicKey, ts, cb) {
