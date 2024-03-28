@@ -988,12 +988,34 @@ class CableCore extends EventEmitter {
             const responses = []
             // hashes we could not find in our database are represented as null: filter those out
             const responsePosts = posts.filter(post => post !== null)
+            responsePosts.forEach(p => {
+              coredebug("[%s] post request: contents of posts being responded with %O", reqidHex, cable.parsePost(p))
+            })
+            coredebug("[%s] post request: have %d posts to respond", reqidHex, responsePosts.length)
+
+            // question (2024-03-28): if peer A sends out the same request (with same reqid) to MANY peers, how should
+            // we handle the "concluding post response"? because as it is handled in this code right now: as soon as ONE
+            // peer has responded, the request is considered "fulfilled" and the request id stops being tracked
+            //
+            // maybe: we don't stop tracking the request until we have received all the posts we have requested?
+            //
+            // another alternative: we increment a counter for each request we have sent out and decrement it for each
+            // concluding response we receive? but this isn't really great bc it doesn't take into account forwarded
+            // requests from indirectly connected peers
+
+            // we don't have anything to respond with for this particular request, let's not respond at all!
+            if (responsePosts.length === 0) {
+              this._removeRequest(reqid)
+              return res(null)
+            }
+
+            // we actually have posts to send in response! let's prep 'em!!
             response = cable.POST_RESPONSE.create(reqid, responsePosts)
             responses.push(response)
             
             const finalResponse = cable.POST_RESPONSE.create(reqid, [])
             responses.push(finalResponse)
-            this._removeRequest(reqid)
+            coredebug("[%s] post request: created %d post responses %O", reqidHex, responses.length, responses)
             return res(responses)
           })
           break
@@ -1374,42 +1396,58 @@ class CableCore extends EventEmitter {
 
     // check if message is a request or a response
     if (!this._messageIsResponse(resType)) {
-      coredebug("incoming response (reqid %s) was not a response type, dropping", reqidHex)
+      coredebug("[%s] incoming response was not a response type, dropping", reqidHex)
       return done()
     }
 
     // if we don't know about a reqid, then the corresponding response is not something we want to handle
     if (!this._isReqidKnown(reqid)) {
-      coredebug("reqid %s was unknown, dropping response", reqidHex)
-      return done()
+      coredebug("[%s] unknown reqid", reqidHex)
+      // note from 2024-03-28:
+      // the wire spec says "Responses containing an unknown req_id SHOULD be ignored." but this can cause an issue due
+      // to how the code currently handles post responses and post requests.
+      // 
+      // as soon as a single post response (even if it contains only a partial response) has come in, we regard that
+      // request as finished and STOP tracking it. if we don't ever stop tracking requests we will have a memory leak in
+      // terms of tracking requests. not sure what balance to strike! introduce a timeout for _removeRequest to allow
+      // 'late' responses to trickle in within a little time window?
+      //
+      // this is mainly an issue because of the current codebase's lack of authenticated connections (i.e. we just get
+      // responses but without being able to tie it to a particular peer). but even with authenticated connections, a
+      // peer could *still* be forwarding responses from another peer
+      //
+      // return done()
     }
 
     const entry = this.requestsMap.get(reqidHex)
 
-    if (entry.resType === resType) {
-      coredebug("response for id %O is of the type expected when making the request", reqid)
-    } else {
-      coredebug("response for id %O does not have the expected type (was %d, expected %d)", reqid, resType, entry.resType)
+    // we don't have an entry for unknown requests
+    if (entry) {
+      if (entry.resType === resType) {
+        coredebug("[%s] response is of the type expected when making the request", reqidHex)
+      } else {
+        coredebug("[%s] response does not have the expected type (was %d, expected %d)", reqidHex, resType, entry.resType)
+      }
+
+      // TODO (2023-03-23): handle decommissioning all data relating to a reqid whose request-response lifetime has ended
+      //
+      // TODO (2023-03-23): handle forwarding responses onward; use entry.origin?
+      if (!entry.origin) {
+        this.forwardResponse(res)
+        // we are not the terminal for this response (we did not request it), so in the base case we should not store its
+        // data.
+        // however: we could inspect the payload of a POST_RESPONSE to see if it contains posts for any hashes we are waiting for..
+        if (resType === constants.POST_RESPONSE) {
+          this._handleRequestedBufs(this._processPostResponse(obj), () => {
+            // TODO (2023-09-05): call done here instead; will it affect anything?
+          })
+        }
+        return done()
+      }
     }
 
     const obj = cable.parseMessage(res)
-    coredebug("response %s, obj :%O", util.humanizeMessageType(obj.msgType), obj)
-
-    // TODO (2023-03-23): handle decommissioning all data relating to a reqid whose request-response lifetime has ended
-    //
-    // TODO (2023-03-23): handle forwarding responses onward; use entry.origin?
-    if (!entry.origin) {
-      this.forwardResponse(res)
-      // we are not the terminal for this response (we did not request it), so in the base case we should not store its
-      // data.
-      // however: we could inspect the payload of a POST_RESPONSE to see if it contains posts for any hashes we are waiting for..
-      if (resType === constants.POST_RESPONSE) {
-        this._handleRequestedBufs(this._processPostResponse(obj), () => {
-          // TODO (2023-09-05): call done here instead; will it affect anything?
-        })
-      }
-      return done()
-    }
+    coredebug("[%s] %s, obj: %O", reqidHex, util.humanizeMessageType(obj.msgType), obj)
  
     // process the response according to what type it was
     switch (resType) {
