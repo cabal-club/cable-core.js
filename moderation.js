@@ -297,7 +297,6 @@ class ModerationSystem {
   }
 
   process (actions) {
-		console.error("moderation system actions", actions)
     let activeMap
     actions.sort(timeCmp).forEach(action => {
       let recipients 
@@ -336,7 +335,6 @@ class ModerationSystem {
         }
       }
 
-			console.error("moderation system: recipients", recipients)
       for (const recipient of recipients) {
         let u 
         if (!activeMap.has(recipient)) {
