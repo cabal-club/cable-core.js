@@ -67,6 +67,8 @@ function humanizeMessageType(msgtype) {
       return "channel list request"
     case 7:
       return "channel list response"
+    case 8:
+      return "moderation state request"
     default:
       return "unknown"
   }
