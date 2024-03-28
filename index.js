@@ -53,15 +53,16 @@ class CableCore extends EventEmitter {
     // make sure it doesn't conflict if multiple different peers create a request
     //
     this.swarm.on("new-peer", (peer) => {
-      coredebug("new peer, time to send them our current requests")
       const localRequests = []
       for (let [reqid, entry] of this.requestsMap) {
         if (entry.origin) { localRequests.push(entry.binary) }
       }
+
+      coredebug("new peer, sending our %d current requests", localRequests.length)
       
       localRequests.forEach(req => { 
         const obj = cable.parseMessage(req)
-        coredebug("requesting %s with reqid %O (%O)", util.humanizeMessageType(cable.peekMessage(req)), obj.reqid, req) 
+        coredebug("[%s] requesting %s (%O)", util.hex(obj.reqid), util.humanizeMessageType(cable.peekMessage(req)), req) 
       })
       localRequests.forEach(req => { this.swarm.broadcast(req) })
     })
@@ -151,7 +152,6 @@ class CableCore extends EventEmitter {
     this.#moderationReady.call(() => {
       // event `moderation/init` signals that anything and everything moderation has finished initializing and can be
       // relied on :]
-			coredebug("FIRE MOD")
       this._emitModeration("init")
     })
 
@@ -179,6 +179,7 @@ class CableCore extends EventEmitter {
           this._emitChannels("topic", { channel: obj.channel, topic: obj.topic, publicKey })
           break
         case constants.JOIN_POST:
+          coredebug("emit join post")
           this._emitChannels("join", { channel: obj.channel, publicKey })
           break
         case constants.LEAVE_POST:
@@ -316,7 +317,7 @@ class CableCore extends EventEmitter {
     })
 
     this.events.register("live", this.live, "live-request-ended", (reqidHex) => {
-      livedebug("live query concluded for %s", reqidHex)
+      livedebug("[%s] live query concluded", reqidHex)
       this._sendConcludingHashResponse(b4a.from(reqidHex, "hex"))
     })
   }
@@ -357,7 +358,7 @@ class CableCore extends EventEmitter {
     // a concluding hash response is a signal to others that we've finished with this request, and regard it as ended on
     // our side
     const response = cable.HASH_RESPONSE.create(reqid, [])
-    coredebug("send concluding hash response for %O", reqid)
+    coredebug("[%s] send concluding hash response", util.hex(reqid))
     this.dispatchResponse(response)
     this._removeRequest(reqid)
   }
@@ -809,8 +810,8 @@ class CableCore extends EventEmitter {
   }
 
   _removeRequest(reqid) {
-    coredebug("_removeRequest: remove %O", reqid)
     const reqidHex = util.hex(reqid)
+    coredebug("[%s] _removeRequest: ceasing tracking request", reqidHex)
     // cancel any potential ongoing live requests
     this.live.cancelLiveStateRequest(reqidHex)
     // forget the targeted request id locally
@@ -836,7 +837,7 @@ class CableCore extends EventEmitter {
   // <-> getChat
   requestPosts(channel, start, end, ttl, limit) {
     const reqid = crypto.generateReqID()
-    coredebug("request posts for %s (reqid %s)", channel, util.hex(reqid))
+    coredebug("[%s] request posts for %s", util.hex(reqid), channel)
     const req = cable.TIME_RANGE_REQUEST.create(reqid, ttl, channel, start, end, limit)
     this.dispatchRequest(req)
     return req
@@ -886,8 +887,9 @@ class CableCore extends EventEmitter {
   }
 
   _registerRequest(reqid, origin, type, obj, buf) {
+    const reqidHex = util.hex(reqid)
     if (this._isReqidKnown(reqid)) {
-      coredebug(`request map already had reqid %O`, reqid)
+      coredebug(`[%s] request map already registered request`, reqidHex)
       return
     }
     // TODO (2023-03-23): handle recipients at some point
@@ -895,7 +897,7 @@ class CableCore extends EventEmitter {
     const entry = this._reqEntryTemplate(obj)
     entry.origin = origin
     entry.binary = buf
-    this.requestsMap.set(util.hex(reqid), entry)
+    this.requestsMap.set(reqidHex, entry)
   }
 
   // register a request that is originating from the local node, sets origin to true
@@ -919,7 +921,7 @@ class CableCore extends EventEmitter {
         }
         // if we have found any local live requests, this will send a request to cancel them
         localLiveRequests.forEach(liveid => { 
-          coredebug("canceling prior live request %s since it has been superceded by %s", liveid, reqidHex)
+          coredebug("canceling prior live request [%s] since it has been superceded by [%s]", liveid, reqidHex)
           this.cancelRequest(b4a.from(liveid, "hex")) 
         })
         break
@@ -951,18 +953,19 @@ class CableCore extends EventEmitter {
 
     // check if message is a request or a response
     if (!this._messageIsRequest(reqType)) {
-      coredebug("message is not a request (msgType %d)", reqType)
+      coredebug("[%s] message is not a request (msgType %d)", reqidHex, reqType)
       return done()
     }
 
     // deduplicate the request: if we already know about it, we don't need to process it any further
+    /* from spec: To prevent request loops in the network, an incoming request with a known req_id MUST be discarded. */
     if (this._isReqidKnown(reqid)) {
-      coredebug("we already know about reqid %O - returning early", reqid)
+      coredebug("[%s] already knew about request - returning early", reqidHex)
       return done()
     }
 
     const obj = cable.parseMessage(req)
-    coredebug("request obj", obj)
+    coredebug("[%s] request obj", reqidHex, obj)
     this._registerRemoteRequest(reqid, reqType, req)
     if (obj.ttl > 0) { this.forwardRequest(req) }
 
@@ -981,12 +984,13 @@ class CableCore extends EventEmitter {
           // get posts corresponding to the requested hashes
           this._getData(obj.hashes, (err, posts) => {
             if (err) { return rej(err) }
+            coredebug("[%s] post request: creating post response", reqidHex)
             const responses = []
             // hashes we could not find in our database are represented as null: filter those out
             const responsePosts = posts.filter(post => post !== null)
             response = cable.POST_RESPONSE.create(reqid, responsePosts)
             responses.push(response)
-            coredebug("post response: prepare concluding post response for %O", reqid)
+            
             const finalResponse = cable.POST_RESPONSE.create(reqid, [])
             responses.push(finalResponse)
             this._removeRequest(reqid)
@@ -996,7 +1000,7 @@ class CableCore extends EventEmitter {
         case constants.TIME_RANGE_REQUEST:
           // potentially index a new channel we didn't know about as a result of someone making this request
           this._indexNewChannels([obj.channel])
-          coredebug("create a response for channel time range request using params in %O", obj)
+          coredebug("[%s] channel time range request: create response using %O", reqidHex, obj)
           // if obj.timeEnd === 0 => keep this request alive
           if (obj.timeEnd === 0) {
             const hasLimit = obj.limit !== 0
@@ -1013,7 +1017,7 @@ class CableCore extends EventEmitter {
             // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: 
             // conclude it by sending a hash response with hashes=[] to signal end of request & remove request
             if (obj.timeEnd > 0) {
-              coredebug("time-range-request: prepare concluding hash response for %O", reqid)
+              coredebug("[%s] channel time range request: prepare concluding hash response", reqidHex)
               response = cable.HASH_RESPONSE.create(reqid, [])
               responses.push(response)
               this._removeRequest(reqid)
@@ -1042,17 +1046,17 @@ class CableCore extends EventEmitter {
               responses.push(response)
             } 
 
-            coredebug("channel-state-request [%s] (%s): responding with %d hashes - %O", obj.channel, util.hex(reqid), hashes.length, hashes)
+            coredebug("[%s] channel state request (%s): responding with %d hashes - %O", util.hex(reqid), obj.channel, hashes.length, hashes)
             if (hashes.length) {
               this._getData(hashes, (err, bufs) => {
                 const posts = bufs.map(cable.parsePost)
-                coredebug("channel-state-request [%s] (%s): data for the (%d) hashes - %O", obj.channel, util.hex(reqid), hashes.length, posts)
+                coredebug("[%s] channel state request (%s): data for %d hashes - %O", util.hex(reqid), obj.channel, hashes.length, posts)
               })
             }
 
             // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
             if (obj.future === 0) {
-              coredebug("channel-state-request: prepare concluding hash response for %O", reqid)
+              coredebug("[%s] channel state request: prepare concluding hash response", reqidHex)
               response = cable.HASH_RESPONSE.create(reqid, [])
               responses.push(response)
               this._removeRequest(reqid)
@@ -1065,19 +1069,19 @@ class CableCore extends EventEmitter {
           })
           break
         case constants.CHANNEL_LIST_REQUEST:
-          coredebug("channel list request: (%O) start preparing response", reqid)
+          coredebug("[%s] channel list request: start preparing response", reqidHex)
           this.store.channelMembershipView.api.getChannelNames(obj.offset, obj.limit, (err, channels) => {
             if (err) { return rej(err) }
             // get a list of channel names
             response = cable.CHANNEL_LIST_RESPONSE.create(reqid, channels)
-            coredebug("channel list request: (%O) response prepared, sending back %s", reqid, channels)
+            coredebug("[%s] channel list request: response prepared, sending back %s", reqidHex, channels)
             this._removeRequest(reqid)
             return res([response])
           })
           break
         case constants.MODERATION_STATE_REQUEST:
           this.getRelevantModerationHashes(obj.oldest, obj.channels, (hashes) => {
-            coredebug("moderation state requests: our hashes %O", hashes)
+            coredebug("[%s] moderation state request: our hashes %O", reqidHex, hashes)
             // if obj.future === 1 => keep this request alive
             // TODO (2024-03-25): think about how to do this nicely for a single request spanning multiple channels
             if (obj.future === 1) {
@@ -1088,7 +1092,7 @@ class CableCore extends EventEmitter {
               // as well as channel-specific posts
               obj.channels.forEach(channel => {
                 if (channel.length > 0) {
-                  coredebug("moderation-state-request [%s]: tracking new live request for [%s]", util.hex(reqid), channel)
+                  coredebug("[%s] moderation state request: tracking new live request for (%s)", reqidHex, channel)
                   this.live.addLiveStateRequest(channel, obj.reqid, 0, false)
                 }
               })
@@ -1101,7 +1105,7 @@ class CableCore extends EventEmitter {
             }
             // timeEnd !== 0 => not keeping this request alive + we've returned everything we have: conclude it
             if (obj.future === 0) {
-              coredebug("moderation-state-request: prepare concluding hash response for %O", reqid)
+              coredebug("[%s] moderation state request: prepare concluding hash response", reqidHex)
               response = cable.HASH_RESPONSE.create(reqid, [])
               responses.push(response)
               this._removeRequest(reqid)
@@ -1131,6 +1135,9 @@ class CableCore extends EventEmitter {
 
   /* methods for emitting data outwards (responding, forwarding requests not for us) */
   dispatchResponse(buf) {
+    const resType = cable.peekMessage(buf)
+    const reqid = cable.peekReqid(buf)
+    coredebug("[%s] dispatch %s %O", util.hex(reqid), util.humanizeMessageType(resType), buf)
     this.emit("response", buf)
     this.swarm.broadcast(buf)
   }
@@ -1145,20 +1152,20 @@ class CableCore extends EventEmitter {
     if (reqType !== constants.CANCEL_REQUEST) {
       this._registerLocalRequest(reqid, reqType, buf)
     }
+    coredebug("[%s] dispatch %s %O", util.hex(reqid), util.humanizeMessageType(reqType), buf)
     this.emit("request", buf)
     this.swarm.broadcast(buf)
   }
 
   _handleIncomingMessage(buf) {
     const msgType = cable.peekMessage(buf)
+    const humanReadableMsgType = util.humanizeMessageType(msgType)
     if (this._messageIsRequest(msgType)) {
-      coredebug("message:", util.humanizeMessageType(msgType))
+      coredebug("incoming request: %s", humanReadableMsgType)
       this.handleRequest(buf)
-      return
     } else if (this._messageIsResponse(msgType)) {
-      coredebug("message:", util.humanizeMessageType(msgType))
+      coredebug("incoming response: %s", humanReadableMsgType)
       this.handleResponse(buf)
-      return
     }
   }
 
@@ -1298,10 +1305,10 @@ class CableCore extends EventEmitter {
   // returns an array of posts whose hashes have been verified to have been requested by us
   _processPostResponse(obj) {
     const requestedPosts = []
-    coredebug("post response length", obj.posts.length)
+    coredebug("_processPostResponse: %d posts", obj.posts.length)
     obj.posts.forEach(post => {
       const hash = crypto.hash(post)
-      coredebug("post", cable.parsePost(post))
+      coredebug("_processPostResponse: %O", cable.parsePost(post))
       // we wanted this post!
       if (this.requestedHashes.has(util.hex(hash))) {
         requestedPosts.push(post)
@@ -1462,7 +1469,7 @@ class CableCore extends EventEmitter {
         // handle empty post response as a signal that "this concludes the lifetime of this req-res chain" 
         if (obj.posts.length === 0) {
           // action: decommission the reqid
-          coredebug("post response done, removing %O", reqid)
+          coredebug("[%s] post response finished, stopping tracking request", reqidHex)
           this._removeRequest(reqid)
           done()
           return
@@ -1476,7 +1483,7 @@ class CableCore extends EventEmitter {
         this._indexNewChannels(obj.channels, (err) => {
           done(err)
         })
-        coredebug("received channel list response, removing request %O", reqid)
+        coredebug("[%s] received channel list response, stopping tracking request", reqidHex)
         this._removeRequest(reqid)
         break
       default:
