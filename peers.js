@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 const EventEmitter = require("events").EventEmitter
-const debug = require("debug")("transport/swarm")
+const debug = require("debug")("transport:swarm")
 const b4a = require("b4a")
 const varint = require("varint")
 
