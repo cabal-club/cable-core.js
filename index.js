@@ -875,6 +875,7 @@ class CableCore extends EventEmitter {
         break
       case constants.CHANNEL_LIST_REQUEST:
         entry.resType = constants.CHANNEL_LIST_RESPONSE
+        break
       case constants.MODERATION_STATE_REQUEST:
         entry.resType = constants.HASH_RESPONSE
         break
