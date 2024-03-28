@@ -1136,14 +1136,14 @@ class CableCore extends EventEmitter {
   }
 
   dispatchRequest(buf) {
-    const reqtype = cable.peekMessage(buf)
-    if (!this._messageIsRequest(reqtype)) {
+    const reqType = cable.peekMessage(buf)
+    if (!this._messageIsRequest(reqType)) {
       return
     }
     const reqid = cable.peekReqid(buf)
     // don't remember a cancel request id as it expects no response
-    if (reqtype !== constants.CANCEL_REQUEST) {
-      this._registerLocalRequest(reqid, reqtype, buf)
+    if (reqType !== constants.CANCEL_REQUEST) {
+      this._registerLocalRequest(reqid, reqType, buf)
     }
     this.emit("request", buf)
     this.swarm.broadcast(buf)
