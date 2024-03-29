@@ -763,35 +763,30 @@ class CableCore extends EventEmitter {
 
   getChannelState(channel, cb) {
     // resolve the hashes into cable posts and return them
-    this.getChannelStateHashes(channel, (err, hashes) => {
-      if (err) { return cb(err) }
-      this.resolveHashes(hashes, cb)
+    this.store.channelMembershipView.api.getHistoricUsers(channel, (err, pubkeys) => {
+      this.getChannelStateHashes(pubkeys, channel, (err, hashes) => {
+        if (err) { return cb(err) }
+        this.resolveHashes(hashes, cb)
+      })
     })
   }
 
   getChannelStateHashes(channel, cb) {
     // get historic membership of channel
     this.store.channelMembershipView.api.getHistoricUsers(channel, (err, pubkeys) => {
-      // get the latest nickname for each user that has been a member of channel
-      const namePromise = new Promise((res, reject) => {
-        this.store.userInfoView.api.getLatestInfoHashMany(pubkeys, (err, nameHashes) => {
-          if (err) return reject(err)
-          res(nameHashes)
-        })
-      })
-      // get the latest state hashes of the channel
+      // get the latest state (topic, membership, info hashes) of the channel
       const statePromise = new Promise((res, reject) => {
-        this.store.channelStateView.api.getLatestState(channel, (err, hashes) => {
+        this.store.channelStateView.api.getLatestState(pubkeys, channel, (err, hashes) => {
           if (err) return reject(err)
           res(hashes)
         })
       })
 
       // resolve promises to get at the hashes
-      Promise.all([namePromise, statePromise]).then(results => {
+      statePromise.then(hashes => {
         // collapse results into a single array, deduplicate via set and get the list of hashes
-        const hashes = Array.from(new Set(results.flatMap(item => item))).filter(item => typeof item !== "undefined")
-        cb(null, hashes)
+        const filteredHashes = hashes.filter(item => typeof item !== "undefined")
+        cb(null, filteredHashes)
       })
     })
   }

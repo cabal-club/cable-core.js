@@ -12,6 +12,18 @@ const monotonicTimestamp = util.monotonicTimestamp()
 function noop () {}
 
 // takes a (sub)level instance
+
+// a little bit about this view, which enables us to answer channel state requests.
+//
+// to answer a channel state request we want to return the LATEST...
+//
+// * channel topic
+// * ONE OF post/{join, leave} for each historic member
+// * ONE post/info for each historic member
+// 
+// we also want to support deletes such that if the latest post of any post/{topic,leave,join} is deleted, then we can
+// trivially get the new-latest hash and return it in a hash response
+
 module.exports = function (lvl, reverseIndex) {
   const ready = new util.Ready(viewName)
 
@@ -26,15 +38,14 @@ module.exports = function (lvl, reverseIndex) {
 
         debug("map incoming: %O", msg)
 
-
         const ts = monotonicTimestamp(msg.timestamp)
         switch (msg.postType) {
           case constants.JOIN_POST:
           case constants.LEAVE_POST:
-            key = `member!${msg.channel}!${ts}!${util.hex(msg.publicKey)}`
+            key = `member!${msg.channel}!${util.hex(msg.publicKey)}!${ts}`
             break
           case constants.INFO_POST:
-            key = `name!${msg.channel}!${ts}!${util.hex(msg.publicKey)}`
+            key = `info!${msg.channel}!${util.hex(msg.publicKey)}!${ts}`
             break
           case constants.TOPIC_POST:
             key = `topic!${msg.channel}!${ts}`
@@ -85,98 +96,66 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
-      getLatestState (channel, cb) {
-        // return the latest topic set on channel + latest name and membership change for each known pubkey in channel
+      getLatestState (historicPublicKeys, channel, cb) {
+        // return the latest channel topic +f or each known pubkey in channel, the latest info (i.e. user name) and membership change         
         ready.call(async function () {
           debug("api.getLatestState")
-          const opts = { reverse: true /*, limit: 1 */}
+          const opts = { reverse: true , limit: 1 }
           const ts = `${util.timestamp()}`
-          // TODO (2024-03-25): due to the index construction, this call gets *all historic* member hashes. would need
-          // to do two passes to get the latest per public key: 
+          // for each unique public key which has a history associated with this channel, we will get their latest...
           //
-          // the plan for tomorrow, 2024-03-25:
-          //
-          // * change the key scheme for member! to be the following
-          // * check tests
-          // * change this function accordingly
-          // * change any other member querying functions accordingly
-          // * sketch up user joining scenario for cable-cli testing
-          // * check impact in cable-cli using scenario
+          // 1. post/join OR post/leave hash (memberPromises)
+          // 2. post/info hash (infoPromises)
 
-          /* alternate key scheme for member
+          const hexPublicKeys = historicPublicKeys.map(util.hex)
+          const constructPromisesArray = (viewName) => {
+            return hexPublicKeys.map(async (publicKeyHex) => {
+              debug({
+                ...opts,
+                lt: `${viewName}!${channel}!${publicKeyHex}!${ts}`,
+                gt: `${viewName}!${channel}!${publicKeyHex}!!`
+              })
+              return await lvl.values({
+                ...opts,
+                lt: `${viewName}!${channel}!${publicKeyHex}!${ts}`,
+                gt: `${viewName}!${channel}!${publicKeyHex}!!`
+              }).all()
+            })
+          }
+          
+          // iterate within <member> namespace
+          const memberPromises = constructPromisesArray("member") 
+          // iterate within <info> namespace
+          const infoPromises = constructPromisesArray("info") 
 
-             member!<channel>!<publicKey>!<ts>
-
-             alternative 1:
-             1) get keys for `member!{channel}!~`, splice out publicKey for each key and put into a set
-             2) iterate over public key set, order by reverse and set limit:1 and get values for `member!{channel}!{publicKey}!~`
-         */
-          const member = lvl.values({
-            ...opts,
-            lt: `member!${channel}!${ts}`,
-            gt: `member!${channel}!!`
-          })
-          debug({
-            lt: `member!${channel}!${ts}`,
-            gt: `member!${channel}!!`
-          })
-
-          const members = new Map()
-          // only iterate over keys within <name> namespace
-          const name = lvl.values({
-            ...opts,
-            lt: `name!${channel}!${ts}`,
-            gt: `name!${channel}!!`
-          })
           const topic = lvl.values({
             ...opts,
-            limit: 1, // get the latest topic post
             lt: `topic!${channel}!${ts}`,
             gt: `topic!${channel}!!`
           })
           const hashes = [
-            await name.all(), 
-            await topic.all(), 
-            await member.all()
-          ].flatMap(entry => entry)
+            (await Promise.all(memberPromises)).flat(),
+            (await Promise.all(infoPromises)).flat(),
+            await topic.all()
+          ].flatMap(entry => entry) 
           debug("hashes [%s]", channel, hashes)
           cb(null, hashes)
-        })
-      },
-      // TODO (2023-04-20): remove this file's getLatestInfoHash function when user-info.js has a latestNameHash operating without latest key
-      getLatestInfoHash (channel, publicKey, cb) {
-        // return latest post/info hash for pubkey
-        ready.call(async function () {
-          debug("api.getLatestInfoHash")
-          const iter = lvl.values({
-            lt: `name!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
-            gt: "name!!",
-            reverse: true,
-            limit: 1
-          })
-          const hashes = await iter.all()
-          if (!hashes || hashes.length === 0) {
-             return cb(new Error("channel state's latest name returned no hashes"), null)
-          }
-          cb(null, hashes[0])
         })
       },
       getLatestMembershipHash (channel, publicKey, cb) {
         // return latest post/join or post/leave hash authored by publicKey in channel
         ready.call(async function () {
           debug("api.getLatestMembership")
-          debug("%O", {
-            lt: `member!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
+          const publicKeyHex = util.hex(publicKey)
+          const opts = {
+            lt: `member!${channel}!${publicKeyHex}!${util.timestamp()}`,
+            gt: `member!${channel}!${publicKeyHex}!!`,
             reverse: true,
             limit: 1
-          })
-          const iter = lvl.values({
-            lt: `member!${channel}!${util.timestamp()}!${util.hex(publicKey)}`,
-            // gt:
-            reverse: true,
-            limit: 1
-          })
-          const hashes = await iter.all()
+          }
+
+          debug("%O", opts)
+          const hashes = await lvl.values(opts).all()
           if (!hashes || hashes.length === 0) {
              return cb(new Error("channel state's latest membership returned no hashes"), null)
           }
@@ -188,18 +167,14 @@ module.exports = function (lvl, reverseIndex) {
         // return latest post/topic hash
         ready.call(async function () {
           debug("api.getLatestTopicHash")
-          debug("%O", {
+          const opts = {
             lt: `topic!${channel}!${util.timestamp()}`,
+            gt: `topic!${channel}!!`,
             reverse: true,
             limit: 1
-          })
-          const iter = lvl.values({
-            lt: `topic!${channel}!${util.timestamp()}`,
-            gt: "name!",
-            reverse: true,
-            limit: 1
-          })
-          const hashes = await iter.all()
+          }
+          debug("%O", opts)
+          const hashes = await lvl.values(opts).all()
           if (!hashes || hashes.length === 0) {
              return cb(new Error("channel state's latest topic returned no hashes"), null)
           }
