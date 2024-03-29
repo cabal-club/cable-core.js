@@ -288,11 +288,13 @@ class ModerationSystem {
 
   #getContextTracker(context) {
     if (typeof context === "undefined" || context === "") { context = constants.CABAL_CONTEXT }
+    // return the already existing tracker
     if (this.contextTracker.has(context)) { return this.contextTracker.get(context) }
-    const recipients = new Map()
+    // intantiate a new tracker for this context
+    const users = new Map()
     const posts = new Map()
     const channels = new Map()
-    this.contextTracker.set(context, { recipients, posts, channels })
+    this.contextTracker.set(context, { users, posts, channels })
     return this.contextTracker.get(context)
   }
 
@@ -308,7 +310,7 @@ class ModerationSystem {
         // block/unblock don't have a channel property -> apply to entire cabal
         tracker = this.#getContextTracker(constants.CABAL_CONTEXT)
         recipients = action.recipients.map(util.hex)
-        activeMap = tracker.recipients
+        activeMap = tracker.users
       }
 
       if (action.postType === constants.MODERATION_POST) {
@@ -330,7 +332,7 @@ class ModerationSystem {
           case constants.ACTION_HIDE_USER:
           case constants.ACTION_UNHIDE_USER:
             recipients = action.recipients.map(util.hex)
-            activeMap = tracker.recipients
+            activeMap = tracker.users
             break
         }
       }
@@ -391,7 +393,7 @@ class ModerationSystem {
   }
 
   getHiddenUsers(context) {
-    return this.#getHidden(this.#getContextTracker(context).recipients)
+    return this.#getHidden(this.#getContextTracker(context).users)
   }
   getDroppedPosts(context) {
     return this.#getDropped(this.#getContextTracker(context).posts)
@@ -403,13 +405,48 @@ class ModerationSystem {
     return this.#getDropped(this.#getContextTracker(constants.CABAL_CONTEXT).channels)
   }
   getDroppedUsers() {
-    return this.#getDropped(this.#getContextTracker(constants.CABAL_CONTEXT).recipients)
+    return this.#getDropped(this.#getContextTracker(constants.CABAL_CONTEXT).users)
   }
   getBlockedUsers() {
-    const recipients = this.#getContextTracker(constants.CABAL_CONTEXT).recipients
+    const recipients = this.#getContextTracker(constants.CABAL_CONTEXT).users
     return [...recipients].map(([recp, u]) => {
       return u.isBlocked() ? recp : null
     }).filter(u => u)
+  }
+  #checkUserHasModerationState(pubkey, context, modFlag) {
+    const pubkeyHex = util.hex(pubkey)
+    function checkState (u) {
+      switch (modFlag) {
+        case HIDDEN_FLAG:
+          return u.isHidden()
+        case BLOCKED_FLAG:
+          return u.isBlocked()
+        case DROPPED_FLAG:
+          return u.isDropped()
+      }
+    }
+    // we're querying a channel and not only on the cabal level
+    if (context !== constants.CABAL_CONTEXT && this.contextTracker.has(context)) {
+      const channelTracker = this.#getContextTracker(context).users
+      if (channelTracker.has(pubkeyHex) && checkState(channelTracker.get(pubkeyHex))) {
+        return true
+      }
+    }
+    // no state registered on the channel context, let's check the cabal context
+    const cabalTracker = this.#getContextTracker(constants.CABAL_CONTEXT).users
+    if (cabalTracker.has(pubkeyHex)) {
+      return checkState(cabalTracker.get(pubkeyHex))
+    }
+    return false
+  }
+  isUserHidden(pubkey, context) {
+    return this.#checkUserHasModerationState(pubkey, context, HIDDEN_FLAG)
+  }
+  isUserBlocked(pubkey, context) {
+    return this.#checkUserHasModerationState(pubkey, context, BLOCKED_FLAG)
+  }
+  isUserDropped(pubkey, context) {
+    return this.#checkUserHasModerationState(pubkey, context, DROPPED_FLAG)
   }
 }
 
