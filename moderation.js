@@ -442,11 +442,11 @@ class ModerationSystem {
   isUserHidden(pubkey, context) {
     return this.#checkUserHasModerationState(pubkey, context, HIDDEN_FLAG)
   }
-  isUserBlocked(pubkey, context) {
-    return this.#checkUserHasModerationState(pubkey, context, BLOCKED_FLAG)
+  isUserBlocked(pubkey) { // users are blocked on the cabal-level
+    return this.#checkUserHasModerationState(pubkey, constants.CABAL_CONTEXT, BLOCKED_FLAG)
   }
-  isUserDropped(pubkey, context) {
-    return this.#checkUserHasModerationState(pubkey, context, DROPPED_FLAG)
+  isUserDropped(pubkey) { // users are dropped on the cabal-level
+    return this.#checkUserHasModerationState(pubkey, constants.CABAL_CONTEXT, DROPPED_FLAG)
   }
 }
 
