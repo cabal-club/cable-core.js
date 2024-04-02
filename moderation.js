@@ -428,8 +428,10 @@ class ModerationSystem {
     // we're querying a channel and not only on the cabal level
     if (context !== constants.CABAL_CONTEXT && this.contextTracker.has(context)) {
       const channelTracker = this.#getContextTracker(context).users
-      if (channelTracker.has(pubkeyHex) && checkState(channelTracker.get(pubkeyHex))) {
-        return true
+      // if the channel has that public key then return the state they have in it (ex. a use could be hidden on cabal
+      // but unhidden specifically in the queried channel)
+      if (channelTracker.has(pubkeyHex)) {
+        return checkState(channelTracker.get(pubkeyHex))
       }
     }
     // no state registered on the channel context, let's check the cabal context
