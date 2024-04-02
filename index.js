@@ -179,7 +179,6 @@ class CableCore extends EventEmitter {
           this._emitChannels("topic", { channel: obj.channel, topic: obj.topic, publicKey })
           break
         case constants.JOIN_POST:
-          coredebug("emit join post")
           this._emitChannels("join", { channel: obj.channel, publicKey })
           break
         case constants.LEAVE_POST:
@@ -216,9 +215,7 @@ class CableCore extends EventEmitter {
           if (hashes.length === 0) { return }
           this._getData(hashes, (err, bufs) => {
             const ops = bufs.map(cable.parsePost)
-            coredebug("returned ops %O", ops)
             this.activeRoles = this.rolesComputer.analyze(ops)
-            coredebug("active roles %O", this.activeRoles)
             this._emitModeration("roles-update", util.transformUserRoleMapScheme(this.activeRoles))
           })
         })
@@ -698,7 +695,6 @@ class CableCore extends EventEmitter {
     const promises = []
     promises.push(new Promise((res, rej) => {
       this.store.actionsView.api.getRelevantByContextsSince(ts, channels, (err, hashes) => {
-        coredebug("relmod actions hashes %O", hashes)
         if (err) return rej(err)
         return res(hashes)
       })
@@ -706,16 +702,12 @@ class CableCore extends EventEmitter {
     // query the roles view to get all matching roles
     promises.push(new Promise((res, rej) => {
       this.store.rolesView.api.getAllByContextsSinceTime(ts, channels, (err, hashes) => {
-        coredebug("relmod role hashes %O", hashes)
         if (err) return rej(err)
         return res(hashes)
       })
     }))
     // wait until both view calls have returned their results, collect them and pass to the callback
     Promise.all(promises).then((results) => {
-      coredebug("relmod results %O", results)
-      const flat = results.flatMap(h => h)
-      coredebug("flattened %O", flat)
       cb(results.flatMap(h => h))
     })
   }
