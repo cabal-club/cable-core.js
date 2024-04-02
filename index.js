@@ -6,6 +6,7 @@
 const EventEmitter = require('events').EventEmitter
 // external dependencies
 const b4a = require("b4a")
+const { LRUCache } = require("lru-cache")
 const coredebug = require("debug")("core:core")
 const livedebug = require("debug")("core:live")
 // internal dependencies (deps made by us :)
@@ -155,7 +156,14 @@ class CableCore extends EventEmitter {
       this._emitModeration("init")
     })
 
+    // use an lru cache in _emitStoredPost as a map to prevent multiple display of the same post in cli
+    this.seen = new LRUCache({ max: 5000, ttl: 1000 * 60 * 120 })
     const _emitStoredPost = (obj, hash) => {
+      const hashHex = util.hex(hash)
+      if (this.seen.get(hashHex)) {
+        return
+      }
+      this.seen.set(hashHex, true)
       // TODO (2023-08-18): how to know when:
       // * a new user joined?
       // * a new channel was added?

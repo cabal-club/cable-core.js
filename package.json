@@ -27,6 +27,7 @@
     "cable.js": "^0.1.0",
     "debug": "4.3.4",
     "level": "8.0.0",
+    "lru-cache": "^10.2.0",
     "memory-level": "1.0.0"
   },
   "devDependencies": {
