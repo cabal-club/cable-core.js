@@ -138,15 +138,12 @@ class CableCore extends EventEmitter {
     this.#moderationReady.increment()
     this.store.actionsView.api.getAllApplied((err, hashes) => {
       if (err || hashes.length === 0) {
-        coredebug("first read moderation actions ops length 0 (err = %O)", err)
         return this.#moderationReady.decrement()
       }
       this._getData(hashes, (err, bufs) => {
 				const ops = bufs.map(cable.parsePost)
-        coredebug("first read moderation actions ops %O", ops)
         this.moderationActions.process(ops)
         this.#moderationReady.decrement()
-				coredebug("moderation actions done", this.moderationActions)
       })
     })
 
@@ -154,6 +151,18 @@ class CableCore extends EventEmitter {
       // event `moderation/init` signals that anything and everything moderation has finished initializing and can be
       // relied on :]
       this._emitModeration("init")
+    })
+    // the set of hex-encoded public keys currently blocked by the local user
+    this.blocks = new Set()
+    // the set of hex-encoded public keys known to currently be blocking the local user
+    this.blockedBy = new Set()
+    this.store.blockedView.api.getBlocks(this.kp.publicKey, (err, blocks) => {
+      if (err) { return }
+      blocks.forEach(pubkey => this.blocks.add(util.hex(pubkey)))
+    })
+    this.store.blockedView.api.getUsersBlockingKey(this.kp.publicKey, (err, blocks) => {
+      if (err) { return }
+      blocks.forEach(pubkey => this.blockedBy.add(util.hex(pubkey)))
     })
 
     // use an lru cache in _emitStoredPost as a map to prevent multiple display of the same post in cli
@@ -202,9 +211,31 @@ class CableCore extends EventEmitter {
           break
         case constants.BLOCK_POST:
           this._emitModeration("block", { publicKey, recipients: obj.recipients.map(util.hex), reason: obj.reason })
+          // update blocks in case they changed
+          this.store.blockedView.api.getBlocks(this.kp.publicKey, (err, blocks) => {
+            if (err) { return }
+            blocks.forEach(pubkey => this.blocks.add(util.hex(pubkey)))
+          })
+          this.store.blockedView.api.getUsersBlockingKey(this.kp.publicKey, (err, blocks) => {
+            if (err) { return }
+            blocks.forEach(pubkey => this.blockedBy.add(util.hex(pubkey)))
+          })
           break
         case constants.UNBLOCK_POST:
           this._emitModeration("unblock", { publicKey, recipients: obj.recipients.map(util.hex), reason: obj.reason })
+          // refresh this.blocks & this.blockedBy
+          this.store.blockedView.api.getBlocks(this.kp.publicKey, (err, blocks) => {
+            if (err) { return }
+            // since unblock removes a block, let's just refresh the entire set
+            this.blocks = new Set()
+            blocks.forEach(pubkey => this.blocks.add(util.hex(pubkey)))
+          })
+          this.store.blockedView.api.getUsersBlockingKey(this.kp.publicKey, (err, blocks) => {
+            if (err) { return }
+            // since unblock removes a block, let's just refresh the entire set
+            this.blockedBy = new Set()
+            blocks.forEach(pubkey => this.blockedBy.add(util.hex(pubkey)))
+          })
           break
         default:
           coredebug("store-post: unknown post type %d", obj.postType)
@@ -539,18 +570,22 @@ class CableCore extends EventEmitter {
   blockUsers (recipients, drop, notify, reason, privacy, timestamp, done) {
     if (!done) { done = util.noop }
     const links = [] /*this._links(channel)*/
-		const buf = cable.BLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipients, drop, notify, reason, privacy)
-		this.store.block(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
-		return buf
+    const recipientsBufs = recipients.map(uid => b4a.from(uid, "hex"))
+    const buf = cable.BLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipientsBufs, drop, notify, reason, privacy)
+    this.store.block(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
+    recipients.forEach(pubkey => { this.blocks.add(util.hex(pubkey)) })
+    return buf
 	}
 
   unblockUsers (recipients, undrop, reason, privacy, timestamp, done) {
     if (!done) { done = util.noop }
     const links = [] /*this._links(channel)*/
-		const buf = cable.UNBLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipients, undrop, reason, privacy)
-		this.store.unblock(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
-		return buf
-	}
+    const recipientsBufs = recipients.map(uid => b4a.from(uid, "hex"))
+    const buf = cable.UNBLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipientsBufs, undrop, reason, privacy)
+    this.store.unblock(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
+    recipients.forEach(pubkey => { this.blocks.delete(util.hex(pubkey)) })
+    return buf
+  }
 
   moderateUsers (recipients, channel, action, reason, privacy, timestamp, done) {
 		if (!done) { done = util.noop }
@@ -1329,12 +1364,29 @@ class CableCore extends EventEmitter {
   _processPostResponse(obj) {
     const requestedPosts = []
     coredebug("_processPostResponse: %d posts", obj.posts.length)
-    obj.posts.forEach(post => {
-      const hash = crypto.hash(post)
-      coredebug("_processPostResponse: %O", cable.parsePost(post))
-      // we wanted this post!
-      if (this.requestedHashes.has(util.hex(hash))) {
-        requestedPosts.push(post)
+    obj.posts.forEach(postBuf => {
+      const postObj = cable.parsePost(postBuf)
+      const hash = crypto.hash(postBuf)
+      coredebug("_processPostResponse: %O", postObj)
+      // we check the following conditions before we regard a post as something we should store:
+      // 1) we'd requested the post by hash
+      // 2) we're not blocking the post author
+      // 3) we're not blocked *by* the post author
+      const authorHex = util.hex(postObj.publicKey)
+      if (this.requestedHashes.has(util.hex(hash)) && !this.blocks.has(authorHex)) {
+        // incoming post is 1) from someone that doesn't block the local user (great!) or
+        // 2) from someone that has blocked us, but type is post/block, with notify=1 set, and we are one of the recipients
+        // OR
+        // 3) from someone that's blocked us, but type is post/unblock and we are one of the recipients
+        if (!this.blockedBy.has(authorHex) || 
+          (this.blockedBy.has(authorHex) && 
+          postObj.postType === constants.BLOCK_POST && 
+          postObj.notify === 1 && 
+          postObj.recipients.map(util.hex).includes(util.hex(this.kp.publicKey)))
+          || (postObj.postType === constants.UNBLOCK_POST && postObj.recipients.map(util.hex).includes(util.hex(this.kp.publicKey)))
+        ) {
+            requestedPosts.push(postBuf)
+          }
         // the hashes will be removed from the set requestedHashes later on, by _handleRequestedBufs, once the hashes
         // are confirmed to have been stored. if we clear them now we'll risk causing additional unnecessary hash
         // requests since they'll be regarded as missing if we query the blobs store for the hashes

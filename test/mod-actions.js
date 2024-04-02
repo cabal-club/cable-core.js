@@ -2,6 +2,7 @@ const test = require("tape")
 const util = require("../util.js")
 const { MemoryLevel } = require("memory-level")
 const createActionsIndex = require("../views/actions.js")
+const createBlockedIndex = require("../views/blocked.js")
 const cable = require("cable.js/index.js")
 const constants = require("cable.js/constants.js")
 const crypto = require("cable.js/cryptography.js")
@@ -366,4 +367,91 @@ test(`assert on events emitted from index: 'apply-action' and 'remove-obsolete'`
   index.api.events.on("remove-obsolete", () => { done("remove-obsolete") })
   // index the first action and then the rest
   index.map(firstOp, () => { index.map(remainingOps) })
+})
+
+test("test blocking indexing view", t => {
+  const local = new User()
+  const alice = new User()
+  const bob = new User()
+  const eve = new User() 
+
+  const db = new MemoryLevel({ valueEncoding: "binary" })
+  const index = createBlockedIndex(db)
+
+  const posts = []
+  const push = (o, expected) => { 
+    posts.push(o.post) 
+  }
+
+  /* it's a block bonanza!! */
+
+  // local block bob
+  o = block(local.kp, pubKey(bob), after(now), 0) 
+  push(o)
+  // local block eve
+  o = block(local.kp, pubKey(eve), after(now), 0) 
+  push(o)
+
+  // alice block bob
+  o = block(alice.kp, pubKey(bob), after(now), 0) 
+  push(o)
+
+  // bob block alice
+  o = block(bob.kp, pubKey(alice), after(o.timestamp), 0)
+  push(o)
+  
+  // eve block bob
+  o = block(eve.kp, pubKey(bob), after(now), 0) 
+  push(o)
+
+  const ops = posts.map(cable.parsePost)
+  index.map(ops)
+
+  let counter = 0
+  const target = 3
+  const done = () => {
+    counter++
+    if (counter >= target) { 
+      t.end()
+    }
+  }
+  index.api.getBlocks(pubKey(local), (err, blocks) => {
+    const blocksHex = blocks.map(pubkey => util.hex(pubkey))
+    t.error(err, "should have no error")
+    t.equal(blocks.length, 2, "local should be blocking 2 folx")
+
+    const inc = u => { return blocksHex.includes(util.hex(pubKey(u))) }
+
+    t.true(inc(bob), "local should be blocking bob")
+    t.true(inc(eve), "local should be blocking eve")
+    t.false(inc(alice), "local should not be blocking alice")
+    t.false(inc(local), "local should not be blocking themself")
+    done()
+  })
+
+  index.api.getUsersBlockingKey(pubKey(bob), (err, keys) => {
+    const keysHex = keys.map(pubkey => util.hex(pubkey))
+    t.error(err, "should have no error")
+    t.equal(keys.length, 3, "bob should be blocked by 3 folx")
+    const inc = u => { return keysHex.includes(util.hex(pubKey(u))) }
+
+    t.true(inc(local), "local should be blocking bob")
+    t.true(inc(alice), "alice should be blocking bob")
+    t.true(inc(eve), "eve should be blocking bob")
+    t.false(inc(bob), "bob should not be blocking bob")
+    done()
+  })
+
+  index.api.getUsersBlockingKey(pubKey(alice), (err, keys) => {
+    const keysHex = keys.map(pubkey => util.hex(pubkey))
+    t.error(err, "should have no error")
+    t.equal(keys.length, 1, "alice should be blocked by 1 person")
+    const inc = u => { return keysHex.includes(util.hex(pubKey(u))) }
+
+    t.true(inc(bob), "bob should be blocking alice")
+    t.false(inc(alice), "alice should not be blocking alice")
+    t.false(inc(eve), "eve should not be blocking alice")
+    t.false(inc(alice), "alice should not be blocking alice")
+    done()
+  })
 })

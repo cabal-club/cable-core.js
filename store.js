@@ -25,6 +25,7 @@ const createMessagesView = require("./views/messages.js")
 const createDeletedView = require("./views/deleted.js")
 const createReverseMapView = require("./views/reverse-hash-map.js")
 const createLinksView = require("./views/links.js")
+const createBlockedView = require("./views/blocked.js")
 // roles and actions are moderation views
 const createRolesView = require("./views/roles.js")
 const createActionsView = require("./views/actions.js")
@@ -74,9 +75,10 @@ class CableStore extends EventEmitter {
     if (!level) { level = MemoryLevel }
 
     this._db = new level(storage)
+		// NOTE: when adding a new view, increment `this._db.setMaxListeners` below
     // we have many views using the same parent level instance -> extend the amount of event listeners to cover for that
     // and squelch any "event listener leak" output
-    this._db.setMaxListeners(12) // one for each view
+    this._db.setMaxListeners(13) // one for each view
 
     // reverseMapView maps which views have stored a particular hash. using this view we can removes those entries in
     // other views if needed e.g.  when a delete happens, when a peer has been blocked and their contents removed, or we are truncating the local database to save space
@@ -96,9 +98,11 @@ class CableStore extends EventEmitter {
     this.linksView = createLinksView(this._db.sublevel("links", { valueEncoding: "json" }))
     this.actionsView = createActionsView(this._db.sublevel("actions", { valueEncoding: "utf8" }), () => { return localPublicKey })
     this.rolesView = createRolesView(this._db.sublevel("roles", { valueEncoding: "binary" }))
+		this.blockedView = createBlockedView(this._db.sublevel("blocked", { valueEncoding: "binary" }))
 
     // used primarily when processing an accepted delete request to delete entries in other views with the results from a reverse hash map query.
     // however all views have been added to this map for sake of completeness
+
     this._viewsMap = {
       "reverse-hash-map": this.reverseMapView,
       "data-store": this.blobs,
@@ -110,7 +114,8 @@ class CableStore extends EventEmitter {
       "deleted": this.deletedView,
       "links": this.linksView,
       "actions": this.actionsView,
-      "roles": this.rolesView
+      "roles": this.rolesView,
+      "blocked": this.blockedView
     }
   }
 
@@ -242,6 +247,11 @@ class CableStore extends EventEmitter {
     })
     promises.push(p)
 
+    p = new Promise((res, rej) => {
+      this.blockedView.map([obj], res)
+    })
+    promises.push(p)
+
     Promise.all(promises).then(() => {
       this._emitStoredPost(hash, buf, obj.channel || constants.CABAL_CONTEXT)
       if (isApplicable) {
@@ -267,6 +277,11 @@ class CableStore extends EventEmitter {
 
     p = new Promise((res, rej) => {
       this.actionsView.map([{ ...obj, hash, isApplicable }], res)
+    })
+    promises.push(p)
+
+    p = new Promise((res, rej) => {
+      this.blockedView.map([obj], res)
     })
     promises.push(p)
 
