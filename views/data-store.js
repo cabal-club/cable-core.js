@@ -53,6 +53,18 @@ module.exports = function (lvl, reverseIndex) {
     },
 
     api: {
+      has (hash, cb) {
+        debug("api.get")
+        ready.call(() => {
+          lvl.get(hex(hash), (err, buf) => {
+            if (err) { return cb(err, false) }
+            if (typeof buf === "undefined") {
+              return cb(null, false)
+            }
+            return cb(null, true)
+          })
+        })
+      },
       get (hash, cb) {
         debug("api.get")
         ready.call(() => {

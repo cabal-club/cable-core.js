@@ -1253,66 +1253,72 @@ class CableCore extends EventEmitter {
         // i.e. we abort here
         return done()
       }
-      // the buf was not a deleted buf: onward!
-      new Promise((res, rej) => {
-        const postType = cable.peekPost(buf)
-        switch (postType) {
-          case constants.TEXT_POST:
-            this.store.text(buf, () => { res() })
-            break
-          case constants.DELETE_POST:
-            this.store.del(buf, () => { res() })
-            break
-          case constants.INFO_POST:
-            this.store.info(buf, () => { res() })
-            break
-          case constants.TOPIC_POST:
-            this.store.topic(buf, () => { res() })
-            break
-          case constants.JOIN_POST:
-            this.store.join(buf, () => { res() })
-            break
-          case constants.LEAVE_POST:
-            this.store.leave(buf, () => { res() })
-            break
-          case constants.ROLE_POST:
-            this.store.role(buf, util.isAdmin(this.kp, buf, this.activeRoles), () => { res() })
-            break
-          case constants.MODERATION_POST:
-            this.store.moderation(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
-            break
-          case constants.BLOCK_POST:
-            this.store.block(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
-            break
-          case constants.UNBLOCK_POST:
-            this.store.unblock(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
-            break
-          default:
-            rej()
-            throw new Error(`store external buf: unknown post type ${postType}`)
+      this.store.blobs.api.has(hash, (err, hashStored) => {
+        // we're already storing this hash, quit early and avoid indexing it in any views
+        if (hashStored) { 
+          return done()
         }
-      }).then(() => {
-        const obj = cable.parsePost(buf)
-        // TODO (2023-06-12): figure out how to links-index post/info + post/delete
-        if (!obj.channel) { 
-          return done() 
-        }
-        this.store.linksView.map([{ links: obj.links, hash }], () => {
-          this.store.linksView.api.checkIfHeads([ hash ], (err, heads) => {
-            if (err) { 
-              coredebug("store external buf: error when checking if heads for %O (%O)", hash, err)
-              return done()
-            }
-            if (heads.length > 0) {
-              this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, (err, newHeads) => {
-                if (err) {
-                  coredebug("store external buf: error when pushing new heads for %O (%O)", hash, err)
-                  return done()
-                }
-                this.heads.set(obj.channel, newHeads)
-                done()
-              })
-            }
+        // the buf was not a deleted buf: onward!
+        new Promise((res, rej) => {
+          const postType = cable.peekPost(buf)
+          switch (postType) {
+            case constants.TEXT_POST:
+              this.store.text(buf, () => { res() })
+              break
+            case constants.DELETE_POST:
+              this.store.del(buf, () => { res() })
+              break
+            case constants.INFO_POST:
+              this.store.info(buf, () => { res() })
+              break
+            case constants.TOPIC_POST:
+              this.store.topic(buf, () => { res() })
+              break
+            case constants.JOIN_POST:
+              this.store.join(buf, () => { res() })
+              break
+            case constants.LEAVE_POST:
+              this.store.leave(buf, () => { res() })
+              break
+            case constants.ROLE_POST:
+              this.store.role(buf, util.isAdmin(this.kp, buf, this.activeRoles), () => { res() })
+              break
+            case constants.MODERATION_POST:
+              this.store.moderation(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
+              break
+            case constants.BLOCK_POST:
+              this.store.block(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
+              break
+            case constants.UNBLOCK_POST:
+              this.store.unblock(buf, util.isApplicable(this.kp, buf, this.activeRoles), () => { res() })
+              break
+            default:
+              rej()
+              throw new Error(`store external buf: unknown post type ${postType}`)
+          }
+        }).then(() => {
+          const obj = cable.parsePost(buf)
+          // TODO (2023-06-12): figure out how to links-index post/info + post/delete
+          if (!obj.channel) { 
+            return done() 
+          }
+          this.store.linksView.map([{ links: obj.links, hash }], () => {
+            this.store.linksView.api.checkIfHeads([ hash ], (err, heads) => {
+              if (err) { 
+                coredebug("store external buf: error when checking if heads for %O (%O)", hash, err)
+                return done()
+              }
+              if (heads.length > 0) {
+                this.store.linksView.api.pushHeadsChanges(obj.channel, heads, obj.links, (err, newHeads) => {
+                  if (err) {
+                    coredebug("store external buf: error when pushing new heads for %O (%O)", hash, err)
+                    return done()
+                  }
+                  this.heads.set(obj.channel, newHeads)
+                  done()
+                })
+              }
+            })
           })
         })
       })
@@ -1459,7 +1465,13 @@ class CableCore extends EventEmitter {
         // for those hashes
         //
         // only want to query (and thereby request, if we lack them) hashes that are not already requested
+        const newReqid = crypto.generateReqID()
+        const newReqidHex = util.hex(newReqid)
         const hashesToQuery = obj.hashes.filter(h => !this.requestedHashes.has(util.hex(h)))
+        coredebug("[%s] hashes to query %O, obj.hashes %O", newReqidHex, hashesToQuery, obj.hashes)
+        obj.hashes.forEach(h => coredebug("[%s] H requested {%s}? %s. to query %O", newReqidHex, util.hex(h), this.requestedHashes.has(util.hex(h))), hashesToQuery)
+        // nothing new to query, return early
+        if (hashesToQuery.length === 0) { return done() }
         // query data store and try to get the data for each of the returned hashes. 
         this.store.blobs.api.getMany(hashesToQuery, (err, bufs) => {
           // collect all the hashes we still don't have data for (represented by null in returned `bufs`) and create a
@@ -1487,11 +1499,16 @@ class CableCore extends EventEmitter {
                 temp.push(wantedHashes[i])
               }
             }
-            // track inflight hashes
-            wantedHashes.forEach(h => this.requestedHashes.add(util.hex(h)))
             wantedHashes = temp // update wantedHashes to new set of values known to not be deleted
+            // track inflight hashes
+            wantedHashes.forEach(h => coredebug("[%s] request post for hash %s. requested hash? %O", newReqidHex, util.hex(h), this.requestedHashes.has(util.hex(h))))
+            // perform another filter on requested hashes in case there has snuck in a request in the time it took to
+            // query two indexes
+            wantedHashes = wantedHashes.filter(h => !this.requestedHashes.has(util.hex(h)))
+            wantedHashes.forEach(h => this.requestedHashes.add(util.hex(h)))
+            // no hashes left to request after all the filtering out
+            if (wantedHashes.length === 0) { return done() }
             // dispatch a `post request` for the missing hashes
-            const newReqid = crypto.generateReqID()
             const req = cable.POST_REQUEST.create(newReqid, this._defaultTTL, wantedHashes)
             this.dispatchRequest(req)
             done()
