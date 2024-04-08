@@ -1016,7 +1016,9 @@ class CableCore extends EventEmitter {
 
             // we don't have anything to respond with for this particular request, let's not respond at all!
             if (responsePosts.length === 0) {
-              this._removeRequest(reqid)
+              // TODO (2024-04-08): remove request id after a timeout?
+              // this._removeRequest(reqid) // don't remove the request id: we're forwarding the request and a response
+              // may come in from another peer through us - we want the reqid to still be regarded as active
               return res(null)
             }
 
@@ -1456,7 +1458,7 @@ class CableCore extends EventEmitter {
       // responses but without being able to tie it to a particular peer). but even with authenticated connections, a
       // peer could *still* be forwarding responses from another peer
       //
-      // return done()
+      return done()
     }
 
     const obj = cable.parseMessage(res)
@@ -1475,8 +1477,9 @@ class CableCore extends EventEmitter {
       // TODO (2023-03-23): handle decommissioning all data relating to a reqid whose request-response lifetime has ended
       //
       // TODO (2023-03-23): handle forwarding responses onward; use entry.origin?
-      if (!entry.origin) {
-        this.forwardResponse(res)
+      const resHash = util.hex(crypto.hash(res))
+      if (!entry.origin && !this.seen.get(resHash)) {
+        this.seen.set(resHash, true)
         // we are not the terminal for this response (we did not request it), so in the base case we should not store its
         // data.
         // however: we could inspect the payload of a POST_RESPONSE to see if it contains posts for any hashes we are waiting for..
@@ -1485,6 +1488,8 @@ class CableCore extends EventEmitter {
             // TODO (2023-09-05): call done here instead; will it affect anything?
           })
         }
+        coredebug("[%s] prematurely ending response with hash %s handling since response is to another peer", reqidHex, util.hex(resHash))
+        this.forwardResponse(res)
         return done()
       }
     }
@@ -1564,6 +1569,14 @@ class CableCore extends EventEmitter {
           done()
           return
         } else {
+          const authors = obj.posts.map(p => util.hex(cable.parsePost(p).publicKey))
+          const localBlocked = authors.some(author => this.blockedBy.has(author))
+          coredebug("[%s] process post response (we are blocked: %s)", reqidHex, localBlocked)
+          // can't handle this response locally so let's just forward it in case someone else can
+          // TODO (2024-04-02): instead of operating on the response WHOLESALE, filter out the posts by blocking users
+          if (localBlocked) {
+            this.forwardResponse(res)
+          }
           this._handleRequestedBufs(this._processPostResponse(obj), () => { 
             done()
           })
