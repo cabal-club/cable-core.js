@@ -105,7 +105,7 @@ class CableCore extends EventEmitter {
     this.requestsMap = new Map()
     // tracks which hashes we have explicitly requested in a 'request for hash' request
     this.requestedHashes = new Set()
-    this._defaultTTL = 0
+    this._defaultTTL = 3
     this.live = new LiveQueries(this)
 
     // call rolesComputer.analyze(<all relevant post/role operations>) to receive a map of which users have which roles
