@@ -1255,10 +1255,13 @@ class CableCore extends EventEmitter {
       default:
         throw new Error(`forward request: unknown request type ${reqType}`)
     }
+    this.swarm.broadcast(decrementedBuf)
   }
 
   forwardResponse(buf) {
-    coredebug("todo forward response", buf)
+    const reqidHex = util.hex(cable.peekReqid(buf))
+    coredebug("[%s] forward response", reqidHex, buf)
+    this.dispatchResponse(buf)
   }
 
   _storeExternalBuf(buf, done) {
