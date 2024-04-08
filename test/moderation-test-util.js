@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 the cable-core.js authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const util = require("../util.js")
 const { CABAL_CONTEXT } = require("cable.js/constants.js")
 const crypto = require("cable.js/cryptography.js")

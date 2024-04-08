@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 the cable-core.js authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const util = require("./util.js")
 const b4a = require("b4a")
 const constants = require("cable.js/constants.js")

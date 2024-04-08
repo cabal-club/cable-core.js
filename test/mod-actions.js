@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 the cable-core.js authors
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const test = require("tape")
 const util = require("../util.js")
 const { MemoryLevel } = require("memory-level")
