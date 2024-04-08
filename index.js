@@ -329,7 +329,7 @@ class CableCore extends EventEmitter {
     })
 
     this.events.register("store", this.store, "store-post", ({ obj, channel, timestamp, hash, postType }) => {
-      coredebug("store post evt [%s], post type: %d", channel, postType)
+      coredebug("store post evt [%s], %s, hash %s", channel, util.humanizePostType(postType), util.hex(hash))
       this.live.sendLiveHashResponse(channel, postType, [hash], timestamp)
      
       _emitStoredPost(obj, hash)
@@ -921,7 +921,7 @@ class CableCore extends EventEmitter {
     switch (reqType) {
         case constants.TIME_RANGE_REQUEST:
         case constants.CHANNEL_STATE_REQUEST:
-        coredebug("register local: had channel state or time range with target %s", obj.channel)
+        coredebug("register local: had channel state request or time range request with target %s", obj.channel)
         // find out if we already have such requests for this channel in flight and alive
         const localLiveRequests = []
         for (const entry of this.requestsMap.values()) {
@@ -1192,12 +1192,13 @@ class CableCore extends EventEmitter {
 
   _handleIncomingMessage(buf) {
     const msgType = cable.peekMessage(buf)
+    const reqidHex = util.hex(cable.peekReqid(buf))
     const humanReadableMsgType = util.humanizeMessageType(msgType)
     if (this._messageIsRequest(msgType)) {
-      coredebug("incoming request: %s", humanReadableMsgType)
+      coredebug("[%s] incoming request: %s", reqidHex, humanReadableMsgType)
       this.handleRequest(buf)
     } else if (this._messageIsResponse(msgType)) {
-      coredebug("incoming response: %s", humanReadableMsgType)
+      coredebug("[%s] incoming response: %s", reqidHex, humanReadableMsgType)
       this.handleResponse(buf)
     }
   }
@@ -1232,6 +1233,8 @@ class CableCore extends EventEmitter {
   // send buf onwards to other peers
   forwardRequest(buf) {
     const reqType = cable.peekMessage(buf)
+    const reqidHex = util.hex(cable.peekReqid(buf))
+    coredebug("[%s] forward request of type %s", reqidHex, util.humanizeMessageType(reqType))
     let decrementedBuf 
     switch (reqType) {
       case constants.POST_REQUEST:
@@ -1348,7 +1351,7 @@ class CableCore extends EventEmitter {
     obj.posts.forEach(postBuf => {
       const postObj = cable.parsePost(postBuf)
       const hash = crypto.hash(postBuf)
-      coredebug("_processPostResponse: %O", postObj)
+      coredebug("_processPostResponse: hash %s %O", util.hex(hash), postObj)
       // we check the following conditions before we regard a post as something we should store:
       // 1) we'd requested the post by hash
       // 2) we're not blocking the post author
@@ -1453,6 +1456,9 @@ class CableCore extends EventEmitter {
       // return done()
     }
 
+    const obj = cable.parseMessage(res)
+    coredebug("[%s] %s, obj: %O", reqidHex, util.humanizeMessageType(obj.msgType), obj)
+ 
     const entry = this.requestsMap.get(reqidHex)
 
     // we don't have an entry for unknown requests
@@ -1480,13 +1486,10 @@ class CableCore extends EventEmitter {
       }
     }
 
-    const obj = cable.parseMessage(res)
-    coredebug("[%s] %s, obj: %O", reqidHex, util.humanizeMessageType(obj.msgType), obj)
- 
     // process the response according to what type it was
     switch (resType) {
       case constants.HASH_RESPONSE:
-        coredebug("hash response length", obj.hashes.length)
+        coredebug("[%s] processing hash response with %d hashes", reqidHex, obj.hashes.length)
         // hash response has signalled end of responses, deallocate reqid
         if (obj.hashes.length === 0) {
           this._removeRequest(reqid)
@@ -1500,9 +1503,10 @@ class CableCore extends EventEmitter {
         // only want to query (and thereby request, if we lack them) hashes that are not already requested
         const newReqid = crypto.generateReqID()
         const newReqidHex = util.hex(newReqid)
+        // when we receive a hash response we want to only get those hashes we have yet to request, which is what this
+        // filter operation does
         const hashesToQuery = obj.hashes.filter(h => !this.requestedHashes.has(util.hex(h)))
         coredebug("[%s] hashes to query %O, obj.hashes %O", newReqidHex, hashesToQuery, obj.hashes)
-        obj.hashes.forEach(h => coredebug("[%s] H requested {%s}? %s. to query %O", newReqidHex, util.hex(h), this.requestedHashes.has(util.hex(h))), hashesToQuery)
         // nothing new to query, return early
         if (hashesToQuery.length === 0) { return done() }
         // query data store and try to get the data for each of the returned hashes. 
