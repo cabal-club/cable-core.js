@@ -152,14 +152,9 @@ class CableCore extends EventEmitter {
       // relied on :]
       this._emitModeration("init")
     })
-    // the set of hex-encoded public keys currently blocked by the local user
-    this.blocks = new Set()
+ 
     // the set of hex-encoded public keys known to currently be blocking the local user
     this.blockedBy = new Set()
-    this.store.blockedView.api.getBlocks(this.kp.publicKey, (err, blocks) => {
-      if (err) { return }
-      blocks.forEach(pubkey => this.blocks.add(util.hex(pubkey)))
-    })
     this.store.blockedView.api.getUsersBlockingKey(this.kp.publicKey, (err, blocks) => {
       if (err) { return }
       blocks.forEach(pubkey => this.blockedBy.add(util.hex(pubkey)))
@@ -177,6 +172,7 @@ class CableCore extends EventEmitter {
       // * a new user joined?
       // * a new channel was added?
       const publicKey = util.hex(obj.publicKey)
+      let recipients
       // emit contextual events depending on what type of post was stored
       switch (obj.postType) {
         case constants.TEXT_POST:
@@ -210,32 +206,19 @@ class CableCore extends EventEmitter {
             reason: obj.reason, channel: obj.channel || constants.CABAL_CONTEXT })
           break
         case constants.BLOCK_POST:
-          this._emitModeration("block", { publicKey, recipients: obj.recipients.map(util.hex), reason: obj.reason })
+          recipients = obj.recipients.map(util.hex)
           // update blocks in case they changed
-          this.store.blockedView.api.getBlocks(this.kp.publicKey, (err, blocks) => {
-            if (err) { return }
-            blocks.forEach(pubkey => this.blocks.add(util.hex(pubkey)))
-          })
-          this.store.blockedView.api.getUsersBlockingKey(this.kp.publicKey, (err, blocks) => {
-            if (err) { return }
-            blocks.forEach(pubkey => this.blockedBy.add(util.hex(pubkey)))
-          })
+          if (recipients.includes(util.hex(this.kp.publicKey))) {
+            this.blockedBy.add(publicKey)
+          }
+          this._emitModeration("block", { publicKey, recipients, reason: obj.reason })
           break
         case constants.UNBLOCK_POST:
-          this._emitModeration("unblock", { publicKey, recipients: obj.recipients.map(util.hex), reason: obj.reason })
-          // refresh this.blocks & this.blockedBy
-          this.store.blockedView.api.getBlocks(this.kp.publicKey, (err, blocks) => {
-            if (err) { return }
-            // since unblock removes a block, let's just refresh the entire set
-            this.blocks = new Set()
-            blocks.forEach(pubkey => this.blocks.add(util.hex(pubkey)))
-          })
-          this.store.blockedView.api.getUsersBlockingKey(this.kp.publicKey, (err, blocks) => {
-            if (err) { return }
-            // since unblock removes a block, let's just refresh the entire set
-            this.blockedBy = new Set()
-            blocks.forEach(pubkey => this.blockedBy.add(util.hex(pubkey)))
-          })
+          recipients = obj.recipients.map(util.hex)
+          if (recipients.includes(util.hex(this.kp.publicKey))) {
+            this.blockedBy.delete(publicKey)
+          }
+          this._emitModeration("unblock", { publicKey, recipients, reason: obj.reason })
           break
         default:
           coredebug("store-post: unknown post type %d", obj.postType)
@@ -573,7 +556,6 @@ class CableCore extends EventEmitter {
     const recipientsBufs = recipients.map(uid => b4a.from(uid, "hex"))
     const buf = cable.BLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipientsBufs, drop, notify, reason, privacy)
     this.store.block(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
-    recipients.forEach(pubkey => { this.blocks.add(util.hex(pubkey)) })
     return buf
 	}
 
@@ -583,7 +565,6 @@ class CableCore extends EventEmitter {
     const recipientsBufs = recipients.map(uid => b4a.from(uid, "hex"))
     const buf = cable.UNBLOCK_POST.create(this.kp.publicKey, this.kp.secretKey, links, timestamp, recipientsBufs, undrop, reason, privacy)
     this.store.unblock(buf, util.isApplicable(this.kp, buf, this.activeRoles), done)
-    recipients.forEach(pubkey => { this.blocks.delete(util.hex(pubkey)) })
     return buf
   }
 
@@ -1373,7 +1354,7 @@ class CableCore extends EventEmitter {
       // 2) we're not blocking the post author
       // 3) we're not blocked *by* the post author
       const authorHex = util.hex(postObj.publicKey)
-      if (this.requestedHashes.has(util.hex(hash)) && !this.blocks.has(authorHex)) {
+      if (this.requestedHashes.has(util.hex(hash)) && !this.moderationActions.isUserBlocked(authorHex)) {
         // incoming post is 1) from someone that doesn't block the local user (great!) or
         // 2) from someone that has blocked us, but type is post/block, with notify=1 set, and we are one of the recipients
         // OR
