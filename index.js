@@ -54,18 +54,14 @@ class CableCore extends EventEmitter {
     // make sure it doesn't conflict if multiple different peers create a request
     //
     this.swarm.on("new-peer", (peer) => {
-      const localRequests = []
-      for (let [reqid, entry] of this.requestsMap) {
-        if (entry.origin) { localRequests.push(entry.binary) }
-      }
-
-      coredebug("new peer, sending our %d current requests", localRequests.length)
-      
-      localRequests.forEach(req => { 
+      const ongoingRequests = []
+      for (let [reqid, entry] of this.requestsMap) { ongoingRequests.push(entry.binary) }
+      coredebug("new peer, sending %d ongoing requests", ongoingRequests.length)
+      ongoingRequests.forEach(req => {
         const obj = cable.parseMessage(req)
-        coredebug("[%s] requesting %s (%O)", util.hex(obj.reqid), util.humanizeMessageType(cable.peekMessage(req)), req) 
+        coredebug("[%s] requesting %s (%O)", util.hex(obj.reqid), util.humanizeMessageType(cable.peekMessage(req)), req)
       })
-      localRequests.forEach(req => { this.swarm.broadcast(req) })
+      ongoingRequests.forEach(req => { this.swarm.broadcast(req) })
     })
     // assert if we are passed a keypair while starting lib and if format is correct (if not we generate a new kp)
     // TODO (2023-09-01): also persist keypair in e.g. cable-client/cli
