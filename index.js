@@ -912,29 +912,52 @@ class CableCore extends EventEmitter {
     const reqidHex = util.hex(reqid)
     const obj = cable.parseMessage(buf)
     coredebug("register local %O", obj)
+
     // before proceeding: investigate if we have prior a live request for the target channel.
     // requests that can be considered live: channel time range with time_end = 0 or channel state with future = 1 
+    const contexts = []
     switch (reqType) {
         case constants.TIME_RANGE_REQUEST:
         case constants.CHANNEL_STATE_REQUEST:
+        contexts.push(obj.channel)
         coredebug("register local: had channel state request or time range request with target %s", obj.channel)
-        // find out if we already have such requests for this channel in flight and alive
-        const localLiveRequests = []
-        for (const entry of this.requestsMap.values()) {
-          // we only want to operate on our own requests for the given channel
-          if (entry.obj.msgType === reqType && entry.origin && (entry.obj.channel === obj.channel)) {
-            localLiveRequests.push(util.hex(entry.obj.reqid))
-          }
-        }
-        // if we have found any local live requests, this will send a request to cancel them
-        localLiveRequests.forEach(liveid => { 
-          coredebug("canceling prior live request [%s] since it has been superceded by [%s]", liveid, reqidHex)
-          this.cancelRequest(b4a.from(liveid, "hex")) 
-        })
+        break
+        case constants.MODERATION_STATE_REQUEST:
+        // need to handle moderation state request differently as it targets many channels and implicitly also the
+        // entire cabal
+        contexts.push(constants.CABAL_CONTEXT)
+        obj.channels.forEach(channel => contexts.push(channel))
+        coredebug("register local: had moderation state request with targets %s", obj.channels)
         break
       default: 
         // pass; no other requests can be considered 'live' as of writing
+        this._registerRequest(reqid, true, reqType, obj, buf)
+        return
     }
+    // find out if we already have such requests for this channel(s) in flight and alive
+    const localLiveRequests = []
+    for (const entry of this.requestsMap.values()) {
+      // we only want to operate on our own requests for the given channel
+      coredebug("stored msgtype", entry.obj.msgType, "incoming msgtype", reqType, "origin", entry.origin)
+      if (reqType === 8 && entry.obj.msgType === reqType) {
+        coredebug("stored request info", entry)
+        coredebug("incoming request", obj)
+        coredebug(reqType === constants.MODERATION_STATE_REQUEST && contexts.some(c1 => entry.obj.channels.some(c2 => c1 === c2)) || contexts.includes(entry.obj.channel))
+      }
+      if (entry.obj.msgType === reqType && entry.origin) {
+        if ((reqType === constants.MODERATION_STATE_REQUEST && contexts.some(c1 => entry.obj.channels.some(c2 => c1 === c2))) || contexts.includes(entry.obj.channel)) {
+          coredebug("register local entry %O", entry)
+          localLiveRequests.push(util.hex(entry.obj.reqid))
+        }
+      }
+    }
+    // if we have found any local live requests, this will send a request to cancel them
+    localLiveRequests.forEach(liveid => { 
+      coredebug("canceling prior live request [%s] since it has been superceded by [%s]", liveid, reqidHex)
+      this.cancelRequest(b4a.from(liveid, "hex")) 
+    })
+    // finally register the new request (do this last so we don't accidentally iterate over it while looking at live
+    // requests, and cancel it :)
     this._registerRequest(reqid, true, reqType, obj, buf)
   }
 
