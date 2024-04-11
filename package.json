@@ -4,8 +4,8 @@
   "description": "database and protocol interactions for cable + cabal",
   "main": "index.js",
   "scripts": {
-    "test": "$(npm bin)/tape test/*.js | $(npm bin)/tap-spec",
-    "bail": "$(npm bin)/tape test/*.js | $(npm bin)/tap-bail | $(npm bin)/tap-spec "
+    "test": "./node_modules/.bin/tape test/*.js | ./node_modules/.bin/tap-spec",
+    "bail": "./node_modules/.bin/tape test/*.js | ./node_modules/.bin/tap-bail | ./node_modules/.bin/tap-spec "
   },
   "repository": {
     "type": "git",
