@@ -27,6 +27,12 @@ languages to follow. (Interested? See cable's [spec](https://github.com/cabal-cl
 * Does not fully take care of all concerns required for a client application ([cable-client.js](https://github.com/cabal-club/cable-client.js) services that)
 * Networking primitives (up & coming)
 
+## Implementation status
+
+To better understand what has and has not been implemented, see the document
+[implementation-status.md](implementation-status.md). It enumerates all of the Cable protocol's
+specified behaviour and lists whether or not it has been implemented yet.
+
 ## Example
 This slightly longer example shows how to setup an end-to-end response-request cycle between
 two different cable instances. What it lacks in brevity it hopefully makes up for in terms of
