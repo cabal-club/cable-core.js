@@ -1,7 +1,9 @@
 # Implementation tasks
 
 This document tracks the nodejs implementation of the Cable protocol. It lists which protocol
-behaviours have been implemented (ticked checkbox = behaviour implemented). 
+behaviours have been implemented:
+
+* [x] = behaviour implemented
 
 Below are enumerated the Cable protocol's expected behaviour by way of its three
 protocol specifications: 
