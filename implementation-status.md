@@ -31,10 +31,10 @@ version 1.0-draft8
 - [ ] This protocol does not specify encryption nor authentication of the connection, nor a mechanism for the discovery of network peers. For encryption and authentication, it is RECOMMENDED to utilize the [Cable Handshake Protocol][handshake].
 
 ##### 5.1.2.1 Setting links
-- [ ] When a post 𝑃 is created such that `𝑃.type ∈ linkableTypes`, it SHOULD link to all other posts 𝑄ᵢ known to the host that meet the following criteria:
+- [ ] When a post 𝑃 is created such that `𝑃.type ∈ linkableTypes`, it SHOULD link to all other posts 𝑄ᵢ known to the host that meet the following criteria: FIXME
 
 #### 5.1.4 Ingesting a New Post
-- [ ] When a host receives any new post, P, in a Post Response message, it MUST pass the following criteria to be accepted and stored by said host:
+- [ ] When a host receives any new post, P, in a Post Response message, it MUST pass the following criteria to be accepted and stored by said host: FIXME
 
 #### 5.1.5 Keeping & Discarding Posts
 - [ ] A host MAY discard any post at any time, whether in the interest of saving disk space, processing time, or not wanting to contribute to the propagate of certain content.
