@@ -1,12 +1,19 @@
 # Implementation tasks
 
 This document tracks the nodejs implementation of the Cable protocol. It lists which protocol
-behaviours have been implemented (ticked checkbox = behaviour implemented). Below are
-enumerated the Cable protocol's expected behaviour by way of its three specificatons:
-[wire][wire], [handshake][handshake], [moderation][moderation]. When in doubt or needing more
-context: read the specs themselves. The listings below are to provide an overview of what has
-and has not yet been implemented, and should not serve as an authoritative reference for
-protocol behaviour.
+behaviours have been implemented (ticked checkbox = behaviour implemented). 
+
+Below are enumerated the Cable protocol's expected behaviour by way of its three
+protocol specifications: 
+
+* [wire][wire], 
+* [handshake][handshake], 
+* [moderation][moderation]. 
+
+When in doubt or needing more context: read the specs directly. 
+
+The listings below provide an overview of what has and has not yet been implemented, and should
+not serve as an authoritative reference for protocol behaviour.
 
 This document is current as of 2025-11-04 and Cable protocol version `1.0-draft8`.
 
